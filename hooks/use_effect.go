@@ -6,6 +6,7 @@ type effectState struct {
 	Deps    []core.SignalAccessor
 	Cleanup func()
 	Fn      func() func()
+	Unsubs  []func()
 }
 
 func UseEffect(deps []core.SignalAccessor, fn func() func()) {
@@ -23,13 +24,19 @@ func UseEffect(deps []core.SignalAccessor, fn func() func()) {
 		state.Cleanup = fn()
 	}
 	for _, dep := range deps {
-		dep.Subscribe(exec)
+		state.Unsubs = append(state.Unsubs, dep.Subscribe(exec))
 	}
 }
 
 func RunFrameCleanup(frame *core.ComponentFrame) {
 	for _, hook := range frame.Hooks {
 		if es, ok := hook.(*effectState); ok {
+			for _, unsub := range es.Unsubs {
+				if unsub != nil {
+					unsub()
+				}
+			}
+			es.Unsubs = nil
 			if es.Cleanup != nil {
 				es.Cleanup()
 				es.Cleanup = nil
