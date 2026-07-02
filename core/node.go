@@ -59,6 +59,7 @@ type ScopeNode struct {
 	Deps   []SignalAccessor
 	Prev   Node              // set by renderer after each render (expanded tree with IDs)
 	Frames []*ComponentFrame // component frames from last render, for cleanup
+	Unsubs []func()          // signal subscription cancellations, set by renderer
 }
 
 func (s *ScopeNode) nodeMarker() {}
@@ -73,16 +74,30 @@ func FlatTree(n Node) Node {
 func flatTree(n Node, frames *[]*ComponentFrame) Node {
 	switch v := n.(type) {
 	case *ElementNode:
-		for i, child := range v.Children {
-			v.Children[i] = flatTree(child, frames)
+		var flatChildren []Node
+		for _, child := range v.Children {
+			flattened := flatTree(child, frames)
+			if frag, ok := flattened.(*FragmentNode); ok {
+				flatChildren = append(flatChildren, frag.Children...)
+			} else {
+				flatChildren = append(flatChildren, flattened)
+			}
 		}
+		v.Children = flatChildren
 		return v
 	case *TextNode:
 		return v
 	case *FragmentNode:
-		for i, child := range v.Children {
-			v.Children[i] = flatTree(child, frames)
+		var flatChildren []Node
+		for _, child := range v.Children {
+			flattened := flatTree(child, frames)
+			if frag, ok := flattened.(*FragmentNode); ok {
+				flatChildren = append(flatChildren, frag.Children...)
+			} else {
+				flatChildren = append(flatChildren, flattened)
+			}
 		}
+		v.Children = flatChildren
 		return v
 	case *ComponentNode:
 		frame := PushComponent()
@@ -97,7 +112,6 @@ func flatTree(n Node, frames *[]*ComponentFrame) Node {
 	case *ScopeNode:
 		return v
 	}
-	return nil
 	return nil
 }
 
