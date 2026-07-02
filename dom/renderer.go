@@ -154,8 +154,9 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		v.Frames = frames
 		id := r.renderNode(flat, muts)
 		v.Prev = flat
-		for _, dep := range v.Deps {
-			dep.Subscribe(func() {
+		v.Unsubs = make([]func(), len(v.Deps))
+		for i, dep := range v.Deps {
+			v.Unsubs[i] = dep.Subscribe(func() {
 				r.reRenderScope(v)
 			})
 		}
@@ -339,9 +340,18 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 		return 0
 
 	case *core.ScopeNode:
+		if old == newNode {
+			return rootIDFromTree(old.Prev)
+		}
 		if old.Prev != nil {
 			r.emitRemoveTree(old.Prev, muts)
 		}
+		for _, unsub := range old.Unsubs {
+			if unsub != nil {
+				unsub()
+			}
+		}
+		old.Unsubs = nil
 		newScope, ok := newNode.(*core.ScopeNode)
 		if !ok {
 			return 0
