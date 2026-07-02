@@ -1,0 +1,66 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+
+	"goowee/examples/counter/app"
+	"goowee/router"
+	"goowee/ssr"
+)
+
+func main() {
+	staticDir := "examples/counter"
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		staticDir = filepath.Join("..", "..", "examples", "counter")
+	}
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		log.Fatalf("static directory not found at examples/counter/")
+	}
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Route known paths through SSR
+		switch r.URL.Path {
+		case "/", "/counter", "/about", "/form", "/todos":
+			rtr := router.New(r.URL.Path)
+			renderer := ssr.New()
+			body := renderer.Render(app.App(rtr))
+
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <script src="wasm_exec.js"></script>
+    <script src="goowee.js"></script>
+    <script src="counter.js"></script>
+</head>
+<body>
+    <div id="root">%s</div>
+    <script>
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
+            .then(result => go.run(result.instance));
+    </script>
+</body>
+</html>`, body)
+			return
+		}
+
+		// Unknown paths: serve index.html so the WASM app can handle routing client-side
+		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+	})
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8081"
+	}
+	addr := ":" + port
+	log.Printf("SSR server listening on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, mux))
+}

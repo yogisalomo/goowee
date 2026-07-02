@@ -1,0 +1,8 @@
+main.wasm
+examples/counter/main.wasm
+examples/counter/wasm_exec.js
+examples/counter/goowee.js
+bin/
+.DS_Store
+.vscode/
+.idea/
