@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"time"
 	"goowee/core"
 	"goowee/html"
 	"goowee/hooks"
@@ -12,11 +13,13 @@ func App(r *router.Router) core.Node {
 	return core.Component("App", func() core.Node {
 		return Layout(r,
 			r.Route(map[string]func() core.Node{
-				"/":        homePage,
-				"/counter": counterPage,
-				"/about":   aboutPage,
-				"/form":    formPage,
-				"/todos":   todosPage,
+				"/":          homePage,
+				"/counter":   counterPage,
+				"/about":     aboutPage,
+				"/form":      formPage,
+				"/todos":     todosPage,
+				"/stopwatch": stopwatchPage,
+				"/dashboard": dashboardPage,
 			}),
 		)
 	})
@@ -40,6 +43,10 @@ func Header(r *router.Router) core.Node {
 		r.Link("/form", "Form"),
 		html.Text(" | "),
 		r.Link("/todos", "Todos"),
+		html.Text(" | "),
+		r.Link("/stopwatch", "Stopwatch"),
+		html.Text(" | "),
+		r.Link("/dashboard", "Dashboard"),
 	)
 }
 
@@ -370,6 +377,146 @@ func todosPage() core.Node {
 			todoList,
 		)
 	})
+}
+
+func stopwatchPage() core.Node {
+	return core.Component("StopwatchPage", func() core.Node {
+		elapsed, setElapsed := hooks.UseState(0)
+		running, setRunning := hooks.UseState(false)
+
+		display := hooks.UseScope(func() core.Node {
+			e := elapsed.Get()
+			tenths := e % 10
+			whole := e / 10
+			secs := whole % 60
+			mins := whole / 60
+			return html.P(html.Props{
+				"textContent": fmt.Sprintf("%02d:%02d.%d", mins, secs, tenths),
+				"style":       "font-size:2rem;font-family:monospace;",
+			})
+		}, elapsed)
+
+		go func() {
+			for {
+				time.Sleep(100 * time.Millisecond)
+				if running.Get() {
+					setElapsed(elapsed.Get() + 1)
+				}
+			}
+		}()
+
+		return html.Div(nil,
+			html.H2(html.Props{"textContent": "Stopwatch"}),
+			display,
+			html.Button(html.Props{
+				"textContent": func() string {
+					if running.Get() {
+						return "Pause"
+					}
+					return "Start"
+				}(),
+				"onclick": func(ed core.EventData) {
+					setRunning(!running.Get())
+				},
+			}),
+			html.Button(html.Props{
+				"textContent": "Reset",
+				"onclick": func(ed core.EventData) {
+					setElapsed(0)
+					setRunning(false)
+				},
+			}),
+		)
+	})
+}
+
+func dashboardPage() core.Node {
+	return core.Component("DashboardPage", func() core.Node {
+		data, setData := hooks.UseState([]dashboardRow{
+			{Label: "Alpha", Value: 42, Unit: "km"},
+			{Label: "Beta", Value: 17, Unit: "%"},
+			{Label: "Gamma", Value: 88, Unit: "°C"},
+			{Label: "Delta", Value: 5, Unit: "L"},
+			{Label: "Epsilon", Value: 63, Unit: "kg"},
+		})
+
+		selected, setSelected := hooks.UseState(-1)
+
+		selectedLabel := hooks.UseScope(func() core.Node {
+			idx := selected.Get()
+			if idx < 0 || idx >= len(data.Get()) {
+				return html.P(html.Props{"textContent": "No row selected."})
+			}
+			row := data.Get()[idx]
+			return html.P(html.Props{"textContent": fmt.Sprintf("Selected: %s = %d%s", row.Label, row.Value, row.Unit)})
+		}, selected, data)
+
+		total := hooks.UseScope(func() core.Node {
+			sum := 0
+			for _, r := range data.Get() {
+				sum += r.Value
+			}
+			return html.P(html.Props{"textContent": fmt.Sprintf("Total: %d", sum)})
+		}, data)
+
+		return html.Div(nil,
+			html.H2(html.Props{"textContent": "Dashboard"}),
+			total,
+			html.Table(html.Props{"style": "border-collapse:collapse;width:100%;max-width:500px;"},
+				html.Thead(nil,
+					html.Tr(nil,
+						html.Th(html.Props{"textContent": "Label", "style": "text-align:left;padding:4px 8px;border-bottom:2px solid #ccc;"}),
+						html.Th(html.Props{"textContent": "Value", "style": "text-align:right;padding:4px 8px;border-bottom:2px solid #ccc;"}),
+						html.Th(html.Props{"textContent": "Unit", "style": "text-align:left;padding:4px 8px;border-bottom:2px solid #ccc;"}),
+					),
+				),
+				html.Tbody(nil,
+					dashboardRows(data, selected, setSelected)...,
+				),
+			),
+			selectedLabel,
+			html.Button(html.Props{
+				"textContent": "Randomize Values",
+				"onclick": func(ed core.EventData) {
+					cur := data.Get()
+					for i := range cur {
+						cur[i].Value = (cur[i].Value*7 + 13) % 100
+					}
+					setData(cur)
+				},
+			}),
+		)
+	})
+}
+
+type dashboardRow struct {
+	Label string
+	Value int
+	Unit  string
+}
+
+func dashboardRows(data *core.Signal[[]dashboardRow], selected *core.Signal[int], setSelected func(int)) []core.Node {
+	rows := data.Get()
+	nodes := make([]core.Node, len(rows))
+	for i, r := range rows {
+		i := i
+		r := r
+		highlight := ""
+		if i == selected.Get() {
+			highlight = "background:#eef;"
+		}
+		nodes[i] = html.Tr(html.Props{
+			"style": highlight + "cursor:pointer;",
+			"onclick": func(ed core.EventData) {
+				setSelected(i)
+			},
+		},
+			html.Td(html.Props{"textContent": r.Label, "style": "padding:4px 8px;border-bottom:1px solid #ddd;"}),
+			html.Td(html.Props{"textContent": r.Value, "style": "text-align:right;padding:4px 8px;border-bottom:1px solid #ddd;"}),
+			html.Td(html.Props{"textContent": r.Unit, "style": "padding:4px 8px;border-bottom:1px solid #ddd;"}),
+		)
+	}
+	return nodes
 }
 
 func aboutPage() core.Node {
