@@ -184,6 +184,31 @@ func TestFlatTreeWithFrames(t *testing.T) {
 	}
 }
 
+func TestFlatTreeFragmentInElement(t *testing.T) {
+	el := &ElementNode{
+		Tag: "div",
+		Children: []Node{
+			&FragmentNode{Children: []Node{
+				&ElementNode{Tag: "span"},
+				&ElementNode{Tag: "span"},
+			}},
+		},
+	}
+	flat := FlatTree(el)
+	e, ok := flat.(*ElementNode)
+	if !ok {
+		t.Fatalf("expected ElementNode, got %T", flat)
+	}
+	if len(e.Children) != 2 {
+		t.Fatalf("expected 2 children after Fragment flattening, got %d", len(e.Children))
+	}
+	for i, c := range e.Children {
+		if _, ok := c.(*ElementNode); !ok {
+			t.Fatalf("child %d: expected ElementNode, got %T", i, c)
+		}
+	}
+}
+
 func TestNodeTypes(t *testing.T) {
 	el := &ElementNode{Tag: "div", Props: map[string]any{"class": "foo"}}
 	if !strings.Contains(el.String(), "Element(div)") {

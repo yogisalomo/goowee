@@ -558,6 +558,91 @@ func TestDOMDiffEventProp(t *testing.T) {
 	_ = diffMuts
 }
 
+func TestDOMFragmentInsideElement(t *testing.T) {
+	frag := &core.FragmentNode{
+		Children: []core.Node{
+			&core.ElementNode{Tag: "span", Props: map[string]any{"class": "a"}},
+			&core.ElementNode{Tag: "span", Props: map[string]any{"class": "b"}},
+		},
+	}
+	n := &core.ElementNode{
+		Tag:      "div",
+		Children: []core.Node{frag},
+	}
+	r := New()
+	muts, _ := r.Render(n)
+	if len(muts) == 0 {
+		t.Fatal("expected mutations")
+	}
+
+	// Should create: div, span.a, span.b + AppendChild mutations
+	spanCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement && m.Value == "span" {
+			spanCount++
+		}
+	}
+	if spanCount != 2 {
+		t.Fatalf("expected 2 span elements created, got %d", spanCount)
+	}
+}
+
+func TestDOMDeepNestedScopes(t *testing.T) {
+	outerSig := core.NewSignal(0)
+	innerSig := core.NewSignal("")
+
+	deepest := &core.ScopeNode{
+		Render: func() core.Node {
+			return &core.ElementNode{
+				Tag:   "p",
+				Props: map[string]any{"textContent": innerSig.Get() + " " + fmt.Sprint(outerSig.Get())},
+			}
+		},
+		Deps: []core.SignalAccessor{innerSig, outerSig},
+	}
+
+	middle := &core.ScopeNode{
+		Render: func() core.Node {
+			return &core.ElementNode{
+				Tag:      "div",
+				Children: []core.Node{core.Component("Inner", func() core.Node { return deepest })},
+			}
+		},
+		Deps: []core.SignalAccessor{outerSig},
+	}
+
+	outer := &core.ScopeNode{
+		Render: func() core.Node {
+			return &core.ElementNode{
+				Tag:      "div",
+				Children: []core.Node{middle},
+			}
+		},
+		Deps: []core.SignalAccessor{outerSig},
+	}
+
+	r := New()
+	initMuts, _ := r.Render(outer)
+	if len(initMuts) == 0 {
+		t.Fatal("expected mutations")
+	}
+
+	// Trigger outer scope re-render via outerSig
+	outerSig.Set(1)
+	muts := r.Scheduler.Flush()
+	if len(muts) == 0 {
+		t.Fatal("expected mutations after outerSig change")
+	}
+	// Should NOT crash — deepest scope should re-render fine
+
+	// Trigger deepest scope re-render via innerSig
+	innerSig.Set("hello")
+	muts2 := r.Scheduler.Flush()
+	if len(muts2) == 0 {
+		t.Fatal("expected mutations after innerSig change")
+	}
+}
+
 func TestDOMEventNotEmitted(t *testing.T) {
 	n := &core.ElementNode{
 		Tag: "button",
