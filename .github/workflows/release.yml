@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build WASM binary
+        run: GOOS=js GOARCH=wasm go build -o goowee-demo.wasm ./examples/counter
+
+      - name: Copy runtime JS
+        run: cp runtime/goowee.js goowee.js
+
+      - name: Copy wasm_exec.js
+        run: cp "$(go env GOROOT)/misc/wasm/wasm_exec.js" wasm_exec.js
+
+      - name: Create release archive
+        run: tar czf goowee-demo.tar.gz goowee-demo.wasm goowee.js wasm_exec.js
+
+      - name: Generate release notes
+        run: |
+          cat > release-notes.md <<EOF
+          ## Installation
+
+          \`\`\`bash
+          go get goowee@${{ github.ref_name }}
+          \`\`\`
+
+          ## Demo
+
+          The release archive (\`goowee-demo.tar.gz\`) contains a pre-built WASM demo.
+          Unpack and serve with any static file server:
+
+          \`\`\`bash
+          tar xzf goowee-demo.tar.gz
+          python3 -m http.server 8080
+          \`\`\`
+
+          Then open http://localhost:8080.
+
+          ## Changelog
+
+          See the commit history for details.
+          EOF
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: |
+            goowee-demo.tar.gz
+            goowee-demo.wasm
+            goowee.js
+            wasm_exec.js

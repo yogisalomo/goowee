@@ -25,5 +25,12 @@ serve-ssr: wasm ssr-server cpjs
 	@echo "Open http://localhost:${PORT:-8081} (SSR-rendered)"
 	PORT=${PORT:-8081} ./bin/ssr-server
 
+release:
+	GOOS=js GOARCH=wasm go build -o goowee-demo.wasm ./examples/counter
+	cp runtime/goowee.js goowee.js
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" wasm_exec.js
+	tar czf goowee-demo.tar.gz goowee-demo.wasm goowee.js wasm_exec.js
+	@echo "Release artifacts: goowee-demo.tar.gz, goowee-demo.wasm, goowee.js, wasm_exec.js"
+
 clean:
-	rm -f $(WASM_OUT) bin/ssr-server
+	rm -f $(WASM_OUT) bin/ssr-server goowee-demo.wasm goowee.js wasm_exec.js goowee-demo.tar.gz
