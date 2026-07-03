@@ -52,6 +52,13 @@ func main() {
 			return
 		}
 
+		// Static files: serve from examples/counter if they exist
+		staticPath := filepath.Join(staticDir, r.URL.Path)
+		if fi, err := os.Stat(staticPath); err == nil && !fi.IsDir() {
+			http.ServeFile(w, r, staticPath)
+			return
+		}
+
 		// Unknown paths: serve index.html so the WASM app can handle routing client-side
 		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
 	})

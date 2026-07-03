@@ -17,11 +17,11 @@ cpjs:
 test:
 	go test ./...
 
-serve: wasm cpjs
+serve: wasm cpwasm cpjs
 	@echo "Open http://localhost:8083"
 	cd examples/counter && python3 -m http.server 8083
 
-serve-ssr: wasm ssr-server cpjs
+serve-ssr: wasm ssr-server cpwasm cpjs
 	@echo "Open http://localhost:${PORT:-8081} (SSR-rendered)"
 	PORT=${PORT:-8081} ./bin/ssr-server
 

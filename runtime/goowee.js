@@ -76,7 +76,7 @@ document.addEventListener("scroll", e => {
     }));
 }, true);
 
-function applyMutations(json) {
+window.applyMutations = function applyMutations(json) {
     const muts = JSON.parse(json);
     let firstNodeID = null;
     for (const mut of muts) {
@@ -108,14 +108,15 @@ function applyMutations(json) {
                 el = nodeMap[mut.nodeId];
                 if (el) el[mut.key] = mut.value;
                 break;
-            case 4: // AppendChild
+            case 4: { // AppendChild
                 const parent = nodeMap[mut.nodeId];
                 const child = nodeMap[mut.childId];
                 if (parent && child && !child.parentNode) {
                     parent.appendChild(child);
                 }
                 break;
-            case 5: // InsertBefore
+            }
+            case 5: { // InsertBefore
                 const parent = nodeMap[mut.nodeId];
                 const child = nodeMap[mut.childId];
                 const idx = parseInt(mut.key);
@@ -124,6 +125,7 @@ function applyMutations(json) {
                     parent.insertBefore(child, ref);
                 }
                 break;
+            }
         }
     }
     if (firstNodeID !== null && nodeMap[firstNodeID] && nodeMap[firstNodeID].parentNode === null) {
