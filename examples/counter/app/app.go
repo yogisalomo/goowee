@@ -59,13 +59,6 @@ func counterPage() core.Node {
 		count, setCount := hooks.UseState(0)
 		show, setShow := hooks.UseState(true)
 
-		greeting := hooks.UseScope(func() core.Node {
-			if show.Get() {
-				return P(Class("greeting"), Text("Hello!"))
-			}
-			return P(Class("hidden"), Text("(hidden)"))
-		}, show)
-
 		return Div(
 			Button(
 				OnClick(func() { setCount(count.Get() + 1) }),
@@ -75,7 +68,10 @@ func counterPage() core.Node {
 				OnClick(func() { setShow(!show.Get()) }),
 				Text("Toggle"),
 			),
-			greeting,
+			ShowElse(show,
+				func() core.Node { return P(Class("greeting"), Text("Hello!")) },
+				func() core.Node { return P(Class("hidden"), Text("(hidden)")) },
+			),
 		)
 	})
 }
@@ -91,14 +87,6 @@ func formPage() core.Node {
 		email, setEmail := hooks.UseState("")
 		agreed, setAgreed := hooks.UseState(false)
 		entries, setEntries := hooks.UseState([]entry{})
-
-		preview := hooks.UseScope(func() core.Node {
-			return P(Text("Name: " + name.Get() + ", Email: " + email.Get()))
-		}, name, email)
-
-		subList := hooks.UseScope(func() core.Node {
-			return submissionsList(entries.Get())
-		}, entries)
 
 		return Div(
 			H2(Text("Form Demo")),
@@ -129,9 +117,15 @@ func formPage() core.Node {
 				Button(Text("Submit")),
 			),
 			H3(Text("Preview")),
-			preview,
+			P(Textf("Name: %s, Email: %s", name, email)),
 			H3(Text("Submissions")),
-			subList,
+			For(entries, func(e entry) int { return 0 }, func(e entry) core.Node {
+				agreed := "no"
+				if e.agreed {
+					agreed = "yes"
+				}
+				return Li(Text(e.name + " — " + e.email + " (subscribed: " + agreed + ")"))
+			}),
 		)
 	})
 }
@@ -142,23 +136,6 @@ func label(text string, input core.Node) core.Node {
 		input,
 		Text("\n"),
 	)
-}
-
-func submissionsList(entries []entry) core.Node {
-	if len(entries) == 0 {
-		return P(Text("No submissions yet."))
-	}
-	var items []core.Node
-	for _, en := range entries {
-		agreed := "no"
-		if en.agreed {
-			agreed = "yes"
-		}
-		items = append(items, Li(
-			Text(en.name+" — "+en.email+" (subscribed: "+agreed+")"),
-		))
-	}
-	return Ul(Group(childrenToItems(items)...))
 }
 
 type todo struct {
@@ -174,6 +151,17 @@ func todosPage() core.Node {
 			initial[i] = todo{id: i + 1, text: fmt.Sprintf("Item %d", i+1)}
 		}
 		todos, setTodos := hooks.UseState(initial)
+
+		doneCount := core.Computed([]core.SignalAccessor{todos}, func() string {
+			items := todos.Get()
+			done := 0
+			for _, t := range items {
+				if t.completed {
+					done++
+				}
+			}
+			return fmt.Sprintf("%d/%d completed", done, len(items))
+		})
 
 		todoList := VirtualList(todos, 48, func(i int, t todo) core.Node {
 			return Li(
@@ -213,17 +201,6 @@ func todosPage() core.Node {
 			)
 		}, VirtualListHeight(300))
 
-		counter := hooks.UseScope(func() core.Node {
-			items := todos.Get()
-			done := 0
-			for _, t := range items {
-				if t.completed {
-					done++
-				}
-			}
-			return P(Text(fmt.Sprintf("%d/%d completed", done, len(items))))
-		}, todos)
-
 		return Div(
 			H2(Text("Todo List")),
 			Form(
@@ -241,7 +218,7 @@ func todosPage() core.Node {
 				),
 				Button(Text("Add")),
 			),
-			counter,
+			P(TextS(doneCount)),
 			todoList,
 		)
 	})
@@ -252,17 +229,14 @@ func stopwatchPage() core.Node {
 		elapsed, setElapsed := hooks.UseState(0)
 		running, setRunning := hooks.UseState(false)
 
-		display := hooks.UseScope(func() core.Node {
+		display := core.Computed([]core.SignalAccessor{elapsed}, func() string {
 			e := elapsed.Get()
 			tenths := e % 10
 			whole := e / 10
 			secs := whole % 60
 			mins := whole / 60
-			return P(
-				Style("font-size:2rem;font-family:monospace;"),
-				Text(fmt.Sprintf("%02d:%02d.%d", mins, secs, tenths)),
-			)
-		}, elapsed)
+			return fmt.Sprintf("%02d:%02d.%d", mins, secs, tenths)
+		})
 
 		go func() {
 			for {
@@ -275,7 +249,7 @@ func stopwatchPage() core.Node {
 
 		return Div(
 			H2(Text("Stopwatch")),
-			display,
+			P(Style("font-size:2rem;font-family:monospace;"), TextS(display)),
 			Button(
 				OnClick(func() { setRunning(!running.Get()) }),
 				Text(func() string {
@@ -305,26 +279,26 @@ func dashboardPage() core.Node {
 
 		selected, setSelected := hooks.UseState(-1)
 
-		selectedLabel := hooks.UseScope(func() core.Node {
-			idx := selected.Get()
-			if idx < 0 || idx >= len(data.Get()) {
-				return P(Text("No row selected."))
-			}
-			row := data.Get()[idx]
-			return P(Text(fmt.Sprintf("Selected: %s = %d%s", row.Label, row.Value, row.Unit)))
-		}, selected, data)
-
-		total := hooks.UseScope(func() core.Node {
+		totalStr := core.Computed([]core.SignalAccessor{data}, func() string {
 			sum := 0
 			for _, r := range data.Get() {
 				sum += r.Value
 			}
-			return P(Text(fmt.Sprintf("Total: %d", sum)))
-		}, data)
+			return fmt.Sprintf("Total: %d", sum)
+		})
+
+		selectedText := core.Computed([]core.SignalAccessor{selected, data}, func() string {
+			idx := selected.Get()
+			if idx < 0 || idx >= len(data.Get()) {
+				return "No row selected."
+			}
+			row := data.Get()[idx]
+			return fmt.Sprintf("Selected: %s = %d%s", row.Label, row.Value, row.Unit)
+		})
 
 		return Div(
 			H2(Text("Dashboard")),
-			total,
+			P(TextS(totalStr)),
 			Table(
 				Style("border-collapse:collapse;width:100%;max-width:500px;"),
 				Thead(
@@ -336,7 +310,7 @@ func dashboardPage() core.Node {
 				),
 				Tbody(childrenToItems(dashboardRows(data, selected, setSelected))...),
 			),
-			selectedLabel,
+			P(TextS(selectedText)),
 			Button(
 				OnClick(func() {
 					cur := data.Get()

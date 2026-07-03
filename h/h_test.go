@@ -497,3 +497,119 @@ func TestDisabledS(t *testing.T) {
 		t.Fatalf("expected bind for disabled, got %v", el.Binds)
 	}
 }
+
+func TestShowTogglesSubtree(t *testing.T) {
+	show := core.NewSignal(true)
+	seen := false
+	n := Show(show, func() core.Node {
+		seen = true
+		return Text("visible")
+	})
+	scope, ok := n.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", n)
+	}
+	scope.Render()
+	if !seen {
+		t.Fatal("expected then to be called when true")
+	}
+
+	show.Set(false)
+	scope.Render()
+	_ = n
+}
+
+func TestShowElseBranches(t *testing.T) {
+	cond := core.NewSignal(true)
+	var thenCalled, elseCalled bool
+	n := ShowElse(cond,
+		func() core.Node { thenCalled = true; return Text("t") },
+		func() core.Node { elseCalled = true; return Text("e") },
+	)
+	scope, ok := n.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", n)
+	}
+	scope.Render()
+	if !thenCalled || elseCalled {
+		t.Fatalf("expected then called=true, else=false, got then=%v else=%v", thenCalled, elseCalled)
+	}
+
+	cond.Set(false)
+	thenCalled, elseCalled = false, false
+	scope.Render()
+	if thenCalled || !elseCalled {
+		t.Fatalf("expected then=false, else=true when cond=false, got then=%v else=%v", thenCalled, elseCalled)
+	}
+}
+
+func TestSwitchSelectsCaseAndDefault(t *testing.T) {
+	sig := core.NewSignal(1)
+	var matched int
+	n := Switch(sig, map[int]func() core.Node{
+		1: func() core.Node { matched = 1; return Text("one") },
+		2: func() core.Node { matched = 2; return Text("two") },
+	}, func() core.Node { matched = -1; return Text("default") })
+	scope, ok := n.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", n)
+	}
+	scope.Render()
+	if matched != 1 {
+		t.Fatalf("expected case 1 to match, got %d", matched)
+	}
+
+	sig.Set(3)
+	matched = 0
+	scope.Render()
+	if matched != -1 {
+		t.Fatalf("expected default (-1), got %d", matched)
+	}
+}
+
+func TestForRendersKeyedChildren(t *testing.T) {
+	items := core.NewSignal([]string{"a", "b", "c"})
+	fn := For(items, func(s string) string { return s }, func(s string) core.Node {
+		return &core.ElementNode{Tag: "span"}
+	})
+	scope, ok := fn.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", fn)
+	}
+	inner := scope.Render()
+	frag, ok := inner.(*core.FragmentNode)
+	if !ok {
+		t.Fatalf("expected *core.FragmentNode, got %T", inner)
+	}
+	if len(frag.Children) != 3 {
+		t.Fatalf("expected 3 children, got %d", len(frag.Children))
+	}
+	for _, c := range frag.Children {
+		el, ok := c.(*core.ElementNode)
+		if !ok {
+			t.Fatalf("expected *core.ElementNode, got %T", c)
+		}
+		if el.Key == nil {
+			t.Fatal("expected non-nil Key on For children")
+		}
+	}
+}
+
+func TestForNilAndEmptyLists(t *testing.T) {
+	items := core.NewSignal([]string{})
+	fn := For(items, func(s string) string { return s }, func(s string) core.Node {
+		return &core.ElementNode{Tag: "span"}
+	})
+	scope, ok := fn.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", fn)
+	}
+	inner := scope.Render()
+	frag, ok := inner.(*core.FragmentNode)
+	if !ok {
+		t.Fatalf("expected *core.FragmentNode, got %T", inner)
+	}
+	if len(frag.Children) != 0 {
+		t.Fatalf("expected 0 children for empty list, got %d", len(frag.Children))
+	}
+}

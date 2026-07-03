@@ -35,8 +35,8 @@ func VirtualList[T any](itemsSig *core.Signal[[]T], itemHeight int, renderItem f
 
 		return hooks.UseScope(func() core.Node {
 			items := itemsSig.Get()
-
 			st := scrollTop.Get()
+
 			startIdx := int(st / float64(itemHeight))
 			startIdx -= cfg.overscan
 			if startIdx < 0 {
@@ -56,30 +56,36 @@ func VirtualList[T any](itemsSig *core.Signal[[]T], itemHeight int, renderItem f
 				bottomPad = 0
 			}
 
-			var children []core.Node
-			if topPad > 0 {
-				children = append(children,
-					Div(Style(fmt.Sprintf("height:%dpx;flex-shrink:0;", topPad))))
-			}
-
-			for i := startIdx; i < endIdx; i++ {
-				children = append(children, renderItem(i, items[i]))
-			}
-
-			if bottomPad > 0 {
-				children = append(children,
-					Div(Style(fmt.Sprintf("height:%dpx;flex-shrink:0;", bottomPad))))
-			}
-
 			return Div(
 				Style(fmt.Sprintf("overflow-y:auto;height:%dpx;", cfg.height)),
 				OnScrollE(func(e core.EventData) {
 					setScrollTop(e.ScrollTop())
 				}),
-				Group(childrenToItems(children)...),
+				If(topPad > 0, Div(
+					Style(fmt.Sprintf("height:%dpx;flex-shrink:0;", topPad)),
+					Key("topPad"),
+				)),
+				Group(renderVisible(startIdx, endIdx, items, renderItem)...),
+				If(bottomPad > 0, Div(
+					Style(fmt.Sprintf("height:%dpx;flex-shrink:0;", bottomPad)),
+					Key("bottomPad"),
+				)),
 			)
 		}, scrollTop, itemsSig)
 	})
+}
+
+func renderVisible[T any](startIdx, endIdx int, items []T, renderItem func(int, T) core.Node) []core.Item {
+	out := make([]core.Item, 0, endIdx-startIdx)
+	for i := startIdx; i < endIdx; i++ {
+		idx := i
+		n := renderItem(idx, items[i])
+		if el, ok := n.(*core.ElementNode); ok && el != nil {
+			el.Key = idx
+		}
+		out = append(out, itemWrapper{n})
+	}
+	return out
 }
 
 func childrenToItems(children []core.Node) []core.Item {
