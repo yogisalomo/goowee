@@ -12,7 +12,7 @@ import (
 func TestSSRRender(t *testing.T) {
 	n := &core.ElementNode{
 		Tag: "div",
-		Props: map[string]any{"class": "greeting"},
+		Attrs: []core.Attr{{Name: "class", Value: "greeting"}},
 		Children: []core.Node{
 			&core.TextNode{Value: "hello"},
 		},
@@ -34,10 +34,10 @@ func TestSSRWithMeta(t *testing.T) {
 	count := core.NewSignal(0)
 	n := &core.ElementNode{
 		Tag: "button",
-		Props: map[string]any{
-			"textContent": count,
-			"class":       "btn",
-		},
+		Attrs: []core.Attr{{Name: "class", Value: "btn"}},
+		Binds: []core.Bind{{
+			Target: core.BindToProp, Name: "textContent", Signal: count,
+		}},
 	}
 	r := New()
 	html, meta := r.RenderWithMeta(n, "root/0", []core.SignalAccessor{count})
@@ -60,8 +60,8 @@ func TestSSRWithMeta(t *testing.T) {
 func TestSSRFragment(t *testing.T) {
 	n := &core.FragmentNode{
 		Children: []core.Node{
-			&core.ElementNode{Tag: "span", Props: map[string]any{"class": "a"}},
-			&core.ElementNode{Tag: "span", Props: map[string]any{"class": "b"}},
+			&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "a"}}},
+			&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "b"}}},
 		},
 	}
 	r := New()
@@ -94,7 +94,7 @@ func TestSSRComponentNode(t *testing.T) {
 	comp := core.Component("MyComp", func() core.Node {
 		return &core.ElementNode{
 			Tag:   "p",
-			Props: map[string]any{"class": "comp"},
+			Attrs: []core.Attr{{Name: "class", Value: "comp"}},
 		}
 	})
 	r := New()
@@ -112,7 +112,7 @@ func TestSSRScopeNode(t *testing.T) {
 		Render: func() core.Node {
 			return &core.ElementNode{
 				Tag:   "p",
-				Props: map[string]any{"class": "scoped"},
+				Attrs: []core.Attr{{Name: "class", Value: "scoped"}},
 			}
 		},
 	}
@@ -127,32 +127,27 @@ func TestSSRScopeNode(t *testing.T) {
 }
 
 func TestSSRIDMatchesDOM(t *testing.T) {
-	// Component with hooks that both SSR and DOM must render with matching IDs
 	comp := core.Component("IDTest", func() core.Node {
 		count, _ := hooks.UseState(0)
 		return &core.ElementNode{
 			Tag: "span",
-			Props: map[string]any{
-				"textContent": count,
-				"class":       "test",
-			},
+			Attrs: []core.Attr{{Name: "class", Value: "test"}},
+			Binds: []core.Bind{{
+				Target: core.BindToProp, Name: "textContent", Signal: count,
+			}},
 		}
 	})
 
-	// SSR render
 	ssrR := New()
 	ssrHTML := ssrR.Render(comp)
 
-	// DOM render
 	domR := dom.New()
 	muts, domID := domR.Render(comp)
 
-	// Verify DOM root ID matches SSR data-node-id
 	if !strings.Contains(ssrHTML, fmt.Sprintf(`data-node-id="%d"`, domID)) {
 		t.Fatalf("DOM root ID %d not found in SSR HTML: %s", domID, ssrHTML)
 	}
 
-	// For each CreateElement mutation, verify data-node-id exists in SSR
 	for _, m := range muts {
 		if m.Type == core.MutCreateElement {
 			expectedAttr := fmt.Sprintf(`data-node-id="%d"`, m.NodeID)
@@ -169,5 +164,91 @@ func TestSSREscapeHTML(t *testing.T) {
 	html := r.Render(n)
 	if !strings.Contains(html, "&lt;") || !strings.Contains(html, "&amp;") || !strings.Contains(html, "&gt;") {
 		t.Fatalf("expected escaped HTML, got %s", html)
+	}
+}
+
+func TestAttrEscaping(t *testing.T) {
+	n := &core.ElementNode{
+		Tag:   "div",
+		Attrs: []core.Attr{{Name: "title", Value: `he said "hello"`}},
+	}
+	r := New()
+	html := r.Render(n)
+	if !strings.Contains(html, "&quot;") {
+		t.Fatalf("expected escaped attribute value, got %s", html)
+	}
+}
+
+func TestVoidElements(t *testing.T) {
+	n := &core.ElementNode{
+		Tag: "br",
+	}
+	r := New()
+	html := r.Render(n)
+	if strings.Contains(html, "</br>") {
+		t.Fatalf("expected no closing tag for void element, got %s", html)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(html), ">") {
+		t.Fatalf("expected void element to end with >, got %s", html)
+	}
+
+	input := &core.ElementNode{
+		Tag: "input",
+		Attrs: []core.Attr{{Name: "type", Value: "text"}},
+	}
+	html2 := r.Render(input)
+	if strings.Contains(html2, "</input>") {
+		t.Fatalf("expected no closing tag for void input, got %s", html2)
+	}
+}
+
+func TestBoolPropsAsAttributes(t *testing.T) {
+	n := &core.ElementNode{
+		Tag: "input",
+		Props: []core.Prop{
+			{Name: "disabled", Value: true},
+		},
+	}
+	r := New()
+	html := r.Render(n)
+	if !strings.Contains(html, " disabled") {
+		t.Fatalf("expected disabled attribute, got %s", html)
+	}
+
+	n2 := &core.ElementNode{
+		Tag: "input",
+		Props: []core.Prop{
+			{Name: "disabled", Value: false},
+		},
+	}
+	html2 := r.Render(n2)
+	if strings.Contains(html2, "disabled") {
+		t.Fatalf("expected no disabled attribute when false, got %s", html2)
+	}
+
+	n3 := &core.ElementNode{
+		Tag: "input",
+		Props: []core.Prop{
+			{Name: "readOnly", Value: true},
+		},
+	}
+	html3 := r.Render(n3)
+	if !strings.Contains(html3, " readonly") {
+		t.Fatalf("expected readonly attribute, got %s", html3)
+	}
+}
+
+func TestBindSerialization(t *testing.T) {
+	sig := core.NewSignal("hello")
+	n := &core.ElementNode{
+		Tag: "div",
+		Binds: []core.Bind{{
+			Target: core.BindToAttr, Name: "title", Signal: sig,
+		}},
+	}
+	r := New()
+	html := r.Render(n)
+	if !strings.Contains(html, `title="hello"`) {
+		t.Fatalf("expected title attribute with resolved value, got %s", html)
 	}
 }

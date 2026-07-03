@@ -708,7 +708,7 @@ func mutationForBind(nodeID int, b Bind) Mutation {
 
 (Delete the old `Binding` struct and `GetMutationsFor`; `dom.bindMutation` may simply call `core.mutationForBind` — export it as `MutationForBind` if sharing, or duplicate the 6 lines. Prefer exporting.)
 
-> **Prerequisite from the review (do in the same PR):** replace `Signal.Subscribe`'s reflect-pointer unsubscribe with token-based removal (review §2.2) — the stored `unsub` functions above are only correct once that is fixed. Also copy the subscriber list before notifying in `Set` (review §2.3).
+> **Prerequisite:** the stored `unsub` functions above are only correct once `Signal.Subscribe` uses token-based removal instead of reflect pointers (review §2.2) and notification is reentrancy-safe (review §2.3). Both are fully specced in `docs/plans/signal-core-fixes.md` — implement that plan first (it is step 1 of the checklist in §6).
 
 #### 3.6.3 `NodeRegistry` rework (`dom/node_registry.go`)
 
@@ -1213,7 +1213,7 @@ No further specification here on purpose — it must not distract from Phases 1�
 
 Work top to bottom; each step compiles and its tests pass before the next.
 
-1. [ ] `core`: token-based `Signal.Subscribe` + copy-before-notify + `Signal.Update` (§3.3, §3.6.2 note).
+1. [x] `core`: implement `docs/plans/signal-core-fixes.md` in full (token-based `Signal.Subscribe`, safe notification, equality skip, `Signal.Update`). Independently shippable PR.
 2. [ ] `core`: `Attr/Prop/Bind/Handler/HandlerOptions/BindTarget`, `ElementNode` restructure, `Item` + nil-safe `Apply` methods, `VoidElements`, `EventData` accessors, `Mutation.RefID` + `MutRemoveAttribute` (§3.1, §3.2, §3.4). *The repo will not compile until step 5 — that's expected; commit at step 6.*
 3. [ ] `core`: `ComponentFrame.Disposers` + `RegisterDisposer` + `Computed`; `hooks.RunFrameCleanup` calls disposers (§3.3).
 4. [ ] `core`: `BindingRegistry` rework (§3.6.2).

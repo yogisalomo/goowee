@@ -6,6 +6,7 @@ type ComponentFrame struct {
 	Children    []*ComponentFrame
 	RootNodeIDs []int
 	Hooks       []any
+	Disposers   []func()
 }
 
 var renderStack []*ComponentFrame
@@ -36,6 +37,12 @@ func CurrentComponent() *ComponentFrame {
 		return nil
 	}
 	return renderStack[len(renderStack)-1]
+}
+
+func RegisterDisposer(fn func()) {
+	if f := CurrentComponent(); f != nil {
+		f.Disposers = append(f.Disposers, fn)
+	}
 }
 
 func itoa(n int) string {

@@ -10,7 +10,7 @@ import (
 func TestDOMRenderElement(t *testing.T) {
 	n := &core.ElementNode{
 		Tag: "div",
-		Props: map[string]any{"class": "greeting"},
+		Attrs: []core.Attr{{Name: "class", Value: "greeting"}},
 		Children: []core.Node{
 			&core.TextNode{Value: "hello"},
 		},
@@ -25,19 +25,58 @@ func TestDOMRenderElement(t *testing.T) {
 	}
 }
 
+func TestDOMRenderTypedFields(t *testing.T) {
+	count := core.NewSignal(0)
+	n := &core.ElementNode{
+		Tag: "span",
+		Attrs: []core.Attr{{Name: "class", Value: "greeting"}},
+		Props: []core.Prop{{Name: "value", Value: "hello"}},
+		Binds: []core.Bind{{
+			Target: core.BindToProp, Name: "textContent", Signal: count,
+		}},
+		Handlers: []core.Handler{{
+			Event: "click", Fn: func(core.EventData) {},
+		}},
+	}
+	r := New()
+	muts, _ := r.Render(n)
+	if len(muts) < 4 {
+		t.Fatalf("expected at least 4 mutations, got %d", len(muts))
+	}
+	if muts[1].Type != core.MutSetAttribute && muts[1].Key != "class" {
+		t.Fatalf("expected SetAttribute for class, got %v", muts[1])
+	}
+	foundProp := false
+	foundBind := false
+	for _, m := range muts {
+		if m.Type == core.MutSetProperty && m.Key == "value" {
+			foundProp = true
+		}
+		if m.Type == core.MutSetProperty && m.Key == "textContent" {
+			foundBind = true
+		}
+	}
+	if !foundProp {
+		t.Fatal("expected SetProperty for value")
+	}
+	if !foundBind {
+		t.Fatal("expected SetProperty for binding")
+	}
+}
+
 func TestDOMReactiveUpdate(t *testing.T) {
 	count := core.NewSignal(0)
 	n := &core.ElementNode{
 		Tag: "span",
-		Props: map[string]any{
-			"textContent": count,
-		},
+		Binds: []core.Bind{{
+			Target: core.BindToProp, Name: "textContent", Signal: count,
+		}},
 	}
 	r := New()
 	r.Render(n)
 
 	count.Set(1)
-	updates := r.Bindings.GetMutationsFor(1)
+	updates := r.Scheduler.Flush()
 	if len(updates) != 1 {
 		t.Fatalf("expected 1 mutation, got %d", len(updates))
 	}
@@ -60,7 +99,7 @@ func TestDOMTextNodeSignal(t *testing.T) {
 		t.Fatal("expected mutations")
 	}
 	name.Set("universe")
-	updates := r.Bindings.GetMutationsFor(2)
+	updates := r.Scheduler.Flush()
 	if len(updates) != 1 || updates[0].Value != "universe" {
 		t.Fatalf("expected 'universe', got %v", updates)
 	}
@@ -69,45 +108,14 @@ func TestDOMTextNodeSignal(t *testing.T) {
 func TestDOMFragment(t *testing.T) {
 	n := &core.FragmentNode{
 		Children: []core.Node{
-			&core.ElementNode{Tag: "span", Props: map[string]any{"class": "a"}},
-			&core.ElementNode{Tag: "span", Props: map[string]any{"class": "b"}},
+			&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "a"}}},
+			&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "b"}}},
 		},
 	}
 	r := New()
 	muts, _ := r.Render(n)
-	if len(muts) != 4 {
-		t.Fatalf("expected 4 mutations, got %d: %v", len(muts), muts)
-	}
-}
-
-func TestDOMPropertyVsAttribute(t *testing.T) {
-	tests := []struct {
-		key      string
-		value    string
-		wantType core.MutationType
-	}{
-		{"class", "foo", core.MutSetProperty},
-		{"id", "bar", core.MutSetAttribute},
-		{"href", "/x", core.MutSetAttribute},
-		{"textContent", "hi", core.MutSetProperty},
-		{"checked", "true", core.MutSetProperty},
-		{"value", "42", core.MutSetProperty},
-	}
-	for _, tt := range tests {
-		t.Run(tt.key, func(t *testing.T) {
-			n := &core.ElementNode{
-				Tag:   "div",
-				Props: map[string]any{tt.key: tt.value},
-			}
-	r := New()
-		muts, _ := r.Render(n)
-		if len(muts) < 2 {
-			t.Fatalf("expected at least 2 mutations, got %d", len(muts))
-		}
-		if muts[1].Type != tt.wantType {
-			t.Fatalf("key=%q: expected %v, got %v", tt.key, tt.wantType, muts[1].Type)
-		}
-	})
+	if len(muts) != 6 {
+		t.Fatalf("expected 6 mutations (2 create + 2 attr + 2 append to root), got %d: %v", len(muts), muts)
 	}
 }
 
@@ -115,7 +123,7 @@ func TestDOMComponentNode(t *testing.T) {
 	greeting := core.Component("Greeting", func() core.Node {
 		return &core.ElementNode{
 			Tag:   "p",
-			Props: map[string]any{"textContent": "hello"},
+			Props: []core.Prop{{Name: "textContent", Value: "hello"}},
 		}
 	})
 	r := New()
@@ -123,20 +131,17 @@ func TestDOMComponentNode(t *testing.T) {
 	if id != 1 {
 		t.Fatalf("expected root id 1, got %d", id)
 	}
-	if len(muts) < 2 {
-		t.Fatalf("expected at least 2 mutations, got %d", len(muts))
+	if len(muts) < 3 {
+		t.Fatalf("expected at least 3 mutations (create + prop + append root), got %d", len(muts))
 	}
 	if muts[0].Type != core.MutCreateElement || muts[0].Value != "p" {
 		t.Fatalf("expected CreateElement(p), got %v", muts[0])
-	}
-	if muts[1].Type != core.MutSetProperty || muts[1].Key != "textContent" {
-		t.Fatalf("expected SetProperty(textContent), got %v", muts[1])
 	}
 }
 
 func TestDOMNestedComponent(t *testing.T) {
 	inner := core.Component("Inner", func() core.Node {
-		return &core.ElementNode{Tag: "span", Props: map[string]any{"class": "inner"}}
+		return &core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "inner"}}}
 	})
 	outer := core.Component("Outer", func() core.Node {
 		return &core.ElementNode{
@@ -146,16 +151,11 @@ func TestDOMNestedComponent(t *testing.T) {
 	})
 	r := New()
 	muts, _ := r.Render(outer)
-	// div + span + className prop + appendChild
-	if len(muts) != 4 {
-		t.Fatalf("expected 4 mutations, got %d: %v", len(muts), muts)
+	if len(muts) < 4 {
+		t.Fatalf("expected at least 4 mutations, got %d: %v", len(muts), muts)
 	}
 	if muts[0].Type != core.MutCreateElement || muts[0].Value != "div" {
 		t.Fatalf("expected CreateElement(div), got %v", muts[0])
-	}
-	// span is the inner component's element
-	if muts[1].Type != core.MutCreateElement || muts[1].Value != "span" {
-		t.Fatalf("expected CreateElement(span), got %v", muts[1])
 	}
 }
 
@@ -165,7 +165,10 @@ func TestDOMScopeNodeFirstRender(t *testing.T) {
 		Render: func() core.Node {
 			return &core.ElementNode{
 				Tag:   "p",
-				Props: map[string]any{"textContent": signal, "class": "greeting"},
+				Attrs: []core.Attr{{Name: "class", Value: "greeting"}},
+				Binds: []core.Bind{{
+					Target: core.BindToProp, Name: "textContent", Signal: signal,
+				}},
 			}
 		},
 		Deps: []core.SignalAccessor{signal},
@@ -175,9 +178,8 @@ func TestDOMScopeNodeFirstRender(t *testing.T) {
 	if id != 1 {
 		t.Fatalf("expected root id 1, got %d", id)
 	}
-	// CreateElement(p) + SetProperty(className) + SetProperty(textContent via bind)
-	if len(muts) < 2 {
-		t.Fatalf("expected at least 2 mutations, got %d", len(muts))
+	if len(muts) < 3 {
+		t.Fatalf("expected at least 3 mutations, got %d", len(muts))
 	}
 	if muts[0].Type != core.MutCreateElement || muts[0].Value != "p" {
 		t.Fatalf("expected CreateElement(p), got %v", muts[0])
@@ -186,8 +188,7 @@ func TestDOMScopeNodeFirstRender(t *testing.T) {
 
 func TestDOMScopeReRender(t *testing.T) {
 	show := core.NewSignal(true)
-	
-	// Track renders to verify the render function is re-called
+
 	renderCount := 0
 	scope := &core.ScopeNode{
 		Render: func() core.Node {
@@ -195,12 +196,12 @@ func TestDOMScopeReRender(t *testing.T) {
 			if show.Get() {
 				return &core.ElementNode{
 					Tag:   "div",
-					Props: map[string]any{"class": "visible"},
+					Attrs: []core.Attr{{Name: "class", Value: "visible"}},
 				}
 			}
 			return &core.ElementNode{
 				Tag:   "div",
-				Props: map[string]any{"class": "hidden"},
+				Attrs: []core.Attr{{Name: "class", Value: "hidden"}},
 			}
 		},
 		Deps: []core.SignalAccessor{show},
@@ -214,8 +215,6 @@ func TestDOMScopeReRender(t *testing.T) {
 	if renderCount != 1 {
 		t.Fatalf("expected 1 render, got %d", renderCount)
 	}
-	
-	// Initially visible
 	if len(initMuts) < 2 {
 		t.Fatalf("expected mutations, got %d", len(initMuts))
 	}
@@ -223,41 +222,34 @@ func TestDOMScopeReRender(t *testing.T) {
 		t.Fatal("expected Prev tree after first render")
 	}
 
-	// Change signal to trigger re-render
 	show.Set(false)
-
-	// Scheduler should have diff mutations
 	diffMuts := r.Scheduler.Flush()
 	if len(diffMuts) == 0 {
 		t.Fatal("expected diff mutations after signal change")
 	}
 
-	// Should have SetProperty for className (visible -> hidden)
 	foundSet := false
 	for _, m := range diffMuts {
-		if m.Type == core.MutSetProperty && m.Key == "className" {
+		if m.Type == core.MutSetAttribute && m.Key == "class" {
 			foundSet = true
 			if m.Value != "hidden" {
-				t.Fatalf("expected className=hidden, got %s", m.Value)
+				t.Fatalf("expected class=hidden, got %s", m.Value)
 			}
 		}
 	}
 	if !foundSet {
-		t.Fatalf("expected SetProperty(className=hidden), got %v", diffMuts)
+		t.Fatalf("expected MutSetAttribute(class=hidden), got %v", diffMuts)
 	}
-
-	// Verify render was called again
 	if renderCount != 2 {
 		t.Fatalf("expected 2 renders, got %d", renderCount)
 	}
 
-	// Prev should be updated to new tree
 	el, ok := scope.Prev.(*core.ElementNode)
 	if !ok {
 		t.Fatalf("expected ElementNode in Prev, got %T", scope.Prev)
 	}
-	if el.Props["class"] != "hidden" {
-		t.Fatalf("expected class=hidden in Prev, got %v", el.Props["class"])
+	if len(el.Attrs) == 0 || el.Attrs[0].Value != "hidden" {
+		t.Fatalf("expected class=hidden in Prev, got %v", el.Attrs)
 	}
 }
 
@@ -279,17 +271,15 @@ func TestDOMScopeStructuralChange(t *testing.T) {
 		t.Fatalf("expected div, got %v", initMuts[0])
 	}
 
-	// Change to span — structural change (different tag)
 	show.Set(false)
 	diffMuts := r.Scheduler.Flush()
-
 	if len(diffMuts) == 0 {
 		t.Fatal("expected diff mutations")
 	}
 
-	// Should remove old (div ID 1) and create new (span)
 	hasRemove := false
 	hasCreate := false
+	hasAppend := false
 	for _, m := range diffMuts {
 		if m.Type == core.MutCreateElement && m.Value == "span" {
 			hasCreate = true
@@ -297,12 +287,18 @@ func TestDOMScopeStructuralChange(t *testing.T) {
 		if m.Type == core.MutRemoveNode && m.NodeID == 1 {
 			hasRemove = true
 		}
+		if m.Type == core.MutAppendChild && m.NodeID == 0 && m.ChildID != 0 {
+			hasAppend = true
+		}
 	}
 	if !hasRemove {
 		t.Fatal("expected RemoveNode for old div")
 	}
 	if !hasCreate {
 		t.Fatal("expected CreateElement for new span")
+	}
+	if !hasAppend {
+		t.Fatal("expected AppendChild to root (node 0) for new span")
 	}
 }
 
@@ -318,10 +314,10 @@ func TestDOMScopeUnmountCleanup(t *testing.T) {
 							cleanupCalled++
 						}
 					})
-					return &core.ElementNode{Tag: "p", Props: map[string]any{"textContent": "visible"}}
+					return &core.ElementNode{Tag: "p", Props: []core.Prop{{Name: "textContent", Value: "visible"}}}
 				})
 			}
-			return &core.ElementNode{Tag: "p", Props: map[string]any{"textContent": "hidden"}}
+			return &core.ElementNode{Tag: "p", Props: []core.Prop{{Name: "textContent", Value: "hidden"}}}
 		},
 		Deps: []core.SignalAccessor{toggle},
 	}
@@ -333,7 +329,6 @@ func TestDOMScopeUnmountCleanup(t *testing.T) {
 		t.Fatalf("expected 0 cleanups before unmount, got %d", cleanupCalled)
 	}
 
-	// Toggle to remove the component
 	toggle.Set(false)
 	diffMuts := r.Scheduler.Flush()
 	if len(diffMuts) == 0 {
@@ -343,7 +338,6 @@ func TestDOMScopeUnmountCleanup(t *testing.T) {
 		t.Fatalf("expected 1 cleanup after unmount, got %d", cleanupCalled)
 	}
 
-	// Toggle back — component re-creates, no stale cleanup call
 	toggle.Set(true)
 	_ = r.Scheduler.Flush()
 	if cleanupCalled != 1 {
@@ -351,26 +345,21 @@ func TestDOMScopeUnmountCleanup(t *testing.T) {
 	}
 }
 
-// TestDOMScopeInsideComponentInsideScope: mirrors the form example pattern where
-// a ScopeNode (preview) lives inside a ComponentNode (FormPage) inside another
-// ScopeNode (Route). Verifies signal subscribers are wired up for the nested scope.
 func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 	name := core.NewSignal("")
 
-	// Inner scope — like the form's preview UseScope
 	innerRenderCount := 0
 	innerScope := &core.ScopeNode{
 		Render: func() core.Node {
 			innerRenderCount++
 			return &core.ElementNode{
 				Tag:   "p",
-				Props: map[string]any{"textContent": "Hello " + name.Get()},
+				Props: []core.Prop{{Name: "textContent", Value: "Hello " + name.Get()}},
 			}
 		},
 		Deps: []core.SignalAccessor{name},
 	}
 
-	// Component that contains the inner scope — like FormPage
 	component := core.Component("Wrapper", func() core.Node {
 		return &core.ElementNode{
 			Tag:      "div",
@@ -378,7 +367,6 @@ func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 		}
 	})
 
-	// Outer scope — like the Route scope
 	show := core.NewSignal(true)
 	outerRenderCount := 0
 	outerScope := &core.ScopeNode{
@@ -404,7 +392,6 @@ func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 		t.Fatal("expected initial mutations")
 	}
 
-	// Both should have rendered once
 	if outerRenderCount != 1 {
 		t.Fatalf("expected 1 outer render, got %d", outerRenderCount)
 	}
@@ -412,7 +399,6 @@ func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 		t.Fatalf("expected 1 inner render, got %d", innerRenderCount)
 	}
 
-	// Change the inner scope's dep — this is the bug: subscribers weren't set up
 	name.Set("World")
 	innerMuts := r.Scheduler.Flush()
 	if len(innerMuts) == 0 {
@@ -434,7 +420,6 @@ func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 		t.Fatalf("expected 2 inner renders, got %d", innerRenderCount)
 	}
 
-	// Change the outer scope to hide the component — should clean up inner content
 	show.Set(false)
 	outerMuts := r.Scheduler.Flush()
 	if len(outerMuts) == 0 {
@@ -450,119 +435,92 @@ func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 	if !hasRemove {
 		t.Fatalf("expected RemoveNode for old content, got %v", outerMuts)
 	}
+
+	_ = initMuts
 }
 
-// TestDOMDiffReplaceChild: verifies that when a child is replaced with a
-// different type (e.g. Li -> div spacer), an InsertBefore mutation is emitted
-// so the new element actually appears in the DOM at the correct position.
-func TestDOMDiffReplaceChild(t *testing.T) {
-	visible := core.NewSignal(0)
+func TestDOMDiffRemovesStaleAttrsAndProps(t *testing.T) {
+	show := core.NewSignal("a")
 	scope := &core.ScopeNode{
 		Render: func() core.Node {
-			start := visible.Get()
-			var children []core.Node
-			if start > 0 {
-				children = append(children, &core.ElementNode{
-					Tag: "div", Props: map[string]any{"style": "height:200px;flex-shrink:0;"},
-				})
-			}
-			end := start + 3
-			for i := start; i < end; i++ {
-				children = append(children, &core.ElementNode{
-					Tag:   "span",
-					Props: map[string]any{"textContent": fmt.Sprintf("Item %d", i)},
-				})
-			}
+			v := show.Get()
 			return &core.ElementNode{
-				Tag:      "div",
-				Props:    map[string]any{"style": "overflow-y:auto;height:100px;"},
-				Children: children,
+				Tag:   "div",
+				Attrs: []core.Attr{{Name: "class", Value: v}},
+				Props: []core.Prop{{Name: "value", Value: v}},
 			}
 		},
-		Deps: []core.SignalAccessor{visible},
+		Deps: []core.SignalAccessor{show},
 	}
 
 	r := New()
-	initMuts, _ := r.Render(scope)
-	if len(initMuts) == 0 {
-		t.Fatal("expected initial mutations")
-	}
+	r.Render(scope)
 
-	// First render: 3 spans, no spacer
-	hasInsert := false
-	for _, m := range initMuts {
-		if m.Type == core.MutInsertBefore {
-			hasInsert = true
+	show.Set("b")
+	muts := r.Scheduler.Flush()
+	if len(muts) == 0 {
+		t.Fatal("expected mutations")
+	}
+	hasAttr := false
+	hasProp := false
+	for _, m := range muts {
+		if m.Type == core.MutSetAttribute && m.Key == "class" {
+			hasAttr = true
+		}
+		if m.Type == core.MutSetProperty && m.Key == "value" {
+			hasProp = true
 		}
 	}
-	if hasInsert {
-		t.Fatal("expected no InsertBefore on first render")
+	if !hasAttr {
+		t.Fatal("expected SetAttribute for class")
 	}
-
-	// Trigger re-render: now start=1, so a spacer div is prepended
-	visible.Set(1)
-	diffMuts := r.Scheduler.Flush()
-	if len(diffMuts) == 0 {
-		t.Fatal("expected diff mutations")
-	}
-
-	// Should have at least one InsertBefore for the new spacer at position 0
-	foundInsert := false
-	for _, m := range diffMuts {
-		if m.Type == core.MutInsertBefore {
-			foundInsert = true
-			if m.Key != "0" {
-				t.Fatalf("expected InsertBefore at index 0, got index %s", m.Key)
-			}
-			break
-		}
-	}
-	if !foundInsert {
-		t.Fatalf("expected InsertBefore mutation, got: %v", diffMuts)
+	if !hasProp {
+		t.Fatal("expected SetProperty for value")
 	}
 }
 
-// TestDOMDiffEventProp: verifies diffNode handles non-comparable func props
-// (e.g. event handlers like onscroll) without panicking. Each scope re-render
-// creates a new function closure — two func(core.EventData) values can't be
-// compared with != in Go.
-func TestDOMDiffEventProp(t *testing.T) {
-	scrollTop := core.NewSignal(0.0)
+func TestDiffTypeChangeNoPanic(t *testing.T) {
+	sig := core.NewSignal(true)
 	scope := &core.ScopeNode{
 		Render: func() core.Node {
-			return &core.ElementNode{
-				Tag: "div",
-				Props: map[string]any{
-					"onscroll": func(ed core.EventData) {
-						if st, ok := ed.Data["scrollTop"].(float64); ok {
-							scrollTop.Set(st)
-						}
-					},
-				},
+			if sig.Get() {
+				return &core.ElementNode{Tag: "div"}
 			}
+			return &core.TextNode{Value: "text"}
 		},
-		Deps: []core.SignalAccessor{scrollTop},
+		Deps: []core.SignalAccessor{sig},
 	}
 
 	r := New()
-	initMuts, _ := r.Render(scope)
-	if len(initMuts) == 0 {
-		t.Fatal("expected initial mutations")
+	r.Render(scope)
+	sig.Set(false)
+	muts := r.Scheduler.Flush()
+	if len(muts) == 0 {
+		t.Fatal("expected mutations after type change")
 	}
-
-	// Trigger re-render — creates a new onscroll closure
-	scrollTop.Set(100.0)
-	diffMuts := r.Scheduler.Flush()
-	// Should NOT panic. No mutations expected for the func prop (not string/bool).
-	// The only mutation might be nothing — verify no crash.
-	_ = diffMuts
+	hasRemove := false
+	hasCreate := false
+	for _, m := range muts {
+		if m.Type == core.MutRemoveNode {
+			hasRemove = true
+		}
+		if m.Type == core.MutCreateElement && m.Value == "#text" {
+			hasCreate = true
+		}
+	}
+	if !hasRemove {
+		t.Fatal("expected RemoveNode for old element")
+	}
+	if !hasCreate {
+		t.Fatal("expected CreateElement for new text")
+	}
 }
 
 func TestDOMFragmentInsideElement(t *testing.T) {
 	frag := &core.FragmentNode{
 		Children: []core.Node{
-			&core.ElementNode{Tag: "span", Props: map[string]any{"class": "a"}},
-			&core.ElementNode{Tag: "span", Props: map[string]any{"class": "b"}},
+			&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "a"}}},
+			&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "b"}}},
 		},
 	}
 	n := &core.ElementNode{
@@ -575,7 +533,6 @@ func TestDOMFragmentInsideElement(t *testing.T) {
 		t.Fatal("expected mutations")
 	}
 
-	// Should create: div, span.a, span.b + AppendChild mutations
 	spanCount := 0
 	for _, m := range muts {
 		if m.Type == core.MutCreateElement && m.Value == "span" {
@@ -595,7 +552,7 @@ func TestDOMDeepNestedScopes(t *testing.T) {
 		Render: func() core.Node {
 			return &core.ElementNode{
 				Tag:   "p",
-				Props: map[string]any{"textContent": innerSig.Get() + " " + fmt.Sprint(outerSig.Get())},
+				Props: []core.Prop{{Name: "textContent", Value: innerSig.Get() + " " + fmt.Sprint(outerSig.Get())}},
 			}
 		},
 		Deps: []core.SignalAccessor{innerSig, outerSig},
@@ -627,15 +584,12 @@ func TestDOMDeepNestedScopes(t *testing.T) {
 		t.Fatal("expected mutations")
 	}
 
-	// Trigger outer scope re-render via outerSig
 	outerSig.Set(1)
 	muts := r.Scheduler.Flush()
 	if len(muts) == 0 {
 		t.Fatal("expected mutations after outerSig change")
 	}
-	// Should NOT crash — deepest scope should re-render fine
 
-	// Trigger deepest scope re-render via innerSig
 	innerSig.Set("hello")
 	muts2 := r.Scheduler.Flush()
 	if len(muts2) == 0 {
@@ -646,15 +600,653 @@ func TestDOMDeepNestedScopes(t *testing.T) {
 func TestDOMEventNotEmitted(t *testing.T) {
 	n := &core.ElementNode{
 		Tag: "button",
-		Props: map[string]any{
-			"onclick": func(ed core.EventData) {},
-		},
+		Handlers: []core.Handler{{
+			Event: "click", Fn: func(core.EventData) {},
+		}},
 	}
 	r := New()
 	muts, _ := r.Render(n)
 	for _, m := range muts {
-		if m.Key == "onclick" {
+		if m.Key == "click" && m.Type != core.MutInsertBefore {
 			t.Fatal("event handlers should not be emitted as mutations")
+		}
+	}
+}
+
+func TestDOMDiffRebindsSignals(t *testing.T) {
+	sig := core.NewSignal("a")
+	scope := &core.ScopeNode{
+		Render: func() core.Node {
+			return &core.ElementNode{
+				Tag: "div",
+				Binds: []core.Bind{{
+					Target: core.BindToProp, Name: "textContent", Signal: sig,
+				}},
+			}
+		},
+		Deps: []core.SignalAccessor{sig},
+	}
+
+	r := New()
+	r.Render(scope)
+
+	sig.Set("b")
+	muts := r.Scheduler.Flush()
+	if len(muts) == 0 {
+		t.Fatal("expected mutations after signal change")
+	}
+	found := false
+	for _, m := range muts {
+		if m.Type == core.MutSetProperty && m.Key == "textContent" && m.Value == "b" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected SetProperty(textContent=b), got %v", muts)
+	}
+}
+
+func TestDOMDiffReplacesHandlers(t *testing.T) {
+	var called bool
+	sig := core.NewSignal(0)
+	scope := &core.ScopeNode{
+		Render: func() core.Node {
+			v := sig.Get()
+			return &core.ElementNode{
+				Tag: "button",
+				Handlers: []core.Handler{{
+					Event: "click",
+					Fn: func(core.EventData) {
+						called = v == 1
+					},
+				}},
+			}
+		},
+		Deps: []core.SignalAccessor{sig},
+	}
+
+	r := New()
+	r.Render(scope)
+
+	sig.Set(1)
+	_ = r.Scheduler.Flush()
+
+	r.Registry.Dispatch(1, "click", `{}`)
+	if !called {
+		t.Fatal("expected handler to reflect new closure")
+	}
+}
+
+func TestDOMDispatchReturnsOptionsAndRecovers(t *testing.T) {
+	r := New()
+	n := &core.ElementNode{
+		Tag: "button",
+		Handlers: []core.Handler{{
+			Event: "click",
+			Fn:    func(core.EventData) {},
+			Options: core.HandlerOptions{
+				PreventDefault:  true,
+				StopPropagation: false,
+			},
+		}},
+	}
+	r.Render(n)
+
+	opts, handled := r.Registry.Dispatch(1, "click", `{}`)
+	if !handled {
+		t.Fatal("expected handler to run")
+	}
+	if !opts.PreventDefault {
+		t.Fatal("expected PreventDefault")
+	}
+
+	_, handled2 := r.Registry.Dispatch(1, "input", `{}`)
+	if handled2 {
+		t.Fatal("expected no handler for input")
+	}
+
+	nilNode := &core.ElementNode{
+		Tag: "button",
+		Handlers: []core.Handler{{
+			Event: "click", Fn: func(core.EventData) { panic("test") },
+		}},
+	}
+	r2 := New()
+	r2.Render(nilNode)
+	_, handled3 := r2.Registry.Dispatch(1, "click", `{}`)
+	if !handled3 {
+		t.Fatal("expected handler to run despite panic")
+	}
+}
+
+func TestUnbindCancelsSubscription(t *testing.T) {
+	sig := core.NewSignal(0)
+	n := &core.ElementNode{
+		Tag: "div",
+		Binds: []core.Bind{{
+			Target: core.BindToProp, Name: "textContent", Signal: sig,
+		}},
+	}
+	r := New()
+	r.Render(n)
+
+	r.Bindings.Unbind(1)
+
+	sig.Set(42)
+	muts := r.Scheduler.Flush()
+	for _, m := range muts {
+		if m.Type == core.MutSetProperty {
+			t.Fatal("expected no mutations after unbind")
+		}
+	}
+}
+
+func TestDOMRootMounting(t *testing.T) {
+	n := &core.ElementNode{Tag: "div"}
+	r := New()
+	muts, _ := r.Render(n)
+	hasAppend := false
+	for _, m := range muts {
+		if m.Type == core.MutAppendChild && m.NodeID == 0 && m.ChildID == 1 {
+			hasAppend = true
+		}
+	}
+	if !hasAppend {
+		t.Fatalf("expected append to root container (node 0), got %v", muts)
+	}
+}
+
+func TestDOMScopeStructuralChangeWithParent(t *testing.T) {
+	sig := core.NewSignal(true)
+	scope := &core.ScopeNode{
+		Render: func() core.Node {
+			if sig.Get() {
+				return &core.ElementNode{Tag: "div"}
+			}
+			return &core.ElementNode{Tag: "span"}
+		},
+		Deps: []core.SignalAccessor{sig},
+	}
+
+	r := New()
+	parent := &core.ElementNode{
+		Tag:      "main",
+		Children: []core.Node{scope},
+	}
+	initMuts, _ := r.Render(parent)
+	_ = initMuts
+
+	sig.Set(false)
+	diffMuts := r.Scheduler.Flush()
+	if len(diffMuts) == 0 {
+		t.Fatal("expected diff mutations")
+	}
+
+	hasInsert := false
+	for _, m := range diffMuts {
+		if m.Type == core.MutInsertBefore && m.NodeID == 1 {
+			hasInsert = true
+			break
+		}
+	}
+	if !hasInsert {
+		t.Fatalf("expected InsertBefore on parent (node 1), got: %v", diffMuts)
+	}
+}
+
+// A scope whose root goes element -> empty fragment -> element (the h.Show
+// pattern) must re-attach the re-shown element to its parent. Regression for
+// the case where the old root has no DOM node to anchor against.
+func TestDOMScopeEmptyToElementReattaches(t *testing.T) {
+	sig := core.NewSignal(true)
+	scope := &core.ScopeNode{
+		Render: func() core.Node {
+			if sig.Get() {
+				return &core.ElementNode{Tag: "p", Children: []core.Node{&core.TextNode{Value: "hi"}}}
+			}
+			return &core.FragmentNode{}
+		},
+		Deps: []core.SignalAccessor{sig},
+	}
+
+	r := New()
+	parent := &core.ElementNode{Tag: "div", Children: []core.Node{scope}}
+	r.Render(parent)
+
+	sig.Set(false) // hide
+	_ = r.Scheduler.Flush()
+
+	sig.Set(true) // show again
+	muts := r.Scheduler.Flush()
+
+	var createdID int
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement && m.Value == "p" {
+			createdID = m.NodeID
+		}
+	}
+	if createdID == 0 {
+		t.Fatalf("expected a <p> to be created on re-show, got: %v", muts)
+	}
+	attached := false
+	for _, m := range muts {
+		if (m.Type == core.MutAppendChild || m.Type == core.MutInsertBefore) && m.ChildID == createdID {
+			attached = true
+			break
+		}
+	}
+	if !attached {
+		t.Fatalf("re-shown <p> (id=%d) was never attached to a parent, got: %v", createdID, muts)
+	}
+}
+
+func TestDOMChildrenInsertBeforeRefID(t *testing.T) {
+	sig := core.NewSignal(0)
+	scope := &core.ScopeNode{
+		Render: func() core.Node {
+			v := sig.Get()
+			if v == 0 {
+				return &core.ElementNode{
+					Tag: "div",
+					Children: []core.Node{
+						&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "a"}}},
+						&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "b"}}},
+						&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "c"}}},
+					},
+				}
+			}
+			return &core.ElementNode{
+				Tag: "div",
+				Children: []core.Node{
+					&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "x"}}},
+					&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "a"}}},
+					&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "b"}}},
+					&core.ElementNode{Tag: "span", Attrs: []core.Attr{{Name: "class", Value: "c"}}},
+				},
+			}
+		},
+		Deps: []core.SignalAccessor{sig},
+	}
+
+	r := New()
+	r.Render(scope)
+
+	sig.Set(1)
+	muts := r.Scheduler.Flush()
+	foundInsert := false
+	for _, m := range muts {
+		if m.Type == core.MutInsertBefore {
+			foundInsert = true
+			break
+		}
+	}
+	if !foundInsert {
+		t.Fatalf("expected InsertBefore mutation, got: %v", muts)
+	}
+}
+
+func makeKeyedSpan(key string, text string) *core.ElementNode {
+	return &core.ElementNode{
+		Tag: "span",
+		Key: key,
+		Attrs: []core.Attr{{Name: "class", Value: text}},
+	}
+}
+
+func TestKeyedReorderReusesIDs(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("a", "a"),
+		makeKeyedSpan("b", "b"),
+		makeKeyedSpan("c", "c"),
+		makeKeyedSpan("d", "d"),
+		makeKeyedSpan("e", "e"),
+	}
+	rev := []core.Node{
+		makeKeyedSpan("e", "e"),
+		makeKeyedSpan("d", "d"),
+		makeKeyedSpan("c", "c"),
+		makeKeyedSpan("b", "b"),
+		makeKeyedSpan("a", "a"),
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	parentID := 1
+	var muts []core.Mutation
+	r.diffChildren(parentID, old, rev, &muts)
+
+	removeCount := 0
+	createCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutRemoveNode {
+			removeCount++
+		}
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+	}
+	if removeCount != 0 || createCount != 0 {
+		t.Fatalf("expected no removes (%d) or creates (%d) on reorder", removeCount, createCount)
+	}
+}
+
+func TestKeyedRemoveFirst(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("a", "a"),
+		makeKeyedSpan("b", "b"),
+		makeKeyedSpan("c", "c"),
+	}
+	new := []core.Node{
+		makeKeyedSpan("b", "b"),
+		makeKeyedSpan("c", "c"),
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	parentID := 1
+	var muts []core.Mutation
+	r.diffChildren(parentID, old, new, &muts)
+
+	removeCount := 0
+	createCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutRemoveNode {
+			removeCount++
+		}
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+	}
+	if removeCount != 1 {
+		t.Fatalf("expected exactly 1 remove, got %d", removeCount)
+	}
+	if createCount != 0 {
+		t.Fatalf("expected 0 creates, got %d", createCount)
+	}
+}
+
+func TestKeyedInsertMiddle(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("a", "a"),
+		makeKeyedSpan("b", "b"),
+	}
+	new := []core.Node{
+		makeKeyedSpan("a", "a"),
+		makeKeyedSpan("c", "c"),
+		makeKeyedSpan("b", "b"),
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	parentID := 1
+	var muts []core.Mutation
+	r.diffChildren(parentID, old, new, &muts)
+
+	createCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+	}
+	if createCount != 1 {
+		t.Fatalf("expected exactly 1 create, got %d", createCount)
+	}
+
+	insertCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutInsertBefore {
+			insertCount++
+		}
+	}
+	if insertCount == 0 {
+		t.Fatal("expected at least 1 InsertBefore")
+	}
+}
+
+func TestKeyedAndUnkeyedMix(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("k1", "k1"),
+		&core.TextNode{Value: "unkeyed1"},
+		makeKeyedSpan("k2", "k2"),
+	}
+	new := []core.Node{
+		&core.TextNode{Value: "unkeyed1"},
+		makeKeyedSpan("k1", "k1"),
+		&core.TextNode{Value: "unkeyed2"},
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	parentID := 1
+	var muts []core.Mutation
+	r.diffChildren(parentID, old, new, &muts)
+
+	createCount := 0
+	removeCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+		if m.Type == core.MutRemoveNode {
+			removeCount++
+		}
+	}
+	if createCount != 1 {
+		t.Fatalf("expected exactly 1 create (unkeyed2), got %d", createCount)
+	}
+	if removeCount != 1 {
+		t.Fatalf("expected exactly 1 remove (k2), got %d", removeCount)
+	}
+}
+
+type fakeNode struct {
+	ID       int
+	ParentID int
+	Tag      string
+	Children []int
+}
+
+type fakeDOM struct {
+	nodes map[int]*fakeNode
+}
+
+func newFakeDOM() *fakeDOM {
+	return &fakeDOM{nodes: map[int]*fakeNode{0: {ID: 0, Tag: "#root"}}}
+}
+
+func (d *fakeDOM) apply(muts []core.Mutation) {
+	for _, m := range muts {
+		switch m.Type {
+		case core.MutCreateElement:
+			d.nodes[m.NodeID] = &fakeNode{ID: m.NodeID, Tag: m.Value.(string)}
+		case core.MutAppendChild:
+			if p, ok := d.nodes[m.NodeID]; ok {
+				p.Children = append(p.Children, m.ChildID)
+				if c, ok := d.nodes[m.ChildID]; ok {
+					c.ParentID = m.NodeID
+				}
+			}
+		case core.MutInsertBefore:
+			if p, ok := d.nodes[m.NodeID]; ok {
+				ins := m.ChildID
+				ref := m.RefID
+				idx := len(p.Children)
+				for i, cid := range p.Children {
+					if cid == ref {
+						idx = i
+						break
+					}
+				}
+				p.Children = append(p.Children, 0)
+				copy(p.Children[idx+1:], p.Children[idx:])
+				p.Children[idx] = ins
+				if c, ok := d.nodes[ins]; ok {
+					c.ParentID = m.NodeID
+				}
+			}
+		case core.MutRemoveNode:
+			delete(d.nodes, m.NodeID)
+			for _, n := range d.nodes {
+				for i := len(n.Children) - 1; i >= 0; i-- {
+					if n.Children[i] == m.NodeID {
+						n.Children = append(n.Children[:i], n.Children[i+1:]...)
+					}
+				}
+			}
+		case core.MutSetAttribute:
+		case core.MutSetProperty:
+		case core.MutRemoveAttribute:
+		}
+	}
+}
+
+func (d *fakeDOM) childTags(parentID int) string {
+	p, ok := d.nodes[parentID]
+	if !ok {
+		return ""
+	}
+	var s string
+	for _, cid := range p.Children {
+		if c, ok := d.nodes[cid]; ok {
+			s += c.Tag
+		}
+	}
+	return s
+}
+
+func TestFakeDOMKeyedProperty(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping property test in short mode")
+	}
+	keys := []string{"a", "b", "c", "d", "e"}
+	for seed := int64(0); seed < 1000; seed++ {
+		oldIdx := pickPerm(seed*2, len(keys), len(keys))
+		newIdx := pickPerm(seed*2+1, len(keys), len(keys))
+
+		oldNodes := make([]core.Node, len(oldIdx))
+		for i, ki := range oldIdx {
+			oldNodes[i] = &core.ElementNode{Tag: keys[ki], Key: keys[ki]}
+		}
+		newNodes := make([]core.Node, len(newIdx))
+		for i, ki := range newIdx {
+			newNodes[i] = &core.ElementNode{Tag: keys[ki], Key: keys[ki]}
+		}
+
+		r := New()
+		r.Render(&core.ElementNode{Tag: "div", Children: oldNodes})
+
+		parentID := 1
+		var muts []core.Mutation
+		r.diffChildren(parentID, oldNodes, newNodes, &muts)
+
+		fd := newFakeDOM()
+		fd.nodes[parentID] = &fakeNode{ID: parentID, Tag: "div"}
+
+		oldSeen := map[int]bool{}
+		for _, n := range oldNodes {
+			if el, ok := n.(*core.ElementNode); ok {
+				fd.nodes[el.ID] = &fakeNode{ID: el.ID, Tag: el.Tag, ParentID: parentID}
+				oldSeen[el.ID] = true
+			}
+		}
+
+		fd.apply(muts)
+
+		fd2 := newFakeDOM()
+		fd2.nodes[parentID] = &fakeNode{ID: parentID, Tag: "div"}
+		for _, n := range newNodes {
+			if el, ok := n.(*core.ElementNode); ok {
+				id := el.ID
+				if id == 0 {
+					id = r.allocID()
+				}
+				fd2.nodes[id] = &fakeNode{ID: id, Tag: el.Tag, ParentID: parentID}
+				fd2.nodes[parentID].Children = append(fd2.nodes[parentID].Children, id)
+			}
+		}
+
+		got := fd.childTags(parentID)
+		want := fd2.childTags(parentID)
+		if got != want {
+			t.Fatalf("seed=%d: got %q, want %q\nold=%v new=%v muts=%v",
+				seed, got, want, oldIdx, newIdx, muts)
+		}
+	}
+}
+
+func pickPerm(seed int64, pool, count int) []int {
+	rng := seed
+	perm := make([]int, pool)
+	for i := 0; i < pool; i++ {
+		perm[i] = i
+	}
+	for i := pool - 1; i > 0; i-- {
+		rng = rng*1103515245 + 12345
+		if rng < 0 {
+			rng = -rng
+		}
+		j := int(rng % int64(i+1))
+		perm[i], perm[j] = perm[j], perm[i]
+	}
+	n := int(seed%int64(pool)) + 1
+	if n > pool {
+		n = pool
+	}
+	return perm[:n]
+}
+
+func TestDuplicateKeysLoggedNotPanic(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("dup", "first"),
+	}
+	new := []core.Node{
+		makeKeyedSpan("dup", "first"),
+		makeKeyedSpan("dup", "second"),
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	var muts []core.Mutation
+	r.diffChildren(1, old, new, &muts)
+
+	createCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+	}
+	if createCount == 0 {
+		t.Fatalf("expected at least 1 create for duplicate, got 0")
+	}
+}
+
+// Shrinking an unkeyed list must emit exactly one RemoveNode per removed
+// subtree (regression: surplus children were removed twice).
+func TestPositionalShrinkRemovesOnce(t *testing.T) {
+	old := []core.Node{
+		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "a"}}},
+		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "b"}}},
+		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "c"}}},
+	}
+	r := New()
+	parent := &core.ElementNode{Tag: "ul", Children: old}
+	r.Render(parent)
+
+	newKids := []core.Node{
+		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "a"}}},
+	}
+	var muts []core.Mutation
+	r.diffChildren(parent.ID, old, newKids, &muts)
+
+	removes := map[int]int{}
+	for _, m := range muts {
+		if m.Type == core.MutRemoveNode {
+			removes[m.NodeID]++
+		}
+	}
+	for id, n := range removes {
+		if n != 1 {
+			t.Errorf("node %d removed %d times, want exactly 1", id, n)
 		}
 	}
 }

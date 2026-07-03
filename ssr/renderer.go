@@ -3,6 +3,7 @@ package ssr
 import (
 	"fmt"
 	"goowee/core"
+	"log"
 	"strings"
 )
 
@@ -63,9 +64,30 @@ func (r *Renderer) renderNode(n core.Node, buf *strings.Builder, path string) {
 	r.renderNodeWithMeta(n, buf, path, nil, 0)
 }
 
+func escapeAttr(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
+}
+
+var propToAttr = map[string]string{
+	"value":    "value",
+	"checked":  "",
+	"disabled": "",
+	"selected": "",
+	"multiple": "",
+	"required": "",
+	"readOnly": "readonly",
+}
+
 func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path string, hooks []core.SignalAccessor, hookIdx int) {
 	switch v := n.(type) {
 	case *core.ElementNode:
+		if v == nil {
+			return
+		}
 		id := r.allocID()
 		r.Meta.NodeMap[id] = path
 
@@ -73,31 +95,81 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 		buf.WriteString(v.Tag)
 		fmt.Fprintf(buf, ` data-node-id="%d"`, id)
 
-		var sigIdx int
-		for key, val := range v.Props {
-			switch actual := val.(type) {
-			case string:
-				fmt.Fprintf(buf, ` %s="%s"`, key, actual)
-			case core.SignalAccessor:
-				r.Meta.Deps[id] = append(r.Meta.Deps[id], SlotRef{
-					ComponentPath: path,
-					HookIndex:     hookIdx + sigIdx,
-				})
-				sigIdx++
-				v := actual.Value()
-				if b, ok := v.(bool); ok && isBoolAttr(key) {
-					if b {
-						fmt.Fprintf(buf, ` %s`, key)
+		for _, a := range v.Attrs {
+			if a.Name == "" || !isValidAttrName(a.Name) {
+				log.Printf("goowee: skipping invalid attribute name %q", a.Name)
+				continue
+			}
+			fmt.Fprintf(buf, ` %s="%s"`, a.Name, escapeAttr(a.Value))
+		}
+
+		for _, p := range v.Props {
+			attrName, ok := propToAttr[p.Name]
+			if !ok {
+				continue
+			}
+			switch p.Value.(type) {
+			case bool:
+				if p.Value.(bool) {
+					if attrName == "" {
+						fmt.Fprintf(buf, ` %s`, p.Name)
+					} else {
+						fmt.Fprintf(buf, ` %s`, attrName)
 					}
-				} else {
-					fmt.Fprintf(buf, ` %s="%v"`, key, v)
+				}
+			case string:
+				val := p.Value.(string)
+				if attrName == "" {
+					attrName = p.Name
+				}
+				fmt.Fprintf(buf, ` %s="%s"`, attrName, escapeAttr(val))
+			default:
+				if attrName == "" {
+					attrName = p.Name
+				}
+				fmt.Fprintf(buf, ` %s="%v"`, attrName, escapeAttr(fmt.Sprintf("%v", p.Value)))
+			}
+		}
+
+		for _, b := range v.Binds {
+			val := fmt.Sprintf("%v", b.Signal.Value())
+			r.Meta.Deps[id] = append(r.Meta.Deps[id], SlotRef{
+				ComponentPath: path,
+				HookIndex:     hookIdx + len(r.Meta.Deps[id]),
+			})
+			if b.Target == core.BindToAttr {
+				fmt.Fprintf(buf, ` %s="%s"`, b.Name, escapeAttr(val))
+			} else {
+				attrName, ok := propToAttr[b.Name]
+				if !ok {
+					continue
+				}
+				switch b.Signal.Value().(type) {
+				case bool:
+					if b.Signal.Value().(bool) {
+						if attrName == "" {
+							fmt.Fprintf(buf, ` %s`, b.Name)
+						} else {
+							fmt.Fprintf(buf, ` %s`, attrName)
+						}
+					}
+				default:
+					if attrName == "" {
+						attrName = b.Name
+					}
+					fmt.Fprintf(buf, ` %s="%s"`, attrName, escapeAttr(val))
 				}
 			}
 		}
+
 		buf.WriteString(">")
 
-		for _, child := range v.Children {
-			r.renderNodeWithMeta(child, buf, path+"/"+itoa(len(v.Children)), hooks, hookIdx)
+		if core.VoidElements[v.Tag] {
+			return
+		}
+
+		for i, child := range v.Children {
+			r.renderNodeWithMeta(child, buf, path+"/"+itoa(i), hooks, hookIdx)
 		}
 
 		buf.WriteString("</")
@@ -105,6 +177,9 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 		buf.WriteString(">")
 
 	case *core.TextNode:
+		if v == nil {
+			return
+		}
 		id := r.allocID()
 		r.Meta.NodeMap[id] = path
 		switch val := v.Value.(type) {
@@ -119,20 +194,44 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 		}
 
 	case *core.FragmentNode:
+		if v == nil {
+			return
+		}
 		for _, child := range v.Children {
 			r.renderNodeWithMeta(child, buf, path+"/frag", hooks, hookIdx)
 		}
 
 	case *core.ComponentNode:
+		if v == nil {
+			return
+		}
 		core.PushComponent()
 		inner := v.Render()
 		r.renderNodeWithMeta(inner, buf, path, hooks, hookIdx)
 		core.PopComponent()
 
 	case *core.ScopeNode:
+		if v == nil {
+			return
+		}
 		inner := v.Render()
 		r.renderNodeWithMeta(inner, buf, path, hooks, hookIdx)
 	}
+}
+
+func isValidAttrName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, c := range name {
+		if i == 0 && !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			return false
+		}
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func escapeHTML(s string) string {
@@ -140,14 +239,6 @@ func escapeHTML(s string) string {
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	return s
-}
-
-func isBoolAttr(key string) bool {
-	switch key {
-	case "checked", "disabled", "selected", "readonly", "required", "multiple":
-		return true
-	}
-	return false
 }
 
 func itoa(n int) string {

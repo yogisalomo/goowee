@@ -38,8 +38,8 @@ func TestLink(t *testing.T) {
 	if link.Tag != "a" {
 		t.Fatalf("expected a, got %s", link.Tag)
 	}
-	if link.Props["href"] != "/counter" {
-		t.Fatalf("expected href /counter, got %v", link.Props["href"])
+	if len(link.Attrs) == 0 || link.Attrs[0].Value != "/counter" {
+		t.Fatalf("expected href /counter, got %v", link.Attrs)
 	}
 }
 
@@ -83,5 +83,16 @@ func TestRouterIntegration(t *testing.T) {
 	r.Navigate("/about")
 	if r.Path.Get() != "/about" {
 		t.Fatalf("expected /about, got %s", r.Path.Get())
+	}
+}
+
+func TestLinkHasPreventDefault(t *testing.T) {
+	r := New("/")
+	link := r.Link("/counter", "Counter")
+	if len(link.Handlers) == 0 {
+		t.Fatal("expected handler on link")
+	}
+	if !link.Handlers[0].Options.PreventDefault {
+		t.Fatal("expected PreventDefault on link handler")
 	}
 }

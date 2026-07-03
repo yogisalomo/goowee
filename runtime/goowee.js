@@ -1,84 +1,73 @@
 const nodeMap = {};
-let root = null;
+let rootNode = null;
 
-// Hydration: capture nodes from SSR-rendered HTML
+function getRoot() {
+    if (!rootNode) rootNode = document.getElementById("root");
+    return rootNode;
+}
+
 const preexistingNodes = {};
 document.querySelectorAll("[data-node-id]").forEach(el => {
     const id = parseInt(el.getAttribute("data-node-id"), 10);
     preexistingNodes[id] = el;
 });
 
-function findNodeID(el) {
-    while (el) {
-        if (el._nodeID !== undefined) return el._nodeID;
-        el = el.parentElement;
+const listening = {};
+window.goListen = function (type, capture) {
+    if (listening[type]) return;
+    listening[type] = true;
+    document.addEventListener(type, e => dispatchToGo(type, e), capture);
+};
+
+function buildPayload(type, e) {
+    switch (type) {
+        case "click": case "dblclick":
+        case "pointerdown": case "pointerup": case "pointermove":
+            return {clientX: e.clientX, clientY: e.clientY, button: e.button,
+                    ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey};
+        case "input": case "change": {
+            const t = e.target;
+            if (t.type === "checkbox" || t.type === "radio")
+                return {value: t.value, checked: t.checked};
+            return {value: t.value};
+        }
+        case "submit": {
+            const values = {};
+            for (const el of e.target.elements) {
+                if (!el.name) continue;
+                values[el.name] = (el.type === "checkbox" || el.type === "radio")
+                    ? (el.checked ? "on" : "off") : el.value;
+            }
+            return {values};
+        }
+        case "keydown": case "keyup":
+            return {key: e.key, code: e.code,
+                    ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey};
+        case "scroll":
+            return {scrollTop: e.target.scrollTop, scrollLeft: e.target.scrollLeft};
+        default:
+            return {};
     }
-    return -1;
 }
 
-const EVENT_PROPS = ["clientX","clientY","button","key","code","value","ctrlKey","shiftKey","altKey","metaKey"];
-
-document.addEventListener("click", e => {
-    const nodeID = findNodeID(e.target);
-    if (nodeID === -1) return;
-    const data = {};
-    for (const p of EVENT_PROPS) {
-        if (typeof e[p] !== "undefined") data[p] = e[p];
-    }
-
-    // Prevent default navigation for <a> clicks handled by Go
-    const anchor = e.target.closest("a");
-    if (anchor && anchor._nodeID !== undefined) {
-        e.preventDefault();
-    }
-
-    handleEvent(nodeID, "click", JSON.stringify(data));
-});
-
-document.addEventListener("input", e => {
-    const nodeID = findNodeID(e.target);
-    if (nodeID === -1) return;
-    const target = e.target;
-    let data;
-    if (target.type === "checkbox" || target.type === "radio") {
-        data = {value: target.checked ? "on" : "off", checked: target.checked};
-    } else {
-        data = {value: target.value};
-    }
-    handleEvent(nodeID, "input", JSON.stringify(data));
-});
-
-document.addEventListener("submit", e => {
-    const nodeID = findNodeID(e.target);
-    if (nodeID === -1) return;
-    e.preventDefault();
-    const form = e.target;
-    const formData = {};
-    for (const el of form.elements) {
-        if (el.name) {
-            if (el.type === "checkbox" || el.type === "radio") {
-                formData[el.name] = el.checked ? "on" : "off";
-            } else {
-                formData[el.name] = el.value;
+function dispatchToGo(type, e) {
+    const payload = JSON.stringify(buildPayload(type, e));
+    let el = e.target;
+    while (el) {
+        if (el._nodeID !== undefined) {
+            const r = handleEvent(el._nodeID, type, payload);
+            if (r && r.handled) {
+                if (r.preventDefault) e.preventDefault();
+                if (r.stopPropagation) e.stopPropagation();
+                return;
             }
         }
+        el = el.parentElement;
     }
-    handleEvent(nodeID, "submit", JSON.stringify({values: formData}));
-});
-
-// Scroll events don't bubble — use capture phase
-document.addEventListener("scroll", e => {
-    const nodeID = findNodeID(e.target);
-    if (nodeID === -1) return;
-    const target = e.target;
-    handleEvent(nodeID, "scroll", JSON.stringify({
-        scrollTop: target.scrollTop, scrollLeft: target.scrollLeft
-    }));
-}, true);
+}
 
 window.applyMutations = function applyMutations(json) {
     const muts = JSON.parse(json);
-    let firstNodeID = null;
     for (const mut of muts) {
         let el;
         switch (mut.type) {
@@ -93,7 +82,6 @@ window.applyMutations = function applyMutations(json) {
                 }
                 el._nodeID = mut.nodeId;
                 nodeMap[mut.nodeId] = el;
-                if (firstNodeID === null) firstNodeID = mut.nodeId;
                 break;
             case 1: // RemoveNode
                 el = nodeMap[mut.nodeId];
@@ -109,7 +97,7 @@ window.applyMutations = function applyMutations(json) {
                 if (el) el[mut.key] = mut.value;
                 break;
             case 4: { // AppendChild
-                const parent = nodeMap[mut.nodeId];
+                const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
                 const child = nodeMap[mut.childId];
                 if (parent && child && !child.parentNode) {
                     parent.appendChild(child);
@@ -117,19 +105,19 @@ window.applyMutations = function applyMutations(json) {
                 break;
             }
             case 5: { // InsertBefore
-                const parent = nodeMap[mut.nodeId];
+                const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
                 const child = nodeMap[mut.childId];
-                const idx = parseInt(mut.key);
-                const ref = !isNaN(idx) ? parent.children[idx] : null;
+                const ref = mut.refId ? nodeMap[mut.refId] : null;
                 if (parent && child) {
                     parent.insertBefore(child, ref);
                 }
                 break;
             }
+            case 6: { // RemoveAttribute
+                el = nodeMap[mut.nodeId];
+                if (el) el.removeAttribute(mut.key);
+                break;
+            }
         }
     }
-    if (firstNodeID !== null && nodeMap[firstNodeID] && nodeMap[firstNodeID].parentNode === null) {
-        if (!root) root = document.getElementById("root");
-        if (root) root.appendChild(nodeMap[firstNodeID]);
-    }
-}
+};

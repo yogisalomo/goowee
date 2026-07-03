@@ -34,6 +34,7 @@ type Mutation struct {
 	Key     string       `json:"key,omitempty"`
 	Value   any          `json:"value,omitempty"`
 	ChildID int          `json:"childId,omitempty"`
+	RefID   int          `json:"refId,omitempty"`
 }
 
 type MutationType int
@@ -45,6 +46,7 @@ const (
 	MutSetProperty
 	MutAppendChild
 	MutInsertBefore
+	MutRemoveAttribute
 )
 
 func (mt MutationType) String() string {
@@ -61,6 +63,8 @@ func (mt MutationType) String() string {
 		return "AppendChild"
 	case MutInsertBefore:
 		return "InsertBefore"
+	case MutRemoveAttribute:
+		return "RemoveAttribute"
 	default:
 		return "Unknown"
 	}

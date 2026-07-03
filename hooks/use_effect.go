@@ -29,6 +29,10 @@ func UseEffect(deps []core.SignalAccessor, fn func() func()) {
 }
 
 func RunFrameCleanup(frame *core.ComponentFrame) {
+	for _, disposer := range frame.Disposers {
+		disposer()
+	}
+	frame.Disposers = nil
 	for _, hook := range frame.Hooks {
 		if es, ok := hook.(*effectState); ok {
 			for _, unsub := range es.Unsubs {
