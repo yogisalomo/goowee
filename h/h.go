@@ -56,6 +56,17 @@ func Map[T any](xs []T, fn func(T) core.Item) core.Item {
 	return g
 }
 
+// Nodes adapts a []core.Node into items so a slice of already-built nodes
+// can be spread into an element constructor: El("div", Nodes(children)...).
+// Every core.Node is already a core.Item; this just changes the slice type.
+func Nodes(ns []core.Node) []core.Item {
+	items := make([]core.Item, len(ns))
+	for i, n := range ns {
+		items[i] = n
+	}
+	return items
+}
+
 type attrItem struct{ name, value string }
 
 func (a attrItem) Apply(el *core.ElementNode) {

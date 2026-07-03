@@ -168,8 +168,8 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 			return
 		}
 
-		for _, child := range v.Children {
-			r.renderNodeWithMeta(child, buf, path+"/"+itoa(len(v.Children)), hooks, hookIdx)
+		for i, child := range v.Children {
+			r.renderNodeWithMeta(child, buf, path+"/"+itoa(i), hooks, hookIdx)
 		}
 
 		buf.WriteString("</")

@@ -1,6 +1,8 @@
 package dom
 
 import (
+	"log"
+
 	"goowee/core"
 	"goowee/hooks"
 )
@@ -79,7 +81,7 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		}
 		for _, b := range v.Binds {
 			r.Bindings.Bind(id, b)
-			*muts = append(*muts, bindMutation(id, b))
+			*muts = append(*muts, core.MutationForBind(id, b))
 		}
 		for _, hd := range v.Handlers {
 			r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
@@ -177,8 +179,6 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		}
 		v.Unsubs = make([]func(), len(v.Deps))
 		for i, dep := range v.Deps {
-			depIdx := i
-			_ = depIdx
 			v.Unsubs[i] = dep.Subscribe(func() {
 				r.reRenderScope(v, scopeParentID)
 			})
@@ -186,19 +186,6 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		return id
 	}
 	return 0
-}
-
-func bindMutation(nodeID int, b core.Bind) core.Mutation {
-	if b.Target == core.BindToAttr {
-		return core.Mutation{
-			Type: core.MutSetAttribute, NodeID: nodeID,
-			Key: b.Name, Value: b.Signal.Value(),
-		}
-	}
-	return core.Mutation{
-		Type: core.MutSetProperty, NodeID: nodeID,
-		Key: b.Name, Value: b.Signal.Value(),
-	}
 }
 
 func nodeID(n core.Node) int {
@@ -262,13 +249,22 @@ func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
 	if rootTypeChanged(s.Prev, newTree) {
 		newRootID := r.renderNode(newTree, &muts)
 		oldRootID := rootIDFromTree(s.Prev)
-		if oldRootID != 0 {
-			if parentID != 0 {
+		if newRootID != 0 {
+			switch {
+			case parentID != 0 && oldRootID != 0:
+				// Place the new root where the old one sits, then remove old.
 				muts = append(muts, core.Mutation{
 					Type: core.MutInsertBefore, NodeID: parentID,
 					ChildID: newRootID, RefID: oldRootID,
 				})
-			} else {
+			case parentID != 0:
+				// Old root had no DOM node (e.g. the scope was showing an
+				// empty fragment), so there is no sibling to anchor against.
+				// Append to the parent — correct for a trailing/only child.
+				muts = append(muts, core.Mutation{
+					Type: core.MutAppendChild, NodeID: parentID, ChildID: newRootID,
+				})
+			default:
 				muts = append(muts, core.Mutation{
 					Type: core.MutAppendChild, NodeID: 0, ChildID: newRootID,
 				})
@@ -466,6 +462,10 @@ func (r *DOMRenderer) diffChildrenPositional(parentID int, old, new []core.Node,
 		maxLen = len(new)
 	}
 
+	// Pass 1: pair positionally. Surplus old children (i >= len(new)) are
+	// paired with nil, which makes diffNode remove them — so no separate
+	// removal pass is needed. A node is "created" when diffNode had to
+	// render it fresh (old was nil, or a type/tag mismatch forced a swap).
 	for i := 0; i < maxLen; i++ {
 		var oldChild, newChild core.Node
 		if i < len(old) {
@@ -477,22 +477,12 @@ func (r *DOMRenderer) diffChildrenPositional(parentID int, old, new []core.Node,
 
 		oldID := nodeID(oldChild)
 		childID := r.diffNode(oldChild, newChild, muts)
-		created = append(created, oldChild == nil && newChild != nil)
+		created = append(created, newChild != nil && childID != oldID)
 		ids = append(ids, childID)
-
-		if newChild == nil && oldChild != nil {
-			created[i] = false
-		} else if childID != oldID {
-			created[i] = true
-		}
 	}
 
-	if len(new) < len(old) {
-		for i := len(new); i < len(old); i++ {
-			r.emitRemoveTree(old[i], muts)
-		}
-	}
-
+	// Pass 2: place created children. Reused children keep their position
+	// under positional matching, so they never move.
 	refID := 0
 	for i := len(new) - 1; i >= 0; i-- {
 		if created[i] && ids[i] != 0 {
@@ -505,24 +495,6 @@ func (r *DOMRenderer) diffChildrenPositional(parentID int, old, new []core.Node,
 			refID = ids[i]
 		}
 	}
-
-	for i := 0; i < maxLen; i++ {
-		if i < len(old) && i < len(new) {
-			if !created[i] && nodeID(new[i]) != nodeID(old[i]) {
-				refID := 0
-				for j := i + 1; j < len(new); j++ {
-					if ids[j] != 0 {
-						refID = ids[j]
-						break
-					}
-				}
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutInsertBefore, NodeID: parentID,
-					ChildID: ids[i], RefID: refID,
-				})
-			}
-		}
-	}
 }
 
 func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts *[]core.Mutation) {
@@ -531,6 +503,7 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 	for i, n := range old {
 		if el, ok := n.(*core.ElementNode); ok && el != nil && el.Key != nil {
 			if _, dup := oldByKey[el.Key]; dup {
+				log.Printf("goowee: duplicate key %v in keyed children; treating extra as unkeyed", el.Key)
 				continue
 			}
 			oldByKey[el.Key] = i
@@ -542,7 +515,6 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 	paired := make([]bool, len(old))
 	oldIndexForNew := make([]int, len(new))
 	newIDs := make([]int, len(new))
-	created := make([]bool, len(new))
 
 	unkeyedIdx := 0
 	for i, n := range new {
@@ -550,6 +522,7 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 		if el, ok := n.(*core.ElementNode); ok && el != nil && el.Key != nil {
 			if oldIdx, ok := oldByKey[el.Key]; ok {
 				if paired[oldIdx] {
+					log.Printf("goowee: duplicate key %v in keyed children; treating extra as unkeyed", el.Key)
 					continue
 				}
 				paired[oldIdx] = true
@@ -573,9 +546,7 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 		if oldIndexForNew[i] >= 0 {
 			oldChild = old[oldIndexForNew[i]]
 		}
-		childID := r.diffNode(oldChild, new[i], muts)
-		newIDs[i] = childID
-		created[i] = oldChild == nil || nodeID(oldChild) != childID
+		newIDs[i] = r.diffNode(oldChild, new[i], muts)
 	}
 
 	for i, n := range old {

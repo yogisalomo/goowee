@@ -794,6 +794,52 @@ func TestDOMScopeStructuralChangeWithParent(t *testing.T) {
 	}
 }
 
+// A scope whose root goes element -> empty fragment -> element (the h.Show
+// pattern) must re-attach the re-shown element to its parent. Regression for
+// the case where the old root has no DOM node to anchor against.
+func TestDOMScopeEmptyToElementReattaches(t *testing.T) {
+	sig := core.NewSignal(true)
+	scope := &core.ScopeNode{
+		Render: func() core.Node {
+			if sig.Get() {
+				return &core.ElementNode{Tag: "p", Children: []core.Node{&core.TextNode{Value: "hi"}}}
+			}
+			return &core.FragmentNode{}
+		},
+		Deps: []core.SignalAccessor{sig},
+	}
+
+	r := New()
+	parent := &core.ElementNode{Tag: "div", Children: []core.Node{scope}}
+	r.Render(parent)
+
+	sig.Set(false) // hide
+	_ = r.Scheduler.Flush()
+
+	sig.Set(true) // show again
+	muts := r.Scheduler.Flush()
+
+	var createdID int
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement && m.Value == "p" {
+			createdID = m.NodeID
+		}
+	}
+	if createdID == 0 {
+		t.Fatalf("expected a <p> to be created on re-show, got: %v", muts)
+	}
+	attached := false
+	for _, m := range muts {
+		if (m.Type == core.MutAppendChild || m.Type == core.MutInsertBefore) && m.ChildID == createdID {
+			attached = true
+			break
+		}
+	}
+	if !attached {
+		t.Fatalf("re-shown <p> (id=%d) was never attached to a parent, got: %v", createdID, muts)
+	}
+}
+
 func TestDOMChildrenInsertBeforeRefID(t *testing.T) {
 	sig := core.NewSignal(0)
 	scope := &core.ScopeNode{
@@ -1171,5 +1217,36 @@ func TestDuplicateKeysLoggedNotPanic(t *testing.T) {
 	}
 	if createCount == 0 {
 		t.Fatalf("expected at least 1 create for duplicate, got 0")
+	}
+}
+
+// Shrinking an unkeyed list must emit exactly one RemoveNode per removed
+// subtree (regression: surplus children were removed twice).
+func TestPositionalShrinkRemovesOnce(t *testing.T) {
+	old := []core.Node{
+		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "a"}}},
+		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "b"}}},
+		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "c"}}},
+	}
+	r := New()
+	parent := &core.ElementNode{Tag: "ul", Children: old}
+	r.Render(parent)
+
+	newKids := []core.Node{
+		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "a"}}},
+	}
+	var muts []core.Mutation
+	r.diffChildren(parent.ID, old, newKids, &muts)
+
+	removes := map[int]int{}
+	for _, m := range muts {
+		if m.Type == core.MutRemoveNode {
+			removes[m.NodeID]++
+		}
+	}
+	for id, n := range removes {
+		if n != 1 {
+			t.Errorf("node %d removed %d times, want exactly 1", id, n)
+		}
 	}
 }

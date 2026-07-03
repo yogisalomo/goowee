@@ -105,7 +105,7 @@ window.applyMutations = function applyMutations(json) {
                 break;
             }
             case 5: { // InsertBefore
-                const parent = nodeMap[mut.nodeId];
+                const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
                 const child = nodeMap[mut.childId];
                 const ref = mut.refId ? nodeMap[mut.refId] : null;
                 if (parent && child) {

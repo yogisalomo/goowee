@@ -28,7 +28,7 @@ func App(r *router.Router) core.Node {
 func appLayout(r *router.Router, children ...core.Node) core.Node {
 	return Div(Class("app"),
 		appHeader(r),
-		Main(childrenToItems(children)...),
+		Main(Nodes(children)...),
 	)
 }
 
@@ -77,6 +77,7 @@ func counterPage() core.Node {
 }
 
 type entry struct {
+	id          int
 	name, email string
 	agreed      bool
 }
@@ -93,6 +94,7 @@ func formPage() core.Node {
 			Form(
 				OnSubmit(func(vals map[string]string) {
 					en := entry{
+						id:     len(entries.Get()) + 1, // append-only, so unique + stable
 						name:   vals["name"],
 						email:  vals["email"],
 						agreed: vals["agreed"] == "on",
@@ -119,7 +121,7 @@ func formPage() core.Node {
 			H3(Text("Preview")),
 			P(Textf("Name: %s, Email: %s", name, email)),
 			H3(Text("Submissions")),
-			For(entries, func(e entry) int { return 0 }, func(e entry) core.Node {
+			For(entries, func(e entry) int { return e.id }, func(e entry) core.Node {
 				agreed := "no"
 				if e.agreed {
 					agreed = "yes"
@@ -238,6 +240,13 @@ func stopwatchPage() core.Node {
 			return fmt.Sprintf("%02d:%02d.%d", mins, secs, tenths)
 		})
 
+		runLabel := core.Computed([]core.SignalAccessor{running}, func() string {
+			if running.Get() {
+				return "Pause"
+			}
+			return "Start"
+		})
+
 		go func() {
 			for {
 				time.Sleep(100 * time.Millisecond)
@@ -252,12 +261,7 @@ func stopwatchPage() core.Node {
 			P(Style("font-size:2rem;font-family:monospace;"), TextS(display)),
 			Button(
 				OnClick(func() { setRunning(!running.Get()) }),
-				Text(func() string {
-					if running.Get() {
-						return "Pause"
-					}
-					return "Start"
-				}()),
+				TextS(runLabel),
 			),
 			Button(
 				OnClick(func() { setElapsed(0); setRunning(false) }),
@@ -308,7 +312,7 @@ func dashboardPage() core.Node {
 						Th(Style("text-align:left;padding:4px 8px;border-bottom:2px solid #ccc;"), Text("Unit")),
 					),
 				),
-				Tbody(childrenToItems(dashboardRows(data, selected, setSelected))...),
+				Tbody(Nodes(dashboardRows(data, selected, setSelected))...),
 			),
 			P(TextS(selectedText)),
 			Button(
@@ -359,21 +363,3 @@ func aboutPage() core.Node {
 	)
 }
 
-func childrenToItems(children []core.Node) []core.Item {
-	items := make([]core.Item, len(children))
-	for i, c := range children {
-		items[i] = nodeItem{c}
-	}
-	return items
-}
-
-type nodeItem struct {
-	node core.Node
-}
-
-func (n nodeItem) Apply(el *core.ElementNode) {
-	if n.node == nil {
-		return
-	}
-	el.Children = append(el.Children, n.node)
-}

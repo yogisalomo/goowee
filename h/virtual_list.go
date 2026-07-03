@@ -83,26 +83,7 @@ func renderVisible[T any](startIdx, endIdx int, items []T, renderItem func(int, 
 		if el, ok := n.(*core.ElementNode); ok && el != nil {
 			el.Key = idx
 		}
-		out = append(out, itemWrapper{n})
+		out = append(out, n)
 	}
 	return out
-}
-
-func childrenToItems(children []core.Node) []core.Item {
-	items := make([]core.Item, len(children))
-	for i, c := range children {
-		items[i] = itemWrapper{c}
-	}
-	return items
-}
-
-type itemWrapper struct {
-	node core.Node
-}
-
-func (w itemWrapper) Apply(el *core.ElementNode) {
-	if w.node == nil {
-		return
-	}
-	el.Children = append(el.Children, w.node)
 }

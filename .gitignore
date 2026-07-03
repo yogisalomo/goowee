@@ -3,6 +3,8 @@ examples/counter/main.wasm
 examples/counter/wasm_exec.js
 examples/counter/goowee.js
 bin/
+/counter
+/ssr-server
 .DS_Store
 .vscode/
 .idea/
