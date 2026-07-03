@@ -6,10 +6,11 @@ import (
 )
 
 type DOMRenderer struct {
-	nextID    int
-	Bindings  *core.BindingRegistry
-	Scheduler *core.Scheduler
-	Registry  *NodeRegistry
+	nextID      int
+	Bindings    *core.BindingRegistry
+	Scheduler   *core.Scheduler
+	Registry    *NodeRegistry
+	parentStack []int
 }
 
 func New() *DOMRenderer {
@@ -83,6 +84,7 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		for _, hd := range v.Handlers {
 			r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
 		}
+		r.parentStack = append(r.parentStack, id)
 		for _, child := range v.Children {
 			childID := r.renderNode(child, muts)
 			if childID != 0 {
@@ -91,6 +93,7 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 				})
 			}
 		}
+		r.parentStack = r.parentStack[:len(r.parentStack)-1]
 		return id
 
 	case *core.TextNode:
@@ -168,10 +171,16 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		v.Frames = frames
 		id := r.renderNode(flat, muts)
 		v.Prev = flat
+		scopeParentID := 0
+		if len(r.parentStack) > 0 {
+			scopeParentID = r.parentStack[len(r.parentStack)-1]
+		}
 		v.Unsubs = make([]func(), len(v.Deps))
 		for i, dep := range v.Deps {
+			depIdx := i
+			_ = depIdx
 			v.Unsubs[i] = dep.Subscribe(func() {
-				r.reRenderScope(v)
+				r.reRenderScope(v, scopeParentID)
 			})
 		}
 		return id
@@ -219,7 +228,28 @@ func rootIDFromTree(n core.Node) int {
 	return 0
 }
 
-func (r *DOMRenderer) reRenderScope(s *core.ScopeNode) {
+func rootTypeChanged(old, new core.Node) bool {
+	if old == nil || new == nil {
+		return old != new
+	}
+	switch a := old.(type) {
+	case *core.ElementNode:
+		b, ok := new.(*core.ElementNode)
+		return !ok || a.Tag != b.Tag
+	case *core.TextNode:
+		_, ok := new.(*core.TextNode)
+		return !ok
+	case *core.FragmentNode:
+		_, ok := new.(*core.FragmentNode)
+		return !ok
+	case *core.ScopeNode:
+		_, ok := new.(*core.ScopeNode)
+		return !ok
+	}
+	return true
+}
+
+func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
 	oldFrames := s.Frames
 	s.Frames = nil
 
@@ -228,7 +258,29 @@ func (r *DOMRenderer) reRenderScope(s *core.ScopeNode) {
 	s.Frames = frames
 
 	var muts []core.Mutation
-	r.diffNode(s.Prev, newTree, &muts)
+
+	if rootTypeChanged(s.Prev, newTree) {
+		newRootID := r.renderNode(newTree, &muts)
+		oldRootID := rootIDFromTree(s.Prev)
+		if oldRootID != 0 {
+			if parentID != 0 {
+				muts = append(muts, core.Mutation{
+					Type: core.MutInsertBefore, NodeID: parentID,
+					ChildID: newRootID, RefID: oldRootID,
+				})
+			} else {
+				muts = append(muts, core.Mutation{
+					Type: core.MutAppendChild, NodeID: 0, ChildID: newRootID,
+				})
+			}
+		}
+		if s.Prev != nil {
+			r.emitRemoveTree(s.Prev, &muts)
+		}
+	} else {
+		r.diffNode(s.Prev, newTree, &muts)
+	}
+
 	if len(muts) > 0 {
 		r.Scheduler.Enqueue(muts...)
 	}

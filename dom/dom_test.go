@@ -279,6 +279,7 @@ func TestDOMScopeStructuralChange(t *testing.T) {
 
 	hasRemove := false
 	hasCreate := false
+	hasAppend := false
 	for _, m := range diffMuts {
 		if m.Type == core.MutCreateElement && m.Value == "span" {
 			hasCreate = true
@@ -286,12 +287,18 @@ func TestDOMScopeStructuralChange(t *testing.T) {
 		if m.Type == core.MutRemoveNode && m.NodeID == 1 {
 			hasRemove = true
 		}
+		if m.Type == core.MutAppendChild && m.NodeID == 0 && m.ChildID != 0 {
+			hasAppend = true
+		}
 	}
 	if !hasRemove {
 		t.Fatal("expected RemoveNode for old div")
 	}
 	if !hasCreate {
 		t.Fatal("expected CreateElement for new span")
+	}
+	if !hasAppend {
+		t.Fatal("expected AppendChild to root (node 0) for new span")
 	}
 }
 
@@ -746,6 +753,44 @@ func TestDOMRootMounting(t *testing.T) {
 	}
 	if !hasAppend {
 		t.Fatalf("expected append to root container (node 0), got %v", muts)
+	}
+}
+
+func TestDOMScopeStructuralChangeWithParent(t *testing.T) {
+	sig := core.NewSignal(true)
+	scope := &core.ScopeNode{
+		Render: func() core.Node {
+			if sig.Get() {
+				return &core.ElementNode{Tag: "div"}
+			}
+			return &core.ElementNode{Tag: "span"}
+		},
+		Deps: []core.SignalAccessor{sig},
+	}
+
+	r := New()
+	parent := &core.ElementNode{
+		Tag:      "main",
+		Children: []core.Node{scope},
+	}
+	initMuts, _ := r.Render(parent)
+	_ = initMuts
+
+	sig.Set(false)
+	diffMuts := r.Scheduler.Flush()
+	if len(diffMuts) == 0 {
+		t.Fatal("expected diff mutations")
+	}
+
+	hasInsert := false
+	for _, m := range diffMuts {
+		if m.Type == core.MutInsertBefore && m.NodeID == 1 {
+			hasInsert = true
+			break
+		}
+	}
+	if !hasInsert {
+		t.Fatalf("expected InsertBefore on parent (node 1), got: %v", diffMuts)
 	}
 }
 
