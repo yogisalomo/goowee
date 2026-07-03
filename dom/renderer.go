@@ -1,7 +1,6 @@
 package dom
 
 import (
-	"fmt"
 	"goowee/core"
 	"goowee/hooks"
 )
@@ -39,59 +38,65 @@ func (r *DOMRenderer) allocID() int {
 func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 	var muts []core.Mutation
 	rootID := r.renderNode(n, &muts)
+	if rootID != 0 {
+		muts = append(muts, core.Mutation{
+			Type: core.MutAppendChild, NodeID: 0, ChildID: rootID,
+		})
+	} else if frag, ok := n.(*core.FragmentNode); ok {
+		for _, c := range frag.Children {
+			if id := nodeID(c); id != 0 {
+				muts = append(muts, core.Mutation{
+					Type: core.MutAppendChild, NodeID: 0, ChildID: id,
+				})
+			}
+		}
+	}
 	return muts, rootID
 }
 
 func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 	switch v := n.(type) {
 	case *core.ElementNode:
+		if v == nil {
+			return 0
+		}
 		id := r.allocID()
 		v.ID = id
 		*muts = append(*muts, core.Mutation{
 			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: v.Tag,
 		})
-		for key, val := range v.Props {
-			if key == "class" {
-				key = "className"
-			}
-			switch actual := val.(type) {
-			case string:
-				if isProperty(key) {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutSetProperty, NodeID: id, Key: key, Value: actual,
-					})
-				} else {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutSetAttribute, NodeID: id, Key: key, Value: actual,
-					})
-				}
-			case bool:
-				if isProperty(key) {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutSetProperty, NodeID: id, Key: key, Value: actual,
-					})
-				}
-			case core.SignalAccessor:
-				r.Bindings.Bind(id, actual, key)
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutSetProperty, NodeID: id, Key: key,
-					Value: actual.Value(),
-				})
-			case func(core.EventData):
-				if len(key) > 2 && key[:2] == "on" {
-					r.Registry.RegisterHandler(id, key[2:], actual)
-				}
-			}
+
+		for _, a := range v.Attrs {
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutSetAttribute, NodeID: id, Key: a.Name, Value: a.Value,
+			})
+		}
+		for _, p := range v.Props {
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutSetProperty, NodeID: id, Key: p.Name, Value: p.Value,
+			})
+		}
+		for _, b := range v.Binds {
+			r.Bindings.Bind(id, b)
+			*muts = append(*muts, bindMutation(id, b))
+		}
+		for _, hd := range v.Handlers {
+			r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
 		}
 		for _, child := range v.Children {
 			childID := r.renderNode(child, muts)
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutAppendChild, NodeID: id, ChildID: childID,
-			})
+			if childID != 0 {
+				*muts = append(*muts, core.Mutation{
+					Type: core.MutAppendChild, NodeID: id, ChildID: childID,
+				})
+			}
 		}
 		return id
 
 	case *core.TextNode:
+		if v == nil {
+			return 0
+		}
 		id := r.allocID()
 		v.ID = id
 		*muts = append(*muts, core.Mutation{
@@ -103,7 +108,9 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 				Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: val,
 			})
 		case core.SignalAccessor:
-			r.Bindings.Bind(id, val, "textContent")
+			r.Bindings.Bind(id, core.Bind{
+				Target: core.BindToProp, Name: "textContent", Signal: val,
+			})
 			*muts = append(*muts, core.Mutation{
 				Type: core.MutSetProperty, NodeID: id, Key: "textContent",
 				Value: val.Value(),
@@ -112,12 +119,18 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		return id
 
 	case *core.FragmentNode:
+		if v == nil {
+			return 0
+		}
 		for _, child := range v.Children {
 			r.renderNode(child, muts)
 		}
 		return 0
 
 	case *core.ComponentNode:
+		if v == nil {
+			return 0
+		}
 		frame := core.PushComponent()
 		inner := v.Render()
 		id := r.renderNode(inner, muts)
@@ -126,8 +139,10 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		return id
 
 	case *core.ScopeNode:
+		if v == nil {
+			return 0
+		}
 		if v.Prev != nil {
-			// Re-render: diff new tree vs stored old tree
 			oldFrames := v.Frames
 			v.Frames = nil
 
@@ -139,7 +154,6 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 			r.diffNode(v.Prev, newTree, &diffMuts)
 			r.Scheduler.Enqueue(diffMuts...)
 
-			// Run cleanup for old frames (components removed by diff)
 			for _, frame := range oldFrames {
 				hooks.RunFrameCleanup(frame)
 			}
@@ -148,7 +162,7 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 			id := rootIDFromTree(newTree)
 			return id
 		}
-		// First render
+
 		inner := v.Render()
 		flat, frames := core.FlatTreeWithFrames(inner)
 		v.Frames = frames
@@ -163,6 +177,19 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		return id
 	}
 	return 0
+}
+
+func bindMutation(nodeID int, b core.Bind) core.Mutation {
+	if b.Target == core.BindToAttr {
+		return core.Mutation{
+			Type: core.MutSetAttribute, NodeID: nodeID,
+			Key: b.Name, Value: b.Signal.Value(),
+		}
+	}
+	return core.Mutation{
+		Type: core.MutSetProperty, NodeID: nodeID,
+		Key: b.Name, Value: b.Signal.Value(),
+	}
 }
 
 func nodeID(n core.Node) int {
@@ -230,85 +257,102 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 		new, ok := newNode.(*core.ElementNode)
 		if !ok || old.Tag != new.Tag {
 			r.emitRemoveTree(old, muts)
-			return r.renderNode(new, muts)
+			return r.renderNode(newNode, muts)
 		}
 		new.ID = old.ID
 
-		for key, newVal := range new.Props {
-			nkey := key
-			if nkey == "class" {
-				nkey = "className"
-			}
-			if s, isStr := newVal.(string); isStr {
-				oldVal, exists := old.Props[key]
-				if exists && oldVal == s {
-					continue
-				}
-				if isProperty(nkey) {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutSetProperty, NodeID: old.ID, Key: nkey, Value: s,
-					})
-				} else {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutSetAttribute, NodeID: old.ID, Key: nkey, Value: s,
-					})
-				}
-			} else if b, isBool := newVal.(bool); isBool && isProperty(nkey) {
-				oldVal, exists := old.Props[key]
-				if exists && oldVal == b {
-					continue
-				}
+		oldAttrs := map[string]string{}
+		for _, a := range old.Attrs {
+			oldAttrs[a.Name] = a.Value
+		}
+		for _, a := range new.Attrs {
+			if ov, ok := oldAttrs[a.Name]; !ok || ov != a.Value {
 				*muts = append(*muts, core.Mutation{
-					Type: core.MutSetProperty, NodeID: old.ID, Key: nkey, Value: b,
+					Type: core.MutSetAttribute, NodeID: old.ID, Key: a.Name, Value: a.Value,
 				})
+			}
+			delete(oldAttrs, a.Name)
+		}
+		for name := range oldAttrs {
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutRemoveAttribute, NodeID: old.ID, Key: name,
+			})
+		}
+
+		oldProps := map[string]any{}
+		for _, p := range old.Props {
+			oldProps[p.Name] = p.Value
+		}
+		for _, p := range new.Props {
+			if ov, ok := oldProps[p.Name]; !ok || ov != p.Value {
+				*muts = append(*muts, core.Mutation{
+					Type: core.MutSetProperty, NodeID: old.ID, Key: p.Name, Value: p.Value,
+				})
+			}
+			delete(oldProps, p.Name)
+		}
+		for name, ov := range oldProps {
+			var zero any = ""
+			if _, isBool := ov.(bool); isBool {
+				zero = false
+			}
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutSetProperty, NodeID: old.ID, Key: name, Value: zero,
+			})
+		}
+
+		r.Bindings.Unbind(old.ID)
+		for _, b := range new.Binds {
+			r.Bindings.Bind(old.ID, b)
+			*muts = append(*muts, core.MutationForBind(old.ID, b))
+		}
+
+		newEvents := map[string]bool{}
+		for _, hd := range new.Handlers {
+			r.Registry.RegisterHandler(old.ID, hd.Event, hd.Fn, hd.Options)
+			newEvents[hd.Event] = true
+		}
+		for _, hd := range old.Handlers {
+			if !newEvents[hd.Event] {
+				r.Registry.RemoveHandler(old.ID, hd.Event)
 			}
 		}
 
-		maxLen := len(old.Children)
-		if len(new.Children) > maxLen {
-			maxLen = len(new.Children)
-		}
-		for i := 0; i < maxLen; i++ {
-			var oldChild, newChild core.Node
-			if i < len(old.Children) {
-				oldChild = old.Children[i]
-			}
-			if i < len(new.Children) {
-				newChild = new.Children[i]
-			}
-			oldID := nodeID(oldChild)
-			childID := r.diffNode(oldChild, newChild, muts)
-			if oldChild == nil && newChild != nil {
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutAppendChild, NodeID: old.ID, ChildID: childID,
-				})
-			} else if oldChild != nil && newChild != nil && childID != oldID {
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutInsertBefore, NodeID: old.ID, ChildID: childID,
-					Key: fmt.Sprintf("%d", i),
-				})
-			}
-		}
-		if len(new.Children) < len(old.Children) {
-			for i := len(new.Children); i < len(old.Children); i++ {
-				r.emitRemoveTree(old.Children[i], muts)
-			}
-		}
+		r.diffChildren(old.ID, old.Children, new.Children, muts)
 		return old.ID
 
 	case *core.TextNode:
 		new, ok := newNode.(*core.TextNode)
 		if !ok {
 			r.emitRemoveTree(old, muts)
-			return r.renderNode(new, muts)
+			return r.renderNode(newNode, muts)
 		}
 		new.ID = old.ID
+
 		oldStr, oldIsStr := old.Value.(string)
 		newStr, newIsStr := new.Value.(string)
 		if oldIsStr && newIsStr && oldStr != newStr {
 			*muts = append(*muts, core.Mutation{
 				Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent", Value: newStr,
 			})
+			return old.ID
+		}
+
+		if oldIsStr != newIsStr || (!oldIsStr && !newIsStr) {
+			r.Bindings.Unbind(old.ID)
+			if newSig, ok := new.Value.(core.SignalAccessor); ok {
+				r.Bindings.Bind(old.ID, core.Bind{
+					Target: core.BindToProp, Name: "textContent", Signal: newSig,
+				})
+				*muts = append(*muts, core.Mutation{
+					Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent",
+					Value: newSig.Value(),
+				})
+			} else if newStr, ok := new.Value.(string); ok {
+				*muts = append(*muts, core.Mutation{
+					Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent", Value: newStr,
+				})
+			}
 		}
 		return old.ID
 
@@ -316,27 +360,9 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 		new, ok := newNode.(*core.FragmentNode)
 		if !ok {
 			r.emitRemoveTree(old, muts)
-			return r.renderNode(new, muts)
+			return r.renderNode(newNode, muts)
 		}
-		maxLen := len(old.Children)
-		if len(new.Children) > maxLen {
-			maxLen = len(new.Children)
-		}
-		for i := 0; i < maxLen; i++ {
-			var oldChild, newChild core.Node
-			if i < len(old.Children) {
-				oldChild = old.Children[i]
-			}
-			if i < len(new.Children) {
-				newChild = new.Children[i]
-			}
-			r.diffNode(oldChild, newChild, muts)
-		}
-		if len(new.Children) < len(old.Children) {
-			for i := len(new.Children); i < len(old.Children); i++ {
-				r.emitRemoveTree(old.Children[i], muts)
-			}
-		}
+		r.diffChildren(0, old.Children, new.Children, muts)
 		return 0
 
 	case *core.ScopeNode:
@@ -361,6 +387,74 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 	return 0
 }
 
+func (r *DOMRenderer) diffChildren(parentID int, old, new []core.Node, muts *[]core.Mutation) {
+	var created []bool
+	var ids []int
+
+	maxLen := len(old)
+	if len(new) > maxLen {
+		maxLen = len(new)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		var oldChild, newChild core.Node
+		if i < len(old) {
+			oldChild = old[i]
+		}
+		if i < len(new) {
+			newChild = new[i]
+		}
+
+		oldID := nodeID(oldChild)
+		childID := r.diffNode(oldChild, newChild, muts)
+		created = append(created, oldChild == nil && newChild != nil)
+		ids = append(ids, childID)
+
+		if newChild == nil && oldChild != nil {
+			created[i] = false
+		} else if childID != oldID {
+			created[i] = true
+		}
+	}
+
+	if len(new) < len(old) {
+		for i := len(new); i < len(old); i++ {
+			r.emitRemoveTree(old[i], muts)
+		}
+	}
+
+	refID := 0
+	for i := len(new) - 1; i >= 0; i-- {
+		if created[i] && ids[i] != 0 {
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutInsertBefore, NodeID: parentID,
+				ChildID: ids[i], RefID: refID,
+			})
+		}
+		if ids[i] != 0 {
+			refID = ids[i]
+		}
+	}
+
+	for i := 0; i < maxLen; i++ {
+		if i < len(old) && i < len(new) {
+			if !created[i] && nodeID(new[i]) != nodeID(old[i]) {
+				refID := 0
+				for j := i + 1; j < len(new); j++ {
+					if ids[j] != 0 {
+						refID = ids[j]
+						break
+					}
+				}
+				*muts = append(*muts, core.Mutation{
+					Type: core.MutInsertBefore, NodeID: parentID,
+					ChildID: ids[i], RefID: refID,
+				})
+			}
+		}
+	}
+}
+
 func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 	ids := core.CollectIDs(n)
 	for _, id := range ids {
@@ -369,14 +463,5 @@ func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 		*muts = append(*muts, core.Mutation{
 			Type: core.MutRemoveNode, NodeID: id,
 		})
-	}
-}
-
-func isProperty(key string) bool {
-	switch key {
-	case "textContent", "checked", "value", "className", "disabled", "selected", "innerText":
-		return true
-	default:
-		return false
 	}
 }

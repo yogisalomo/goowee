@@ -2,6 +2,7 @@ package router
 
 import (
 	"goowee/core"
+	"goowee/h"
 	"strings"
 )
 
@@ -26,16 +27,11 @@ func (r *Router) Navigate(path string) {
 }
 
 func (r *Router) Link(to, text string) *core.ElementNode {
-	return &core.ElementNode{
-		Tag: "a",
-		Props: map[string]any{
-			"href": to,
-			"onclick": func(ed core.EventData) {
-				r.Navigate(to)
-			},
-		},
-		Children: []core.Node{&core.TextNode{Value: text}},
-	}
+	return h.A(
+		h.Href(to),
+		h.OnClickE(func(core.EventData) { r.Navigate(to) }, h.PreventDefault()),
+		h.Text(text),
+	)
 }
 
 func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
@@ -54,10 +50,7 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 			if fn, ok := routes["/404"]; ok {
 				return fn()
 			}
-			return &core.ElementNode{
-				Tag:   "p",
-				Props: map[string]any{"textContent": "404 — page not found"},
-			}
+			return h.P(h.Text("404 — page not found"))
 		},
 	}
 }

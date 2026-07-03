@@ -5,18 +5,96 @@ import "fmt"
 type Node interface {
 	nodeMarker()
 	String() string
+	Apply(el *ElementNode)
 }
 
 type ElementNode struct {
 	ID       int
 	Tag      string
-	Props    map[string]any
+	Key      any
+	Attrs    []Attr
+	Props    []Prop
+	Binds    []Bind
+	Handlers []Handler
 	Children []Node
 }
 
 func (e *ElementNode) nodeMarker() {}
 func (e *ElementNode) String() string {
 	return fmt.Sprintf("Element(%s)", e.Tag)
+}
+
+type Attr struct {
+	Name  string
+	Value string
+}
+
+type Prop struct {
+	Name  string
+	Value any
+}
+
+type BindTarget int
+
+const (
+	BindToProp BindTarget = iota
+	BindToAttr
+)
+
+type Bind struct {
+	Target BindTarget
+	Name   string
+	Signal SignalAccessor
+}
+
+type Handler struct {
+	Event   string
+	Fn      func(EventData)
+	Options HandlerOptions
+}
+
+type HandlerOptions struct {
+	PreventDefault  bool
+	StopPropagation bool
+}
+
+type Item interface {
+	Apply(el *ElementNode)
+}
+
+func (e *ElementNode) Apply(parent *ElementNode) {
+	if e == nil {
+		return
+	}
+	parent.Children = append(parent.Children, e)
+}
+
+func (t *TextNode) Apply(parent *ElementNode) {
+	if t == nil {
+		return
+	}
+	parent.Children = append(parent.Children, t)
+}
+
+func (f *FragmentNode) Apply(parent *ElementNode) {
+	if f == nil {
+		return
+	}
+	parent.Children = append(parent.Children, f)
+}
+
+func (c *ComponentNode) Apply(parent *ElementNode) {
+	if c == nil {
+		return
+	}
+	parent.Children = append(parent.Children, c)
+}
+
+func (s *ScopeNode) Apply(parent *ElementNode) {
+	if s == nil {
+		return
+	}
+	parent.Children = append(parent.Children, s)
 }
 
 type TextNode struct {
@@ -41,8 +119,8 @@ func (f *FragmentNode) String() string {
 type ComponentNode struct {
 	Name   string
 	Render func() Node
-	Prev   Node            // set by renderer: last rendered inner tree
-	Frame  *ComponentFrame // set after each render
+	Prev   Node
+	Frame  *ComponentFrame
 }
 
 func (c *ComponentNode) nodeMarker() {}
@@ -57,14 +135,19 @@ func Component(name string, render func() Node) *ComponentNode {
 type ScopeNode struct {
 	Render func() Node
 	Deps   []SignalAccessor
-	Prev   Node              // set by renderer after each render (expanded tree with IDs)
-	Frames []*ComponentFrame // component frames from last render, for cleanup
-	Unsubs []func()          // signal subscription cancellations, set by renderer
+	Prev   Node
+	Frames []*ComponentFrame
+	Unsubs []func()
 }
 
 func (s *ScopeNode) nodeMarker() {}
 func (s *ScopeNode) String() string {
 	return fmt.Sprintf("Scope(%d deps)", len(s.Deps))
+}
+
+var VoidElements = map[string]bool{
+	"br": true, "hr": true, "img": true, "input": true, "source": true,
+	"track": true, "wbr": true, "area": true, "col": true, "embed": true,
 }
 
 func FlatTree(n Node) Node {
@@ -145,8 +228,6 @@ func CollectIDs(n Node) []int {
 	return ids
 }
 
-// FlatTreeWithFrames is like FlatTree but also collects all ComponentFrame
-// pointers created during flattening into the provided slice.
 func FlatTreeWithFrames(n Node) (Node, []*ComponentFrame) {
 	var frames []*ComponentFrame
 	result := flatTree(n, &frames)
@@ -157,4 +238,41 @@ type EventData struct {
 	Type   string
 	Target int
 	Data   map[string]any
+}
+
+func (e EventData) str(k string) string {
+	if v, ok := e.Data[k].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func (e EventData) num(k string) float64 {
+	if v, ok := e.Data[k].(float64); ok {
+		return v
+	}
+	return 0
+}
+
+func (e EventData) Value() string       { return e.str("value") }
+func (e EventData) Key() string         { return e.str("key") }
+func (e EventData) Checked() bool {
+	v, _ := e.Data["checked"].(bool)
+	return v
+}
+func (e EventData) ScrollTop() float64  { return e.num("scrollTop") }
+func (e EventData) ScrollLeft() float64 { return e.num("scrollLeft") }
+func (e EventData) ClientX() float64    { return e.num("clientX") }
+func (e EventData) ClientY() float64    { return e.num("clientY") }
+
+func (e EventData) FormValues() map[string]string {
+	out := map[string]string{}
+	if m, ok := e.Data["values"].(map[string]any); ok {
+		for k, v := range m {
+			if s, ok := v.(string); ok {
+				out[k] = s
+			}
+		}
+	}
+	return out
 }
