@@ -1,6 +1,8 @@
 # Spike Divergences
 
-This document captures what was learned during the spike execution that diverges from `plan-v1.md`. Update the plan accordingly before starting production implementation.
+This document captures what was learned during the spike execution that diverges from `plan-v1.md`. The plan has been updated to reflect the production implementation.
+
+**Note:** All divergences below have been incorporated into the production code and `plan-v1.md` is now current. This file is kept for historical reference.
 
 ---
 

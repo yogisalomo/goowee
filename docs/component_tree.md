@@ -2,35 +2,37 @@
 
 ## Motivation
 
-The framework needs a way to track component identity across renders. A flat `currentComponentID` counter is insufficient because:
+The framework needs a way to track component identity across renders and provide hook state isolation. A flat `currentComponentID` counter is insufficient because:
 
 - Components mount and unmount dynamically (conditionals, lists).
 - Re-renders must resolve to the same hook state slots.
 - Unmount requires walking descendants to unbind signals and remove DOM nodes.
 - Hydration needs a stable path from server HTML to client component instance.
 
-The `ComponentNode` tree solves all of these with a single, lightweight structure.
+There are two related but distinct concepts:
+
+1. **`ComponentFrame`** — hook state tracking structure (in `core/component_tree.go`), used during render to isolate `UseState`/`UseEffect` state.
+2. **`ComponentNode`** — a VNode type in the tree (in `core/node.go`), a node that wraps a component function for re-execution.
 
 ---
 
-## ComponentNode
+## ComponentFrame (Hook State)
 
 ```go
-// ComponentNode represents a single component instance in the tree.
-type ComponentNode struct {
-    // Path is a unique slash-separated string identifying this instance
-    // within the tree, e.g., "root/counter/0" or "root/todo-list/2/todo-item/1".
+// ComponentFrame represents a single component instance in the tree,
+// used for hook state isolation.
+type ComponentFrame struct {
+    // Path is a unique slash-separated string, e.g., "root/0/1".
     Path string
 
     // Parent links to the enclosing component (nil for root).
-    Parent *ComponentNode
+    Parent *ComponentFrame
 
     // Children is an ordered list of child component instances.
-    Children []*ComponentNode
+    Children []*ComponentFrame
 
     // RootNodeIDs tracks the root DOM node IDs for this component.
-    // Single element for ElementNode returns, multiple for FragmentNode,
-    // empty for nil returns. Used for unmount cleanup and hydration matching.
+    // Used for unmount cleanup.
     RootNodeIDs []int
 
     // Holds hook state per call position.
@@ -43,25 +45,24 @@ type ComponentNode struct {
 
 ## Render Stack
 
-A global stack maintains the current component path during rendering:
+A global stack maintains the current component frame during rendering:
 
 ```go
-var (
-    renderStack   []*ComponentNode
-    nextComponent int // monotonic counter for unique IDs
-)
+var renderStack []*ComponentFrame
 ```
 
 ### Push
 
-When a component function begins executing, a new `ComponentNode` is pushed:
+When `core.Component(name, fn)` or `FlatTree` encounters a `ComponentNode`, it pushes a new frame:
 
 ```go
-func pushComponent() *ComponentNode {
-    parent := currentComponent()
-    path := childPath(parent, nextComponent)
-    nextComponent++
-    node := &ComponentNode{
+func PushComponent() *ComponentFrame {
+    parent := CurrentComponent()
+    path := "/"
+    if parent != nil {
+        path = parent.Path + "/" + itoa(len(parent.Children))
+    }
+    node := &ComponentFrame{
         Path:   path,
         Parent: parent,
     }
@@ -75,122 +76,175 @@ func pushComponent() *ComponentNode {
 
 ### Pop
 
-When the component function returns, the stack is popped:
-
 ```go
-func popComponent() {
+func PopComponent() {
     renderStack = renderStack[:len(renderStack)-1]
 }
 ```
 
 ### Current
 
-Hooks call `currentComponent()` to read/write their slot:
+Hooks call `CurrentComponent()` to read/write their slot:
 
 ```go
-func currentComponent() *ComponentNode {
+func CurrentComponent() *ComponentFrame {
     if len(renderStack) == 0 {
-        panic("hooks: called outside component context")
+        return nil
     }
     return renderStack[len(renderStack)-1]
 }
 ```
+
+Note: `CurrentComponent()` returns `nil` when called outside a component context, allowing hooks to work (with un-tracked state) outside components.
 
 ### Path Generation
 
 Paths are built by appending the child index to the parent path:
 
 ```
-root                  → "root"
-root/counter          → "root/0"
-root/counter/button   → "root/0/0"
+/           → root (first component)
+/0          → first child of root
+/0/1        → second child of first child
 ```
 
-On re-render, the same path is resolved by walking the tree. If a matching path does not exist, the component is mounting for the first time.
+---
+
+## ComponentNode (VNode Type)
+
+`ComponentNode` is a node in the VNode tree (not to be confused with `ComponentFrame`). It wraps a component name and render function:
+
+```go
+type ComponentNode struct {
+    Name   string
+    Render func() Node     // called each render
+    Prev   Node            // last rendered inner tree (set by renderer)
+    Frame  *ComponentFrame // frame from last render (set by renderer)
+}
+
+func Component(name string, render func() Node) *ComponentNode
+```
+
+During rendering (in both DOM renderer and `FlatTree`), encountering a `ComponentNode` triggers:
+1. `PushComponent()` — creates a new `ComponentFrame`
+2. Call `v.Render()` — executes the component function, which may call hooks
+3. Recurse into the returned inner tree
+4. `PopComponent()` — pops the frame
+5. Store the `ComponentFrame` reference in `v.Frame`
+
+---
+
+## ScopeNode (Structural Re-rendering)
+
+`ScopeNode` is the mechanism for structural updates. It is returned by `UseScope`:
+
+```go
+type ScopeNode struct {
+    Render func() Node
+    Deps   []SignalAccessor
+    Prev   Node              // expanded tree from last render
+    Frames []*ComponentFrame // component frames from last render (for cleanup)
+    Unsubs []func()          // signal subscription cancellations
+}
+```
+
+During first render:
+1. `Render()` is called to produce a tree
+2. `FlatTreeWithFrames()` expands components → produces a flat tree + collects `ComponentFrame` pointers
+3. The flat tree is rendered to DOM (node IDs assigned, bindings set up)
+4. Signals in `Deps` are subscribed to trigger `reRenderScope()`
+
+During re-render (signal change):
+1. `Render()` is called again
+2. `FlatTreeWithFrames()` produces new flat tree + frames
+3. `diffNode(Prev, newTree)` compares old and new trees, emits mutations
+4. Old `ComponentFrame` list is walked with `RunFrameCleanup()` to clean up effects
+5. `Prev` is updated to the new tree
+
+---
+
+## RunFrameCleanup (Unmount Cleanup)
+
+When a component is removed by the diff (old frames no longer in new frames list):
+
+```go
+func RunFrameCleanup(frame *core.ComponentFrame) {
+    for _, hook := range frame.Hooks {
+        if es, ok := hook.(*effectState); ok {
+            for _, unsub := range es.Unsubs {
+                if unsub != nil { unsub() }
+            }
+            es.Unsubs = nil
+            if es.Cleanup != nil {
+                es.Cleanup()
+                es.Cleanup = nil
+            }
+        }
+    }
+    for _, child := range frame.Children {
+        RunFrameCleanup(child)
+    }
+}
+```
+
+This recursively walks the frame tree, calling effect cleanup functions and unsubscribing from signals.
 
 ---
 
 ## Re-render Resolution
 
-When a component re-renders (triggered by a signal change):
+Re-renders are driven by `ScopeNode` signal subscriptions:
 
-1. The framework knows the component's path (from the signal's subscriber list or effect registration).
-2. It walks from the tree root following path segments.
-3. The existing `ComponentNode` is found — its `Hooks` slice is reused.
-4. `pushComponent()` reuses the existing node (does not create a new one) by matching the path during render walk.
+1. A signal in `ScopeNode.Deps` changes.
+2. The subscriber callback calls `reRenderScope()`.
+3. `reRenderScope()` re-runs the render closure, diffs old vs new tree, enqueues mutations, runs frame cleanup for removed frames.
+4. The diff matches nodes positionally (by index in children arrays) and by tag name.
+5. Existing node IDs are reused (e.g., `newElement.ID = oldElement.ID`).
 
-This means the tree is mutated in place during re-renders, not rebuilt from scratch. Only new mount points create new `ComponentNode` instances.
-
----
-
-## Unmount Lifecycle
-
-When a component is removed (e.g., conditional disappears):
-
-1. The parent component re-renders without the child.
-2. The framework detects the old `ComponentNode` is no longer reachable.
-3. It walks the subtree:
-   - Calls cleanup functions from all `Effect` hooks.
-   - Calls `BindingRegistry.Unbind(nodeID)` for every DOM node in the subtree.
-   - Calls `NodeRegistry` cleanup to remove event handlers.
-   - Removes the subtree from the parent's `Children` slice.
-4. The JS bridge receives `MutRemoveNode` mutations for all affected DOM nodes.
+This is NOT a path-based re-resolution of individual components. Instead, the `ScopeNode` re-renders its entire subtree and diffs the before/after trees.
 
 ---
 
-## Hydration Matching
+## Tree Walk Example (DOM Renderer)
 
-During hydration, the client replays component rendering to reconstruct the `ComponentNode` tree. Hydration metadata uses component paths (not signal IDs), so the client can match:
-
-| Server                          | Client                           |
-|---------------------------------|----------------------------------|
-| Renders component at path `root/0/1` | Renders component at path `root/0/1` |
-| Outputs `<div data-node-id="5">`     | Creates `ComponentNode{Path: "root/0/1", RootNodeIDs: []int{5}}` |
-| Hydration meta: `nodeID 5 → SlotRef{ComponentPath: "root/0/1", HookIndex: 0}` | Finds `ComponentNode` at path `root/0/1`, reads `Hooks[0]`, subscribes signal to DOM node ID 5 |
-
-Paths are deterministic because both server and client execute the same component code with the same conditional logic.
-
----
-
-## Tree Walk Example
-
-Given this component structure:
+Given this component structure used in `Component()`:
 
 ```
-App (root)
- ├─ Header (root/0)
- └─ Counter (root/1)
-     └─ Button (root/1/0)
+Component("App")                → Frame path: "/"
+ ├─ router.Route(routeFn)       → Frame path: "/0"
+ │    └─ counterPage()          → Frame path: "/0/0"
+ │         ├─ UseState(count)   → Hooks[0]
+ │         └─ UseState(show)    → Hooks[1]
+ └─ VirtualList(todos, fn)     → Frame path: "/1"
+      └─ Component("VirtualList")
 ```
 
-The `ComponentNode` tree:
+The `ComponentFrame` tree:
 
 ```
-ComponentNode{Path: "root", RootNodeIDs: []int{1}}
-  ├─ ComponentNode{Path: "root/0", RootNodeIDs: []int{2}, Parent: root}
-  └─ ComponentNode{Path: "root/1", RootNodeIDs: []int{3}, Parent: root}
-       └─ ComponentNode{Path: "root/1/0", RootNodeIDs: []int{4}, Parent: root/1}
+ComponentFrame{Path: "/", Hooks: [count, show]}
+  └─ ComponentFrame{Path: "/0", Hooks: []}
+       └─ ComponentFrame{Path: "/0/0", Hooks: []}
 ```
 
 ---
 
 ## Integration Points
 
-| System                 | How it uses ComponentNode                                      |
-|------------------------|----------------------------------------------------------------|
-| Hook layer             | `currentComponent().Hooks[slotIndex]` to store/retrieve state  |
-| Effect system          | Stores cleanup function in hook slot; runs on unmount subtree walk |
-| DOM binding            | `RootNodeIDs` map to `BindingRegistry` entries; `Unbind(nodeID)` on unmount for each |
-| Event system           | `NodeRegistry` entries tied to `RootNodeIDs`; cleaned up on unmount |
-| Hydration              | Reconstructs tree at render time, matches server paths for signal subscription |
-| Scheduler              | Triggered by signal updates from hooks; flushes batched mutations |
+| System                 | How it uses ComponentFrame                                   |
+|------------------------|--------------------------------------------------------------|
+| Hook layer             | `CurrentComponent().Hooks[slotIndex]` to store/retrieve state |
+| Effect system          | Stores cleanup in hook slot; `RunFrameCleanup` on unmount    |
+| DOM binding            | `RootNodeIDs` map to `BindingRegistry` entries               |
+| Event system           | `NodeRegistry` entries tied to root node IDs                 |
+| Hydration              | Component paths in SSR metadata match frame paths            |
+| ScopeNode diff         | Tracks old frames for cleanup after re-render                |
 
 ---
 
 ## Key Properties
 
 - **O(1) hook access** — direct slice index, no map lookup per call.
-- **O(depth) path resolution** — path segments are walked; depth is typically < 10.
+- **O(depth) path generation** — path segments are built incrementally.
 - **Deterministic paths** — same code → same tree shape → same paths.
 - **Scope-safe** — each component only sees its own `Hooks` slice via the stack pointer.
-- **No global ID collision** — monotonic counter + tree-local indexing.
+- **Frame-per-render** — each render pass creates new `ComponentFrame` instances; old frames are cleaned up by `RunFrameCleanup`.
