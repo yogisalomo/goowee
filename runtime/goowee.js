@@ -1,5 +1,10 @@
 const nodeMap = {};
-nodeMap[0] = document.getElementById("root");
+let rootNode = null;
+
+function getRoot() {
+    if (!rootNode) rootNode = document.getElementById("root");
+    return rootNode;
+}
 
 const preexistingNodes = {};
 document.querySelectorAll("[data-node-id]").forEach(el => {
@@ -92,7 +97,7 @@ window.applyMutations = function applyMutations(json) {
                 if (el) el[mut.key] = mut.value;
                 break;
             case 4: { // AppendChild
-                const parent = nodeMap[mut.nodeId];
+                const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
                 const child = nodeMap[mut.childId];
                 if (parent && child && !child.parentNode) {
                     parent.appendChild(child);
