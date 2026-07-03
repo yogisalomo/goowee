@@ -388,6 +388,24 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 }
 
 func (r *DOMRenderer) diffChildren(parentID int, old, new []core.Node, muts *[]core.Mutation) {
+	hasKeys := hasAnyKey(old) || hasAnyKey(new)
+	if hasKeys {
+		r.diffChildrenKeyed(parentID, old, new, muts)
+		return
+	}
+	r.diffChildrenPositional(parentID, old, new, muts)
+}
+
+func hasAnyKey(nodes []core.Node) bool {
+	for _, n := range nodes {
+		if el, ok := n.(*core.ElementNode); ok && el != nil && el.Key != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *DOMRenderer) diffChildrenPositional(parentID int, old, new []core.Node, muts *[]core.Mutation) {
 	var created []bool
 	var ids []int
 
@@ -453,6 +471,98 @@ func (r *DOMRenderer) diffChildren(parentID int, old, new []core.Node, muts *[]c
 			}
 		}
 	}
+}
+
+func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts *[]core.Mutation) {
+	oldByKey := map[any]int{}
+	oldUnkeyed := []int{}
+	for i, n := range old {
+		if el, ok := n.(*core.ElementNode); ok && el != nil && el.Key != nil {
+			if _, dup := oldByKey[el.Key]; dup {
+				continue
+			}
+			oldByKey[el.Key] = i
+		} else {
+			oldUnkeyed = append(oldUnkeyed, i)
+		}
+	}
+
+	paired := make([]bool, len(old))
+	oldIndexForNew := make([]int, len(new))
+	newIDs := make([]int, len(new))
+	created := make([]bool, len(new))
+
+	unkeyedIdx := 0
+	for i, n := range new {
+		oldIndexForNew[i] = -1
+		if el, ok := n.(*core.ElementNode); ok && el != nil && el.Key != nil {
+			if oldIdx, ok := oldByKey[el.Key]; ok {
+				if paired[oldIdx] {
+					continue
+				}
+				paired[oldIdx] = true
+				oldIndexForNew[i] = oldIdx
+			}
+		} else {
+			for unkeyedIdx < len(oldUnkeyed) {
+				oi := oldUnkeyed[unkeyedIdx]
+				unkeyedIdx++
+				if !paired[oi] && typeCompatible(old[oi], n) {
+					paired[oi] = true
+					oldIndexForNew[i] = oi
+					break
+				}
+			}
+		}
+	}
+
+	for i := len(new) - 1; i >= 0; i-- {
+		var oldChild core.Node
+		if oldIndexForNew[i] >= 0 {
+			oldChild = old[oldIndexForNew[i]]
+		}
+		childID := r.diffNode(oldChild, new[i], muts)
+		newIDs[i] = childID
+		created[i] = oldChild == nil || nodeID(oldChild) != childID
+	}
+
+	for i, n := range old {
+		if !paired[i] {
+			r.emitRemoveTree(n, muts)
+		}
+	}
+
+	refID := 0
+	for i := len(new) - 1; i >= 0; i-- {
+		if newIDs[i] != 0 {
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutInsertBefore, NodeID: parentID,
+				ChildID: newIDs[i], RefID: refID,
+			})
+			refID = newIDs[i]
+		}
+	}
+}
+
+func typeCompatible(a, b core.Node) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	switch va := a.(type) {
+	case *core.ElementNode:
+		vb, ok := b.(*core.ElementNode)
+		return ok && va.Tag == vb.Tag
+	case *core.TextNode:
+		_, ok := b.(*core.TextNode)
+		return ok
+	case *core.FragmentNode:
+		_, ok := b.(*core.FragmentNode)
+		return ok
+	case *core.ScopeNode:
+		_, ok := b.(*core.ScopeNode)
+		return ok
+	}
+	return false
 }
 
 func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {

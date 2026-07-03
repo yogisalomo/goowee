@@ -793,3 +793,338 @@ func TestDOMChildrenInsertBeforeRefID(t *testing.T) {
 		t.Fatalf("expected InsertBefore mutation, got: %v", muts)
 	}
 }
+
+func makeKeyedSpan(key string, text string) *core.ElementNode {
+	return &core.ElementNode{
+		Tag: "span",
+		Key: key,
+		Attrs: []core.Attr{{Name: "class", Value: text}},
+	}
+}
+
+func TestKeyedReorderReusesIDs(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("a", "a"),
+		makeKeyedSpan("b", "b"),
+		makeKeyedSpan("c", "c"),
+		makeKeyedSpan("d", "d"),
+		makeKeyedSpan("e", "e"),
+	}
+	rev := []core.Node{
+		makeKeyedSpan("e", "e"),
+		makeKeyedSpan("d", "d"),
+		makeKeyedSpan("c", "c"),
+		makeKeyedSpan("b", "b"),
+		makeKeyedSpan("a", "a"),
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	parentID := 1
+	var muts []core.Mutation
+	r.diffChildren(parentID, old, rev, &muts)
+
+	removeCount := 0
+	createCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutRemoveNode {
+			removeCount++
+		}
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+	}
+	if removeCount != 0 || createCount != 0 {
+		t.Fatalf("expected no removes (%d) or creates (%d) on reorder", removeCount, createCount)
+	}
+}
+
+func TestKeyedRemoveFirst(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("a", "a"),
+		makeKeyedSpan("b", "b"),
+		makeKeyedSpan("c", "c"),
+	}
+	new := []core.Node{
+		makeKeyedSpan("b", "b"),
+		makeKeyedSpan("c", "c"),
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	parentID := 1
+	var muts []core.Mutation
+	r.diffChildren(parentID, old, new, &muts)
+
+	removeCount := 0
+	createCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutRemoveNode {
+			removeCount++
+		}
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+	}
+	if removeCount != 1 {
+		t.Fatalf("expected exactly 1 remove, got %d", removeCount)
+	}
+	if createCount != 0 {
+		t.Fatalf("expected 0 creates, got %d", createCount)
+	}
+}
+
+func TestKeyedInsertMiddle(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("a", "a"),
+		makeKeyedSpan("b", "b"),
+	}
+	new := []core.Node{
+		makeKeyedSpan("a", "a"),
+		makeKeyedSpan("c", "c"),
+		makeKeyedSpan("b", "b"),
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	parentID := 1
+	var muts []core.Mutation
+	r.diffChildren(parentID, old, new, &muts)
+
+	createCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+	}
+	if createCount != 1 {
+		t.Fatalf("expected exactly 1 create, got %d", createCount)
+	}
+
+	insertCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutInsertBefore {
+			insertCount++
+		}
+	}
+	if insertCount == 0 {
+		t.Fatal("expected at least 1 InsertBefore")
+	}
+}
+
+func TestKeyedAndUnkeyedMix(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("k1", "k1"),
+		&core.TextNode{Value: "unkeyed1"},
+		makeKeyedSpan("k2", "k2"),
+	}
+	new := []core.Node{
+		&core.TextNode{Value: "unkeyed1"},
+		makeKeyedSpan("k1", "k1"),
+		&core.TextNode{Value: "unkeyed2"},
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	parentID := 1
+	var muts []core.Mutation
+	r.diffChildren(parentID, old, new, &muts)
+
+	createCount := 0
+	removeCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+		if m.Type == core.MutRemoveNode {
+			removeCount++
+		}
+	}
+	if createCount != 1 {
+		t.Fatalf("expected exactly 1 create (unkeyed2), got %d", createCount)
+	}
+	if removeCount != 1 {
+		t.Fatalf("expected exactly 1 remove (k2), got %d", removeCount)
+	}
+}
+
+type fakeNode struct {
+	ID       int
+	ParentID int
+	Tag      string
+	Children []int
+}
+
+type fakeDOM struct {
+	nodes map[int]*fakeNode
+}
+
+func newFakeDOM() *fakeDOM {
+	return &fakeDOM{nodes: map[int]*fakeNode{0: {ID: 0, Tag: "#root"}}}
+}
+
+func (d *fakeDOM) apply(muts []core.Mutation) {
+	for _, m := range muts {
+		switch m.Type {
+		case core.MutCreateElement:
+			d.nodes[m.NodeID] = &fakeNode{ID: m.NodeID, Tag: m.Value.(string)}
+		case core.MutAppendChild:
+			if p, ok := d.nodes[m.NodeID]; ok {
+				p.Children = append(p.Children, m.ChildID)
+				if c, ok := d.nodes[m.ChildID]; ok {
+					c.ParentID = m.NodeID
+				}
+			}
+		case core.MutInsertBefore:
+			if p, ok := d.nodes[m.NodeID]; ok {
+				ins := m.ChildID
+				ref := m.RefID
+				idx := len(p.Children)
+				for i, cid := range p.Children {
+					if cid == ref {
+						idx = i
+						break
+					}
+				}
+				p.Children = append(p.Children, 0)
+				copy(p.Children[idx+1:], p.Children[idx:])
+				p.Children[idx] = ins
+				if c, ok := d.nodes[ins]; ok {
+					c.ParentID = m.NodeID
+				}
+			}
+		case core.MutRemoveNode:
+			delete(d.nodes, m.NodeID)
+			for _, n := range d.nodes {
+				for i := len(n.Children) - 1; i >= 0; i-- {
+					if n.Children[i] == m.NodeID {
+						n.Children = append(n.Children[:i], n.Children[i+1:]...)
+					}
+				}
+			}
+		case core.MutSetAttribute:
+		case core.MutSetProperty:
+		case core.MutRemoveAttribute:
+		}
+	}
+}
+
+func (d *fakeDOM) childTags(parentID int) string {
+	p, ok := d.nodes[parentID]
+	if !ok {
+		return ""
+	}
+	var s string
+	for _, cid := range p.Children {
+		if c, ok := d.nodes[cid]; ok {
+			s += c.Tag
+		}
+	}
+	return s
+}
+
+func TestFakeDOMKeyedProperty(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping property test in short mode")
+	}
+	keys := []string{"a", "b", "c", "d", "e"}
+	for seed := int64(0); seed < 1000; seed++ {
+		oldIdx := pickPerm(seed*2, len(keys), len(keys))
+		newIdx := pickPerm(seed*2+1, len(keys), len(keys))
+
+		oldNodes := make([]core.Node, len(oldIdx))
+		for i, ki := range oldIdx {
+			oldNodes[i] = &core.ElementNode{Tag: keys[ki], Key: keys[ki]}
+		}
+		newNodes := make([]core.Node, len(newIdx))
+		for i, ki := range newIdx {
+			newNodes[i] = &core.ElementNode{Tag: keys[ki], Key: keys[ki]}
+		}
+
+		r := New()
+		r.Render(&core.ElementNode{Tag: "div", Children: oldNodes})
+
+		parentID := 1
+		var muts []core.Mutation
+		r.diffChildren(parentID, oldNodes, newNodes, &muts)
+
+		fd := newFakeDOM()
+		fd.nodes[parentID] = &fakeNode{ID: parentID, Tag: "div"}
+
+		oldSeen := map[int]bool{}
+		for _, n := range oldNodes {
+			if el, ok := n.(*core.ElementNode); ok {
+				fd.nodes[el.ID] = &fakeNode{ID: el.ID, Tag: el.Tag, ParentID: parentID}
+				oldSeen[el.ID] = true
+			}
+		}
+
+		fd.apply(muts)
+
+		fd2 := newFakeDOM()
+		fd2.nodes[parentID] = &fakeNode{ID: parentID, Tag: "div"}
+		for _, n := range newNodes {
+			if el, ok := n.(*core.ElementNode); ok {
+				id := el.ID
+				if id == 0 {
+					id = r.allocID()
+				}
+				fd2.nodes[id] = &fakeNode{ID: id, Tag: el.Tag, ParentID: parentID}
+				fd2.nodes[parentID].Children = append(fd2.nodes[parentID].Children, id)
+			}
+		}
+
+		got := fd.childTags(parentID)
+		want := fd2.childTags(parentID)
+		if got != want {
+			t.Fatalf("seed=%d: got %q, want %q\nold=%v new=%v muts=%v",
+				seed, got, want, oldIdx, newIdx, muts)
+		}
+	}
+}
+
+func pickPerm(seed int64, pool, count int) []int {
+	rng := seed
+	perm := make([]int, pool)
+	for i := 0; i < pool; i++ {
+		perm[i] = i
+	}
+	for i := pool - 1; i > 0; i-- {
+		rng = rng*1103515245 + 12345
+		if rng < 0 {
+			rng = -rng
+		}
+		j := int(rng % int64(i+1))
+		perm[i], perm[j] = perm[j], perm[i]
+	}
+	n := int(seed%int64(pool)) + 1
+	if n > pool {
+		n = pool
+	}
+	return perm[:n]
+}
+
+func TestDuplicateKeysLoggedNotPanic(t *testing.T) {
+	old := []core.Node{
+		makeKeyedSpan("dup", "first"),
+	}
+	new := []core.Node{
+		makeKeyedSpan("dup", "first"),
+		makeKeyedSpan("dup", "second"),
+	}
+
+	r := New()
+	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	var muts []core.Mutation
+	r.diffChildren(1, old, new, &muts)
+
+	createCount := 0
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement {
+			createCount++
+		}
+	}
+	if createCount == 0 {
+		t.Fatalf("expected at least 1 create for duplicate, got 0")
+	}
+}
