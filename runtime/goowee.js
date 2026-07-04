@@ -7,10 +7,40 @@ function getRoot() {
 }
 
 const preexistingNodes = {};
-document.querySelectorAll("[data-node-id]").forEach(el => {
-    const id = parseInt(el.getAttribute("data-node-id"), 10);
-    preexistingNodes[id] = el;
-});
+let hydrated = false;
+
+// Collect server-rendered nodes for reuse, the first time mutations are
+// applied. This is deferred rather than run at module load because this
+// script sits in <head>, before <div id="root"> (and its SSR content) exists;
+// by the first applyMutations the WASM app has booted and the DOM is present.
+// For a pure client app (no SSR) there simply are no nodes to claim.
+function hydrateOnce() {
+    if (hydrated) return;
+    hydrated = true;
+    const root = getRoot();
+    if (!root) return;
+
+    root.querySelectorAll("[data-node-id]").forEach(el => {
+        preexistingNodes[parseInt(el.getAttribute("data-node-id"), 10)] = el;
+    });
+
+    // Text nodes can't carry attributes; SSR marks each with a preceding
+    // <!--g{id}--> comment. Claim the comment's next sibling, then drop the
+    // marker so the live DOM matches the client tree.
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+    const markers = [];
+    while (walker.nextNode()) {
+        const m = /^g(\d+)$/.exec(walker.currentNode.data);
+        if (m) markers.push([parseInt(m[1], 10), walker.currentNode]);
+    }
+    for (const [id, comment] of markers) {
+        const next = comment.nextSibling;
+        if (next && next.nodeType === 3 /* TEXT_NODE */) {
+            preexistingNodes[id] = next;
+        }
+        comment.remove();
+    }
+}
 
 const listening = {};
 window.goListen = function (type, capture) {
@@ -67,6 +97,7 @@ function dispatchToGo(type, e) {
 }
 
 window.applyMutations = function applyMutations(json) {
+    hydrateOnce();
     const muts = JSON.parse(json);
     for (const mut of muts) {
         let el;

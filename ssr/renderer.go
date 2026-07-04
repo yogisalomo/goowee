@@ -194,6 +194,11 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 		}
 		id := r.allocID()
 		r.Meta.NodeMap[id] = path
+		// Emit an addressable marker before the text so the client can claim
+		// this exact text node during hydration (text nodes can't carry
+		// attributes). It also keeps adjacent text nodes from merging into one
+		// on parse, which would break the SSR/DOM node correspondence.
+		fmt.Fprintf(buf, "<!--g%d-->", id)
 		switch val := v.Value.(type) {
 		case string:
 			buf.WriteString(escapeHTML(val))
