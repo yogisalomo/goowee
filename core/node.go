@@ -136,7 +136,6 @@ type ScopeNode struct {
 	Render func() Node
 	Deps   []SignalAccessor
 	Prev   Node
-	Frames []*ComponentFrame
 	Unsubs []func()
 }
 
@@ -150,52 +149,38 @@ var VoidElements = map[string]bool{
 	"track": true, "wbr": true, "area": true, "col": true, "embed": true,
 }
 
+// FlatTree collapses nested fragments into their parent's child list so the
+// renderer never has to append a fragment (which has no single DOM node).
+// ComponentNode and ScopeNode pass through untouched: they are reconciled
+// lazily by the renderer (a component runs its setup once on mount and is
+// then a stable, self-updating boundary; a scope re-renders on its deps).
 func FlatTree(n Node) Node {
-	return flatTree(n, nil)
-}
-
-func flatTree(n Node, frames *[]*ComponentFrame) Node {
 	switch v := n.(type) {
 	case *ElementNode:
-		var flatChildren []Node
-		for _, child := range v.Children {
-			flattened := flatTree(child, frames)
-			if frag, ok := flattened.(*FragmentNode); ok {
-				flatChildren = append(flatChildren, frag.Children...)
-			} else {
-				flatChildren = append(flatChildren, flattened)
-			}
-		}
-		v.Children = flatChildren
-		return v
-	case *TextNode:
+		v.Children = flattenChildren(v.Children)
 		return v
 	case *FragmentNode:
-		var flatChildren []Node
-		for _, child := range v.Children {
-			flattened := flatTree(child, frames)
-			if frag, ok := flattened.(*FragmentNode); ok {
-				flatChildren = append(flatChildren, frag.Children...)
-			} else {
-				flatChildren = append(flatChildren, flattened)
-			}
-		}
-		v.Children = flatChildren
+		v.Children = flattenChildren(v.Children)
 		return v
-	case *ComponentNode:
-		frame := PushComponent()
-		inner := v.Render()
-		v.Frame = frame
-		if frames != nil {
-			*frames = append(*frames, frame)
-		}
-		result := flatTree(inner, frames)
-		PopComponent()
-		return result
-	case *ScopeNode:
-		return v
+	default:
+		return n
 	}
-	return nil
+}
+
+func flattenChildren(children []Node) []Node {
+	var flat []Node
+	for _, child := range children {
+		f := FlatTree(child)
+		if f == nil {
+			continue
+		}
+		if frag, ok := f.(*FragmentNode); ok {
+			flat = append(flat, frag.Children...)
+		} else {
+			flat = append(flat, f)
+		}
+	}
+	return flat
 }
 
 func CollectIDs(n Node) []int {
@@ -228,11 +213,6 @@ func CollectIDs(n Node) []int {
 	return ids
 }
 
-func FlatTreeWithFrames(n Node) (Node, []*ComponentFrame) {
-	var frames []*ComponentFrame
-	result := flatTree(n, &frames)
-	return result, frames
-}
 
 type EventData struct {
 	Type   string

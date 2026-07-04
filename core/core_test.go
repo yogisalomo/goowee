@@ -134,31 +134,33 @@ func TestCollectIDsFiltersZero(t *testing.T) {
 	}
 }
 
-func TestFlatTreeWithFrames(t *testing.T) {
+func TestFlatTreeLeavesComponentsIntact(t *testing.T) {
+	// FlatTree must not execute components: a component is a stable boundary
+	// the renderer mounts once, not something flattened away at build time.
+	ran := 0
 	comp := Component("TestComp", func() Node {
+		ran++
 		return &ElementNode{Tag: "span"}
 	})
-	_, frames := FlatTreeWithFrames(comp)
-	if len(frames) != 1 {
-		t.Fatalf("expected 1 frame, got %d", len(frames))
+	flat := FlatTree(comp)
+	if ran != 0 {
+		t.Fatalf("FlatTree should not run component setup, ran=%d", ran)
 	}
-	if frames[0].Path != "/" {
-		t.Fatalf("expected path /, got %s", frames[0].Path)
+	if flat != Node(comp) {
+		t.Fatalf("expected the component to pass through unchanged, got %T", flat)
 	}
 
-	outer := Component("Outer", func() Node {
-		return &ElementNode{
-			Tag: "div",
-			Children: []Node{
-				Component("Inner", func() Node {
-					return &ElementNode{Tag: "p"}
-				}),
-			},
-		}
-	})
-	_, frames2 := FlatTreeWithFrames(outer)
-	if len(frames2) != 2 {
-		t.Fatalf("expected 2 frames, got %d", len(frames2))
+	// A component nested in an element stays a ComponentNode child.
+	el := &ElementNode{Tag: "div", Children: []Node{comp}}
+	flatEl := FlatTree(el).(*ElementNode)
+	if len(flatEl.Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(flatEl.Children))
+	}
+	if _, ok := flatEl.Children[0].(*ComponentNode); !ok {
+		t.Fatalf("expected child to remain a ComponentNode, got %T", flatEl.Children[0])
+	}
+	if ran != 0 {
+		t.Fatalf("component still should not have run, ran=%d", ran)
 	}
 }
 

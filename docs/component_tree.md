@@ -1,250 +1,184 @@
-# Component Tree Design
+# Component Tree & Lifecycle Design
 
-## Motivation
+## The model: components run once (Solid-style)
 
-The framework needs a way to track component identity across renders and provide hook state isolation. A flat `currentComponentID` counter is insufficient because:
+Goowee is **not** React. A component function is a **setup function that runs
+exactly once, when the component mounts**. It is not re-executed on updates.
+State lives in signals created during setup and captured by the closures
+(event handlers, scopes, bindings) in the returned tree:
 
-- Components mount and unmount dynamically (conditionals, lists).
-- Re-renders must resolve to the same hook state slots.
-- Unmount requires walking descendants to unbind signals and remove DOM nodes.
-- Hydration needs a stable path from server HTML to client component instance.
+```go
+func Counter() core.Node {
+    return core.Component("Counter", func() core.Node {
+        count, _ := hooks.UseState(0) // created once, on mount
+        return h.Button(
+            h.OnClick(func() { count.Update(func(c int) int { return c + 1 }) }),
+            h.Textf("Count: %d", count), // reacts to count via a binding
+        )
+    })
+}
+```
 
-There are two related but distinct concepts:
+Because the function never re-runs, there are **no hook rules**: no
+"call hooks in the same order every render", no "no conditionals before
+hooks". `UseState` just creates a signal; call it wherever you like. Updates
+happen at a finer grain than the component:
 
-1. **`ComponentFrame`** — hook state tracking structure (in `core/component_tree.go`), used during render to isolate `UseState`/`UseEffect` state.
-2. **`ComponentNode`** — a VNode type in the tree (in `core/node.go`), a node that wraps a component function for re-execution.
+- **Bindings** — a signal bound to a prop/attr/text updates that one node
+  when the signal changes (see `BindingRegistry`).
+- **Scopes** — a `ScopeNode` (from `UseScope`, or the `h.Show`/`h.For`/
+  `h.Switch` helpers) re-runs a small render closure when its deps change and
+  diffs the result.
+
+> Historical note: earlier docs described a React-style hook-slot model where
+> components re-run and `UseState` resolves state by call position. That was
+> never implemented — `UseState` always created fresh state. The framework is
+> committed to the run-once model; the machinery below reflects that.
+
+There are two distinct concepts:
+
+1. **`ComponentNode`** — a node in the tree (`core/node.go`) that wraps a
+   component's setup function. It is the unit of mount/unmount identity.
+2. **`ComponentFrame`** — the **ownership/disposal scope** for one mounted
+   component (`core/component_tree.go`). Everything created during setup that
+   needs cleanup (effects, `Computed`/`Watch` subscriptions) is registered on
+   the frame; unmounting the component disposes the frame.
 
 ---
 
-## ComponentFrame (Hook State)
+## RenderContext (no globals)
+
+The frame stack lives on a `RenderContext`, not a package global, so
+concurrent server renders never share it:
 
 ```go
-// ComponentFrame represents a single component instance in the tree,
-// used for hook state isolation.
+type RenderContext struct {
+    Env   Env // EnvClient or EnvServer
+    stack []*ComponentFrame
+}
+```
+
+- The **client** (single-threaded WASM) runs on a default `EnvClient` context.
+- Each **server** render runs under its own `EnvServer` context via
+  `core.UseContext(ctx, fn)` (serialized), so requests can't corrupt each
+  other's frame stack, and a panic mid-render can't leak into the next one.
+
+`PushComponent` / `PopComponent` / `CurrentComponent` operate on the active
+context; `CurrentEnv()` reports client vs server. Effects (`UseEffect`,
+`OnMount`, `Watch`) are **no-ops under `EnvServer`** — the server produces HTML
+only and must not start goroutines or subscriptions.
+
+---
+
+## ComponentFrame
+
+```go
 type ComponentFrame struct {
-    // Path is a unique slash-separated string, e.g., "root/0/1".
-    Path string
-
-    // Parent links to the enclosing component (nil for root).
-    Parent *ComponentFrame
-
-    // Children is an ordered list of child component instances.
-    Children []*ComponentFrame
-
-    // RootNodeIDs tracks the root DOM node IDs for this component.
-    // Used for unmount cleanup.
-    RootNodeIDs []int
-
-    // Holds hook state per call position.
-    // Index 0 → first UseState/UseEffect call, index 1 → second, etc.
-    Hooks []any
+    Path        string            // "/", "/0", "/0/1" — position in the frame tree
+    Parent      *ComponentFrame
+    Children    []*ComponentFrame
+    RootNodeIDs []int             // root DOM node ids of this component
+    Hooks       []any             // effect states (for cleanup)
+    Disposers   []func()          // Computed/Watch subscription teardowns
 }
 ```
 
----
-
-## Render Stack
-
-A global stack maintains the current component frame during rendering:
-
-```go
-var renderStack []*ComponentFrame
-```
-
-### Push
-
-When `core.Component(name, fn)` or `FlatTree` encounters a `ComponentNode`, it pushes a new frame:
-
-```go
-func PushComponent() *ComponentFrame {
-    parent := CurrentComponent()
-    path := "/"
-    if parent != nil {
-        path = parent.Path + "/" + itoa(len(parent.Children))
-    }
-    node := &ComponentFrame{
-        Path:   path,
-        Parent: parent,
-    }
-    if parent != nil {
-        parent.Children = append(parent.Children, node)
-    }
-    renderStack = append(renderStack, node)
-    return node
-}
-```
-
-### Pop
-
-```go
-func PopComponent() {
-    renderStack = renderStack[:len(renderStack)-1]
-}
-```
-
-### Current
-
-Hooks call `CurrentComponent()` to read/write their slot:
-
-```go
-func CurrentComponent() *ComponentFrame {
-    if len(renderStack) == 0 {
-        return nil
-    }
-    return renderStack[len(renderStack)-1]
-}
-```
-
-Note: `CurrentComponent()` returns `nil` when called outside a component context, allowing hooks to work (with un-tracked state) outside components.
-
-### Path Generation
-
-Paths are built by appending the child index to the parent path:
-
-```
-/           → root (first component)
-/0          → first child of root
-/0/1        → second child of first child
-```
+The frame is a **disposal scope**, not a hook-slot store. `RegisterDisposer`
+attaches a teardown to the current frame; `RunFrameCleanup` runs a single
+frame's disposers and effect cleanups (it does **not** recurse into child
+frames — see disposal below).
 
 ---
 
-## ComponentNode (VNode Type)
+## Mounting a component
 
-`ComponentNode` is a node in the VNode tree (not to be confused with `ComponentFrame`). It wraps a component name and render function:
+`FlatTree` collapses nested fragments into their parent's child list but
+leaves `ComponentNode` and `ScopeNode` **intact** — they are reconciled
+lazily, not expanded at build time. When the renderer reaches a
+`ComponentNode` it mounts it exactly once:
 
-```go
-type ComponentNode struct {
-    Name   string
-    Render func() Node     // called each render
-    Prev   Node            // last rendered inner tree (set by renderer)
-    Frame  *ComponentFrame // frame from last render (set by renderer)
-}
-
-func Component(name string, render func() Node) *ComponentNode
+```
+1. PushComponent()            → new frame, child of the current frame
+2. inner := FlatTree(v.Render())   → run setup once (hooks register on the frame)
+3. renderNode(inner)          → materialize the output; nested components/scopes
+                                register against this frame while it's on the stack
+4. PopComponent()
+5. v.Frame = frame; v.Prev = inner  → remember the frame + rendered output
 ```
 
-During rendering (in both DOM renderer and `FlatTree`), encountering a `ComponentNode` triggers:
-1. `PushComponent()` — creates a new `ComponentFrame`
-2. Call `v.Render()` — executes the component function, which may call hooks
-3. Recurse into the returned inner tree
-4. `PopComponent()` — pops the frame
-5. Store the `ComponentFrame` reference in `v.Frame`
+After this, the component's output is a **stable, self-updating subtree**: its
+reactive parts (bindings, inner scopes) update themselves through their own
+subscriptions. The component function does not run again.
 
 ---
 
-## ScopeNode (Structural Re-rendering)
+## ScopeNode & reconciliation
 
-`ScopeNode` is the mechanism for structural updates. It is returned by `UseScope`:
+A `ScopeNode` re-renders its closure when a dep changes and diffs the new tree
+against the previous one (`ScopeNode.Prev`). The diff treats each node type by
+identity:
 
-```go
-type ScopeNode struct {
-    Render func() Node
-    Deps   []SignalAccessor
-    Prev   Node              // expanded tree from last render
-    Frames []*ComponentFrame // component frames from last render (for cleanup)
-    Unsubs []func()          // signal subscription cancellations
-}
-```
+- **Elements** — matched by tag; attrs/props/binds/handlers/children
+  reconciled; node ids reused. Keyed children (`ElementNode.Key`) are matched
+  by key.
+- **Components** — matched by `Name`. A **matched component is preserved**:
+  the renderer reuses its frame and output and does **not** re-run setup, so
+  its state and effects survive. A component that is **added** mounts (setup
+  runs once); one that is **removed** unmounts (frame disposed).
 
-During first render:
-1. `Render()` is called to produce a tree
-2. `FlatTreeWithFrames()` expands components → produces a flat tree + collects `ComponentFrame` pointers
-3. The flat tree is rendered to DOM (node IDs assigned, bindings set up)
-4. Signals in `Deps` are subscribed to trigger `reRenderScope()`
+This is the key property: **a component nested in a scope keeps its identity
+even when the scope re-renders for an unrelated reason.** (Previously every
+scope re-render tore down and re-ran all nested components, losing their state
+and churning their effects.)
 
-During re-render (signal change):
-1. `Render()` is called again
-2. `FlatTreeWithFrames()` produces new flat tree + frames
-3. `diffNode(Prev, newTree)` compares old and new trees, emits mutations
-4. Old `ComponentFrame` list is walked with `RunFrameCleanup()` to clean up effects
-5. `Prev` is updated to the new tree
+Components in a list are matched positionally by `Name` today; keyed matching
+applies to elements. Rows that are whole components therefore rely on stable
+ordering.
 
 ---
 
-## RunFrameCleanup (Unmount Cleanup)
+## Unmounting & disposal
 
-When a component is removed by the diff (old frames no longer in new frames list):
+When a subtree is removed (`emitRemoveTree`), the renderer first walks it with
+`disposeReactive`, then emits the DOM removals:
 
-```go
-func RunFrameCleanup(frame *core.ComponentFrame) {
-    for _, hook := range frame.Hooks {
-        if es, ok := hook.(*effectState); ok {
-            for _, unsub := range es.Unsubs {
-                if unsub != nil { unsub() }
-            }
-            es.Unsubs = nil
-            if es.Cleanup != nil {
-                es.Cleanup()
-                es.Cleanup = nil
-            }
-        }
-    }
-    for _, child := range frame.Children {
-        RunFrameCleanup(child)
-    }
-}
-```
+- **ComponentNode** → recurse into its output, then `RunFrameCleanup(frame)`
+  (its effects + `Computed`/`Watch` disposers).
+- **ScopeNode** → cancel its dep subscriptions (`Unsubs`).
+- **Element/Fragment** → recurse into children.
 
-This recursively walks the frame tree, calling effect cleanup functions and unsubscribing from signals.
+Because the walk visits every component in the removed subtree and
+`RunFrameCleanup` cleans exactly one frame, each frame is disposed once (no
+double-cleanup, no missed nested frames).
 
 ---
 
-## Re-render Resolution
+## Lifecycle primitives (`hooks`)
 
-Re-renders are driven by `ScopeNode` signal subscriptions:
+| Primitive | When it runs | Cleanup |
+|---|---|---|
+| `UseState(initial)` | creates a signal once, on mount | — |
+| `OnMount(fn func() func())` | once, on mount | the returned func, on unmount |
+| `Watch(deps, fn)` | fn on each dep change (not on mount) | subscriptions, on unmount |
+| `UseEffect(deps, fn func() func())` | body on mount + on each dep change | before each re-run and on unmount |
+| `UseScope(fn, deps...)` | fn on mount + on each dep change; diffs output | scope subscriptions, on unmount |
 
-1. A signal in `ScopeNode.Deps` changes.
-2. The subscriber callback calls `reRenderScope()`.
-3. `reRenderScope()` re-runs the render closure, diffs old vs new tree, enqueues mutations, runs frame cleanup for removed frames.
-4. The diff matches nodes positionally (by index in children arrays) and by tag name.
-5. Existing node IDs are reused (e.g., `newElement.ID = oldElement.ID`).
-
-This is NOT a path-based re-resolution of individual components. Instead, the `ScopeNode` re-renders its entire subtree and diffs the before/after trees.
-
----
-
-## Tree Walk Example (DOM Renderer)
-
-Given this component structure used in `Component()`:
-
-```
-Component("App")                → Frame path: "/"
- ├─ router.Route(routeFn)       → Frame path: "/0"
- │    └─ counterPage()          → Frame path: "/0/0"
- │         ├─ UseState(count)   → Hooks[0]
- │         └─ UseState(show)    → Hooks[1]
- └─ VirtualList(todos, fn)     → Frame path: "/1"
-      └─ Component("VirtualList")
-```
-
-The `ComponentFrame` tree:
-
-```
-ComponentFrame{Path: "/", Hooks: [count, show]}
-  └─ ComponentFrame{Path: "/0", Hooks: []}
-       └─ ComponentFrame{Path: "/0/0", Hooks: []}
-```
+Use `OnMount` for resources tied to the component's lifetime (timers,
+goroutines, external subscriptions) — its cleanup is what stops them on
+unmount. Use `Watch` for plain "when these signals change, react". Prefer the
+`h.Show`/`h.ShowElse`/`h.Switch`/`h.For` control-flow helpers over raw
+`UseScope`.
 
 ---
 
-## Integration Points
+## Key properties
 
-| System                 | How it uses ComponentFrame                                   |
-|------------------------|--------------------------------------------------------------|
-| Hook layer             | `CurrentComponent().Hooks[slotIndex]` to store/retrieve state |
-| Effect system          | Stores cleanup in hook slot; `RunFrameCleanup` on unmount    |
-| DOM binding            | `RootNodeIDs` map to `BindingRegistry` entries               |
-| Event system           | `NodeRegistry` entries tied to root node IDs                 |
-| Hydration              | Component paths in SSR metadata match frame paths            |
-| ScopeNode diff         | Tracks old frames for cleanup after re-render                |
-
----
-
-## Key Properties
-
-- **O(1) hook access** — direct slice index, no map lookup per call.
-- **O(depth) path generation** — path segments are built incrementally.
-- **Deterministic paths** — same code → same tree shape → same paths.
-- **Scope-safe** — each component only sees its own `Hooks` slice via the stack pointer.
-- **Frame-per-render** — each render pass creates new `ComponentFrame` instances; old frames are cleaned up by `RunFrameCleanup`.
+- **Run-once components** — setup executes once per mount; no hook-order rules.
+- **Fine-grained updates** — bindings and scopes update without re-running the
+  component.
+- **Stable identity** — matched components are preserved across scope
+  re-renders (state + effects intact).
+- **Frame = ownership scope** — everything created in setup that needs cleanup
+  is disposed together on unmount.
+- **Request-safe SSR** — per-render `RenderContext`; effects don't run on the
+  server.
