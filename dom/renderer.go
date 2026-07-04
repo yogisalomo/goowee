@@ -13,6 +13,7 @@ type DOMRenderer struct {
 	Scheduler   *core.Scheduler
 	Registry    *NodeRegistry
 	parentStack []int
+	scopeSeq    int // monotonic mount order; parents mount before children
 }
 
 func New() *DOMRenderer {
@@ -173,17 +174,27 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 			return rootIDFromTree(newTree)
 		}
 
-		flat := core.FlatTree(v.Render())
-		id := r.renderNode(flat, muts)
-		v.Prev = flat
+		// Assign seq and capture the parent BEFORE rendering children, so a
+		// parent scope gets a smaller seq than the child scopes it mounts.
+		// Flush processes lower seq first (parent-before-child), which lets a
+		// parent re-render cancel a dirty child it removes.
+		r.scopeSeq++
+		seq := r.scopeSeq
 		scopeParentID := 0
 		if len(r.parentStack) > 0 {
 			scopeParentID = r.parentStack[len(r.parentStack)-1]
 		}
+		flat := core.FlatTree(v.Render())
+		id := r.renderNode(flat, muts)
+		v.Prev = flat
 		v.Unsubs = make([]func(), len(v.Deps))
 		for i, dep := range v.Deps {
 			v.Unsubs[i] = dep.Subscribe(func() {
-				r.reRenderScope(v, scopeParentID)
+				// Defer the re-render to the next flush so N writes in one
+				// frame coalesce into a single re-render + diff.
+				r.Scheduler.MarkDirty(v, seq, func() {
+					r.reRenderScope(v, scopeParentID)
+				})
 			})
 		}
 		return id
@@ -686,6 +697,8 @@ func (r *DOMRenderer) disposeReactive(n core.Node) {
 			}
 		}
 		v.Unsubs = nil
+		// Drop any pending re-render: this scope's subtree is being removed.
+		r.Scheduler.CancelDirty(v)
 		if v.Prev != nil {
 			r.disposeReactive(v.Prev)
 		}

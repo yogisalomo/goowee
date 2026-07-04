@@ -30,6 +30,12 @@ happen at a finer grain than the component:
   `h.Switch` helpers) re-runs a small render closure when its deps change and
   diffs the result.
 
+Re-renders are **batched**: a signal write marks its scope dirty on the
+scheduler rather than re-rendering inline, so N writes in one frame produce one
+re-render + diff. The scheduler flushes on an animation frame (scheduled
+on-demand, only when there is work), re-rendering dirty scopes parent-before-
+child and coalescing redundant property/attribute writes into the final value.
+
 > Historical note: earlier docs described a React-style hook-slot model where
 > components re-run and `UseState` resolves state by call position. That was
 > never implemented — `UseState` always created fresh state. The framework is

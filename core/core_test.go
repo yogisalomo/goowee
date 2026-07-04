@@ -357,3 +357,69 @@ func TestComputedRecomputesAndDisposes(t *testing.T) {
 		t.Fatalf("after disposal, expected last cached value 30, got %d", got)
 	}
 }
+
+func TestSchedulerCoalescesWrites(t *testing.T) {
+	s := NewScheduler()
+	s.Enqueue(
+		Mutation{Type: MutSetProperty, NodeID: 1, Key: "x", Value: "a"},
+		Mutation{Type: MutAppendChild, NodeID: 0, ChildID: 1},
+		Mutation{Type: MutSetProperty, NodeID: 1, Key: "x", Value: "b"}, // supersedes x=a
+		Mutation{Type: MutSetProperty, NodeID: 1, Key: "y", Value: "1"},
+		Mutation{Type: MutSetAttribute, NodeID: 1, Key: "x", Value: "attr"}, // different type, kept
+	)
+	out := s.Flush()
+	if len(out) != 4 {
+		t.Fatalf("want 4 mutations after coalesce, got %d: %+v", len(out), out)
+	}
+	// Superseded x=a is dropped; x=b survives at its (later) position, so
+	// non-property mutations keep their relative order.
+	propXCount := 0
+	var propX Mutation
+	for _, m := range out {
+		if m.Type == MutSetProperty && m.NodeID == 1 && m.Key == "x" {
+			propXCount++
+			propX = m
+		}
+	}
+	if propXCount != 1 || propX.Value != "b" {
+		t.Fatalf("SetProperty x should coalesce to a single last value b, got count=%d %v", propXCount, propX.Value)
+	}
+	if out[0].Type != MutAppendChild {
+		t.Fatalf("AppendChild order should be preserved (x=a dropped), got %+v", out)
+	}
+}
+
+func TestSchedulerOnWorkSuppressedDuringFlush(t *testing.T) {
+	s := NewScheduler()
+	calls := 0
+	s.OnWork = func() { calls++ }
+
+	s.Enqueue(Mutation{Type: MutAppendChild, NodeID: 0, ChildID: 1})
+	if calls != 1 {
+		t.Fatalf("enqueue should signal work once, got %d", calls)
+	}
+	s.MarkDirty("scope", 0, func() {
+		// A re-render enqueues during flush; that must not schedule a new frame.
+		s.Enqueue(Mutation{Type: MutSetProperty, NodeID: 1, Key: "x", Value: "v"})
+	})
+	if calls != 2 {
+		t.Fatalf("markdirty should signal work, got %d", calls)
+	}
+	s.Flush()
+	if calls != 2 {
+		t.Fatalf("enqueues during flush must not signal work, got %d", calls)
+	}
+}
+
+func TestSchedulerMarkDirtyDedups(t *testing.T) {
+	s := NewScheduler()
+	renders := 0
+	render := func() { renders++ }
+	s.MarkDirty("scope", 0, render)
+	s.MarkDirty("scope", 0, render)
+	s.MarkDirty("scope", 0, render)
+	s.Flush()
+	if renders != 1 {
+		t.Fatalf("repeated MarkDirty on the same key should re-render once, got %d", renders)
+	}
+}
