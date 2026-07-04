@@ -90,27 +90,35 @@ func UseEffect(deps []core.SignalAccessor, fn func() func())
 func UseScope(fn func() core.Node, deps ...core.SignalAccessor) core.Node
 ```
 
-## State Isolation
+## State model (Solid-style, run-once)
 
-Each component instance has isolated hook state and is represented by a `ComponentNode`. The mechanism:
+A component's setup function runs **once**, when it mounts. It is not
+re-executed on updates, so this is Solid's model, not React's — there is no
+hook-slot table and no call-order rule. `UseState` simply creates a signal;
+the closures in the returned tree capture it. Updates happen at a finer grain
+than the component: signal **bindings** update one node, and **scopes**
+(`UseScope` / `h.Show` / `h.For` / `h.Switch`) re-run a small closure and diff.
 
-1. A global render stack tracks the current component tree path. Each component function pushes a `ComponentNode` onto the stack before executing.
-2. Each `ComponentNode` holds a `Hooks []any` slice — one slot per `UseState`/`UseEffect` call.
-3. `UseState` and `UseEffect` read/write the next slot in the current component's hook slice.
-4. On re-render, the component path (e.g., `root/counter/0`) resolves to the same `ComponentNode`, so hooks read from the same slots.
+Each mounted component gets a `ComponentFrame` (see `core/component_tree.go`),
+which is the **ownership/disposal scope**: effects (`OnMount`/`Watch`/
+`UseEffect`) and `Computed`/`Watch` subscriptions created during setup register
+on the frame, and unmounting the component disposes the frame. The frame stack
+lives on a per-render `RenderContext` (not a global), so concurrent SSR renders
+stay isolated. See `docs/component_tree.md` for the full lifecycle and
+reconciliation design.
 
-This is the same model React uses (hooks as an ordered list indexed by call position). Deterministic call order is required.
-
-The actual hook isolation is implemented via `ComponentFrame` (see `core/component_tree.go`). Each `ComponentFrame` holds a `Hooks []any` slice. The frame's `Path` is built by appending child index to parent path (e.g., `"root/0/1"`).
-
-`UseScope` is the structural re-rendering mechanism — it returns a `ScopeNode` that re-executes a render closure when dependencies change and diffs the old vs new tree.
+`UseScope` returns a `ScopeNode` that re-executes a render closure when
+dependencies change and diffs the old vs new tree. Components inside the tree
+are matched by name and **preserved** across re-renders (their state and
+effects survive); only added components mount and only removed ones unmount.
 
 ## Rules
 
-* Deterministic call order required — no conditionals before hook calls
-* Each component instance has isolated hook state
-* Hooks must be called at the top level of a component function, never inside loops or conditions
-* Hooks work both inside and outside component context (outside, state is simply not tracked in any frame)
+* Components run once on mount — no hook-order rules; call `UseState`/effects
+  wherever you like, including conditionally.
+* State lives in signals captured by closures, not in per-render slots.
+* Hooks work outside a component context too (state simply isn't owned by any
+  frame, so it won't be auto-disposed).
 
 ---
 

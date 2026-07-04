@@ -35,6 +35,11 @@ func UseEffect(deps []core.SignalAccessor, fn func() func()) {
 	}
 }
 
+// RunFrameCleanup disposes a single frame's own resources: registered
+// disposers (signal subscriptions from Computed/Watch, scope teardowns) and
+// effect cleanups. It does not recurse into child frames — the renderer walks
+// the node tree when unmounting a subtree and cleans each component frame it
+// reaches, so recursing here would double-dispose.
 func RunFrameCleanup(frame *core.ComponentFrame) {
 	for _, disposer := range frame.Disposers {
 		disposer()
@@ -53,8 +58,5 @@ func RunFrameCleanup(frame *core.ComponentFrame) {
 				es.Cleanup = nil
 			}
 		}
-	}
-	for _, child := range frame.Children {
-		RunFrameCleanup(child)
 	}
 }

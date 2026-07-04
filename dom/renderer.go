@@ -40,6 +40,7 @@ func (r *DOMRenderer) allocID() int {
 
 func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 	var muts []core.Mutation
+	n = core.FlatTree(n)
 	rootID := r.renderNode(n, &muts)
 	if rootID != 0 {
 		muts = append(muts, core.Mutation{
@@ -136,11 +137,15 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		if v == nil {
 			return 0
 		}
+		// Mount: run setup once. The frame stays on the stack while the
+		// output renders so nested components/scopes register against it.
 		frame := core.PushComponent()
-		inner := v.Render()
+		inner := core.FlatTree(v.Render())
 		id := r.renderNode(inner, muts)
-		frame.RootNodeIDs = append(frame.RootNodeIDs, id)
 		core.PopComponent()
+		frame.RootNodeIDs = []int{id}
+		v.Frame = frame
+		v.Prev = inner
 		return id
 
 	case *core.ScopeNode:
@@ -148,29 +153,18 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 			return 0
 		}
 		if v.Prev != nil {
-			oldFrames := v.Frames
-			v.Frames = nil
-
-			newInner := v.Render()
-			newTree, frames := core.FlatTreeWithFrames(newInner)
-			v.Frames = frames
-
+			// Re-render triggered while inside another render pass (rare):
+			// diff in place. Component reconciliation in diffNode disposes
+			// only the components that were actually removed.
+			newTree := core.FlatTree(v.Render())
 			var diffMuts []core.Mutation
 			r.diffNode(v.Prev, newTree, &diffMuts)
 			r.Scheduler.Enqueue(diffMuts...)
-
-			for _, frame := range oldFrames {
-				hooks.RunFrameCleanup(frame)
-			}
-
 			v.Prev = newTree
-			id := rootIDFromTree(newTree)
-			return id
+			return rootIDFromTree(newTree)
 		}
 
-		inner := v.Render()
-		flat, frames := core.FlatTreeWithFrames(inner)
-		v.Frames = frames
+		flat := core.FlatTree(v.Render())
 		id := r.renderNode(flat, muts)
 		v.Prev = flat
 		scopeParentID := 0
@@ -197,6 +191,10 @@ func nodeID(n core.Node) int {
 		return v.ID
 	case *core.TextNode:
 		return v.ID
+	case *core.ComponentNode:
+		return rootIDFromTree(v.Prev)
+	case *core.ScopeNode:
+		return rootIDFromTree(v.Prev)
 	}
 	return 0
 }
@@ -211,6 +209,10 @@ func rootIDFromTree(n core.Node) int {
 		if len(v.Children) > 0 {
 			return rootIDFromTree(v.Children[0])
 		}
+	case *core.ComponentNode:
+		return rootIDFromTree(v.Prev)
+	case *core.ScopeNode:
+		return rootIDFromTree(v.Prev)
 	}
 	return 0
 }
@@ -232,17 +234,15 @@ func rootTypeChanged(old, new core.Node) bool {
 	case *core.ScopeNode:
 		_, ok := new.(*core.ScopeNode)
 		return !ok
+	case *core.ComponentNode:
+		b, ok := new.(*core.ComponentNode)
+		return !ok || a.Name != b.Name
 	}
 	return true
 }
 
 func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
-	oldFrames := s.Frames
-	s.Frames = nil
-
-	newInner := s.Render()
-	newTree, frames := core.FlatTreeWithFrames(newInner)
-	s.Frames = frames
+	newTree := core.FlatTree(s.Render())
 
 	var muts []core.Mutation
 
@@ -279,10 +279,6 @@ func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
 
 	if len(muts) > 0 {
 		r.Scheduler.Enqueue(muts...)
-	}
-
-	for _, frame := range oldFrames {
-		hooks.RunFrameCleanup(frame)
 	}
 
 	s.Prev = newTree
@@ -412,6 +408,21 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 		}
 		r.diffChildren(0, old.Children, new.Children, muts)
 		return 0
+
+	case *core.ComponentNode:
+		new, ok := newNode.(*core.ComponentNode)
+		if !ok || old.Name != new.Name {
+			// Different component (or no longer a component): unmount + mount.
+			r.emitRemoveTree(old, muts)
+			return r.renderNode(newNode, muts)
+		}
+		// Same component: preserve it. Setup ran once at mount and the output
+		// is a stable, self-updating subtree (bindings and inner scopes react
+		// on their own), so we keep the frame and DOM untouched — this is what
+		// gives components stable identity and state across scope re-renders.
+		new.Frame = old.Frame
+		new.Prev = old.Prev
+		return rootIDFromTree(old.Prev)
 
 	case *core.ScopeNode:
 		if old == newNode {
@@ -584,11 +595,15 @@ func typeCompatible(a, b core.Node) bool {
 	case *core.ScopeNode:
 		_, ok := b.(*core.ScopeNode)
 		return ok
+	case *core.ComponentNode:
+		vb, ok := b.(*core.ComponentNode)
+		return ok && va.Name == vb.Name
 	}
 	return false
 }
 
 func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
+	r.disposeReactive(n)
 	ids := core.CollectIDs(n)
 	for _, id := range ids {
 		r.Bindings.Unbind(id)
@@ -596,5 +611,40 @@ func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 		*muts = append(*muts, core.Mutation{
 			Type: core.MutRemoveNode, NodeID: id,
 		})
+	}
+}
+
+// disposeReactive tears down the reactive resources of a subtree being
+// removed: each component frame (its effects, and the Computed/Watch
+// subscriptions registered on it) and each scope's dep-subscriptions. It
+// walks the node tree so every frame is disposed exactly once
+// (RunFrameCleanup does not recurse into child frames).
+func (r *DOMRenderer) disposeReactive(n core.Node) {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		for _, c := range v.Children {
+			r.disposeReactive(c)
+		}
+	case *core.FragmentNode:
+		for _, c := range v.Children {
+			r.disposeReactive(c)
+		}
+	case *core.ComponentNode:
+		if v.Prev != nil {
+			r.disposeReactive(v.Prev)
+		}
+		if v.Frame != nil {
+			hooks.RunFrameCleanup(v.Frame)
+		}
+	case *core.ScopeNode:
+		for _, u := range v.Unsubs {
+			if u != nil {
+				u()
+			}
+		}
+		v.Unsubs = nil
+		if v.Prev != nil {
+			r.disposeReactive(v.Prev)
+		}
 	}
 }

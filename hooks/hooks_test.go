@@ -139,3 +139,44 @@ func TestOnMountSkippedOnServer(t *testing.T) {
 		t.Fatalf("OnMount should not run on the server, got %d", ran)
 	}
 }
+
+func TestWatchFiresOnDepChangeNotMount(t *testing.T) {
+	sig := core.NewSignal(0)
+	runs := 0
+	frame := core.PushComponent()
+	Watch([]core.SignalAccessor{sig}, func() { runs++ })
+	core.PopComponent()
+
+	if runs != 0 {
+		t.Fatalf("Watch must not run on mount, got %d", runs)
+	}
+	sig.Set(1)
+	if runs != 1 {
+		t.Fatalf("Watch should run on dep change, got %d", runs)
+	}
+	sig.Set(2)
+	if runs != 2 {
+		t.Fatalf("want 2 runs, got %d", runs)
+	}
+
+	// Unmount disposes the subscription.
+	RunFrameCleanup(frame)
+	sig.Set(3)
+	if runs != 2 {
+		t.Fatalf("Watch should be disposed after cleanup, got %d", runs)
+	}
+}
+
+func TestWatchSkippedOnServer(t *testing.T) {
+	sig := core.NewSignal(0)
+	runs := 0
+	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+		core.PushComponent()
+		Watch([]core.SignalAccessor{sig}, func() { runs++ })
+		core.PopComponent()
+	})
+	sig.Set(1)
+	if runs != 0 {
+		t.Fatalf("Watch should be a no-op on the server, got %d", runs)
+	}
+}

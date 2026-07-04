@@ -1250,3 +1250,87 @@ func TestPositionalShrinkRemovesOnce(t *testing.T) {
 		}
 	}
 }
+
+// The heart of the Solid "components run once" model: a component nested in a
+// scope must keep its identity — setup and effects run exactly once — even
+// when the scope re-renders for an unrelated reason. Regression for the old
+// behavior where every scope re-render tore down and re-ran all nested
+// components.
+func TestComponentPreservedAcrossScopeReRender(t *testing.T) {
+	other := core.NewSignal(0)
+	setups, effectRuns, cleanups := 0, 0, 0
+
+	scope := &core.ScopeNode{
+		Deps: []core.SignalAccessor{other},
+		Render: func() core.Node {
+			return &core.ElementNode{Tag: "div", Children: []core.Node{
+				core.Component("Stable", func() core.Node {
+					setups++
+					hooks.OnMount(func() func() {
+						effectRuns++
+						return func() { cleanups++ }
+					})
+					return &core.ElementNode{Tag: "span"}
+				}),
+				&core.TextNode{Value: fmt.Sprintf("%d", other.Get())},
+			}}
+		},
+	}
+
+	r := New()
+	r.Render(scope)
+	if setups != 1 || effectRuns != 1 || cleanups != 0 {
+		t.Fatalf("after mount want 1/1/0, got setups=%d effectRuns=%d cleanups=%d", setups, effectRuns, cleanups)
+	}
+
+	other.Set(1) // re-render the scope for an unrelated reason
+	r.Scheduler.Flush()
+	if setups != 1 || effectRuns != 1 || cleanups != 0 {
+		t.Fatalf("component churned on unrelated re-render: setups=%d effectRuns=%d cleanups=%d, want 1/1/0", setups, effectRuns, cleanups)
+	}
+
+	other.Set(2)
+	r.Scheduler.Flush()
+	if setups != 1 || effectRuns != 1 || cleanups != 0 {
+		t.Fatalf("component churned on 2nd re-render: setups=%d effectRuns=%d cleanups=%d, want 1/1/0", setups, effectRuns, cleanups)
+	}
+}
+
+// Component added to / removed from a scope mounts (setup once) / unmounts
+// (cleanup once); re-showing mounts a fresh instance.
+func TestComponentMountUnmountInScope(t *testing.T) {
+	shown := core.NewSignal(true)
+	setups, cleanups := 0, 0
+
+	scope := &core.ScopeNode{
+		Deps: []core.SignalAccessor{shown},
+		Render: func() core.Node {
+			if shown.Get() {
+				return core.Component("C", func() core.Node {
+					setups++
+					hooks.OnMount(func() func() { return func() { cleanups++ } })
+					return &core.ElementNode{Tag: "p"}
+				})
+			}
+			return &core.FragmentNode{}
+		},
+	}
+
+	r := New()
+	r.Render(scope)
+	if setups != 1 || cleanups != 0 {
+		t.Fatalf("after mount want 1/0, got %d/%d", setups, cleanups)
+	}
+
+	shown.Set(false) // unmount
+	r.Scheduler.Flush()
+	if setups != 1 || cleanups != 1 {
+		t.Fatalf("after unmount want 1/1, got %d/%d", setups, cleanups)
+	}
+
+	shown.Set(true) // remount, fresh instance
+	r.Scheduler.Flush()
+	if setups != 2 || cleanups != 1 {
+		t.Fatalf("after remount want 2/1, got %d/%d", setups, cleanups)
+	}
+}
