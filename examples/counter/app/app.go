@@ -153,6 +153,9 @@ func todosPage() core.Node {
 			initial[i] = todo{id: i + 1, text: fmt.Sprintf("Item %d", i+1)}
 		}
 		todos, setTodos := hooks.UseState(initial)
+		// Monotonic id source so ids stay unique even after removals
+		// (len+1 would collide once anything is deleted).
+		nextID, setNextID := hooks.UseState(len(initial) + 1)
 
 		doneCount := core.Computed([]core.SignalAccessor{todos}, func() string {
 			items := todos.Get()
@@ -178,25 +181,28 @@ func todosPage() core.Node {
 					Type("checkbox"), Checked(t.completed),
 					OnChange(func(value string) {
 						cur := todos.Get()
-						for i := range cur {
-							if cur[i].id == t.id {
-								cur[i].completed = !cur[i].completed
+						next := make([]todo, len(cur))
+						copy(next, cur)
+						for i := range next {
+							if next[i].id == t.id {
+								next[i].completed = !next[i].completed
 								break
 							}
 						}
-						setTodos(cur)
+						setTodos(next)
 					}),
 				),
 				Span(Text(t.text)),
 				Button(
 					OnClick(func() {
 						cur := todos.Get()
-						for i := range cur {
-							if cur[i].id == t.id {
-								setTodos(append(cur[:i], cur[i+1:]...))
-								break
+						next := make([]todo, 0, len(cur))
+						for _, td := range cur {
+							if td.id != t.id {
+								next = append(next, td)
 							}
 						}
+						setTodos(next)
 					}),
 					Text("✕"),
 				),
@@ -211,9 +217,9 @@ func todosPage() core.Node {
 					if text == "" {
 						return
 					}
-					setTodos(append([]todo{{
-						id: len(todos.Get()) + 1, text: text,
-					}}, todos.Get()...))
+					id := nextID.Get()
+					setNextID(id + 1)
+					setTodos(append([]todo{{id: id, text: text}}, todos.Get()...))
 				}),
 				Input(
 					Type("text"), Name("todo"), Placeholder("What needs to be done?"),
@@ -247,14 +253,24 @@ func stopwatchPage() core.Node {
 			return "Start"
 		})
 
-		go func() {
-			for {
-				time.Sleep(100 * time.Millisecond)
-				if running.Get() {
-					setElapsed(elapsed.Get() + 1)
+		hooks.OnMount(func() func() {
+			stop := make(chan struct{})
+			go func() {
+				ticker := time.NewTicker(100 * time.Millisecond)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-stop:
+						return
+					case <-ticker.C:
+						if running.Get() {
+							setElapsed(elapsed.Get() + 1)
+						}
+					}
 				}
-			}
-		}()
+			}()
+			return func() { close(stop) }
+		})
 
 		return Div(
 			H2(Text("Stopwatch")),
@@ -318,10 +334,12 @@ func dashboardPage() core.Node {
 			Button(
 				OnClick(func() {
 					cur := data.Get()
-					for i := range cur {
-						cur[i].Value = (cur[i].Value*7 + 13) % 100
+					next := make([]dashboardRow, len(cur))
+					copy(next, cur)
+					for i := range next {
+						next[i].Value = (next[i].Value*7 + 13) % 100
 					}
-					setData(cur)
+					setData(next)
 				}),
 				Text("Randomize Values"),
 			),
