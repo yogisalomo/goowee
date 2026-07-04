@@ -78,3 +78,28 @@ func TestUseStateNoComponentContext(t *testing.T) {
 		t.Fatal("setter should update value outside component context")
 	}
 }
+
+func TestOnMountRunsOnceAndCleansUp(t *testing.T) {
+	frame := core.PushComponent()
+	var mounted, cleaned int
+	OnMount(func() func() {
+		mounted++
+		return func() { cleaned++ }
+	})
+	core.PopComponent()
+
+	if mounted != 1 || cleaned != 0 {
+		t.Fatalf("after mount want mounted=1 cleaned=0, got %d/%d", mounted, cleaned)
+	}
+	RunFrameCleanup(frame)
+	if mounted != 1 || cleaned != 1 {
+		t.Fatalf("after cleanup want mounted=1 cleaned=1, got %d/%d", mounted, cleaned)
+	}
+}
+
+func TestOnMountNilCleanup(t *testing.T) {
+	frame := core.PushComponent()
+	OnMount(func() func() { return nil })
+	core.PopComponent()
+	RunFrameCleanup(frame) // must not panic on a nil cleanup
+}
