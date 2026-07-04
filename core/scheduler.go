@@ -1,22 +1,135 @@
 package core
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
+
+// maxDirtyPasses bounds re-render cascades (a re-render that dirties another
+// scope) so a runaway reactive cycle can't spin the flush forever.
+const maxDirtyPasses = 100
+
+type dirtyScope struct {
+	seq       int
+	render    func()
+	cancelled bool
+}
 
 type Scheduler struct {
-	queue []Mutation
+	queue    []Mutation
+	dirty    map[any]*dirtyScope // scopes to re-render on next flush, keyed by token
+	flushing map[any]*dirtyScope // entries being processed in the current pass
+	inFlush  bool
+
+	// OnWork is called when work first appears (a mutation is enqueued or a
+	// scope is marked dirty). The bridge uses it to schedule exactly one
+	// animation frame instead of polling every frame. nil in tests, which
+	// drive Flush directly.
+	OnWork func()
 }
 
 func NewScheduler() *Scheduler {
-	return &Scheduler{}
+	return &Scheduler{dirty: make(map[any]*dirtyScope)}
+}
+
+func (s *Scheduler) signalWork() {
+	// During a flush, enqueues are drained by that same flush, so there is no
+	// new frame to schedule.
+	if s.inFlush {
+		return
+	}
+	if s.OnWork != nil {
+		s.OnWork()
+	}
 }
 
 func (s *Scheduler) Enqueue(muts ...Mutation) {
 	s.queue = append(s.queue, muts...)
+	s.signalWork()
 }
 
+// MarkDirty schedules a scope (identified by a unique key, e.g. the ScopeNode
+// pointer) to re-render on the next flush. Repeated marks before a flush
+// coalesce into a single re-render — this is what turns N signal writes in one
+// frame into one re-render + one diff. seq orders re-renders parent-before-
+// child (a parent mounts before its children, so its seq is smaller).
+func (s *Scheduler) MarkDirty(key any, seq int, render func()) {
+	if e, ok := s.dirty[key]; ok {
+		e.render = render
+		e.cancelled = false
+		return
+	}
+	s.dirty[key] = &dirtyScope{seq: seq, render: render}
+	s.signalWork()
+}
+
+// CancelDirty drops a scope's pending re-render — used when a parent re-render
+// unmounts a still-dirty child, so we don't re-render a removed subtree.
+func (s *Scheduler) CancelDirty(key any) {
+	if e, ok := s.dirty[key]; ok {
+		e.cancelled = true
+		delete(s.dirty, key)
+	}
+	if e, ok := s.flushing[key]; ok {
+		e.cancelled = true
+	}
+}
+
+// Flush re-renders dirty scopes (parent-before-child, skipping any cancelled
+// mid-flush), then returns the coalesced mutation batch. It is the single
+// place batched render work happens.
 func (s *Scheduler) Flush() []Mutation {
-	out := s.queue
+	s.inFlush = true
+	for pass := 0; pass < maxDirtyPasses && len(s.dirty) > 0; pass++ {
+		current := s.dirty
+		s.dirty = make(map[any]*dirtyScope)
+		s.flushing = current
+
+		entries := make([]*dirtyScope, 0, len(current))
+		for _, e := range current {
+			entries = append(entries, e)
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].seq < entries[j].seq })
+		for _, e := range entries {
+			if !e.cancelled {
+				e.render()
+			}
+		}
+		s.flushing = nil
+	}
+	s.inFlush = false
+
+	out := coalesce(s.queue)
 	s.queue = nil
+	return out
+}
+
+// coalesce collapses redundant property/attribute writes to the same
+// (node, key) to their last value, preserving order and all other mutations.
+func coalesce(muts []Mutation) []Mutation {
+	if len(muts) < 2 {
+		return muts
+	}
+	type ck struct {
+		t   MutationType
+		id  int
+		key string
+	}
+	lastIdx := make(map[ck]int, len(muts))
+	for i, m := range muts {
+		if m.Type == MutSetProperty || m.Type == MutSetAttribute {
+			lastIdx[ck{m.Type, m.NodeID, m.Key}] = i
+		}
+	}
+	out := make([]Mutation, 0, len(muts))
+	for i, m := range muts {
+		if m.Type == MutSetProperty || m.Type == MutSetAttribute {
+			if lastIdx[ck{m.Type, m.NodeID, m.Key}] != i {
+				continue // superseded by a later write
+			}
+		}
+		out = append(out, m)
+	}
 	return out
 }
 
@@ -25,7 +138,7 @@ func (s *Scheduler) Len() int {
 }
 
 func (s *Scheduler) String() string {
-	return fmt.Sprintf("Scheduler(queue=%d)", len(s.queue))
+	return fmt.Sprintf("Scheduler(queue=%d dirty=%d)", len(s.queue), len(s.dirty))
 }
 
 type Mutation struct {

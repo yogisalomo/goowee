@@ -31,16 +31,27 @@ func Init(sched *core.Scheduler, registry *dom.NodeRegistry) {
 }
 
 func startScheduler(sched *core.Scheduler) {
+	scheduled := false
 	var rAF js.Func
 	rAF = js.FuncOf(func(this js.Value, args []js.Value) any {
+		scheduled = false
 		muts := sched.Flush()
 		if len(muts) > 0 {
 			sendMutations(muts)
 		}
-		js.Global().Call("requestAnimationFrame", rAF)
 		return nil
 	})
-	js.Global().Call("requestAnimationFrame", rAF)
+	// Schedule exactly one frame when work appears, instead of waking the
+	// module every ~16ms while idle.
+	sched.OnWork = func() {
+		if scheduled {
+			return
+		}
+		scheduled = true
+		js.Global().Call("requestAnimationFrame", rAF)
+	}
+	// Flush whatever the initial render already enqueued.
+	sched.OnWork()
 }
 
 func sendMutations(muts []core.Mutation) {

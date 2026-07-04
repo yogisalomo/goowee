@@ -1464,3 +1464,92 @@ func TestKeyedComponentListReorderPreservesIdentity(t *testing.T) {
 		t.Fatalf("expected reorder InsertBefore under <ul>, got %v", muts)
 	}
 }
+
+// Multiple signal writes in one frame must produce a single scope re-render,
+// not one per write (dirty-scope batching).
+func TestSchedulerBatchesScopeReRenders(t *testing.T) {
+	a := core.NewSignal(0)
+	b := core.NewSignal(0)
+	renders := 0
+	scope := &core.ScopeNode{
+		Deps: []core.SignalAccessor{a, b},
+		Render: func() core.Node {
+			renders++
+			return &core.ElementNode{Tag: "div", Attrs: []core.Attr{
+				{Name: "data-v", Value: fmt.Sprintf("%d-%d", a.Get(), b.Get())},
+			}}
+		},
+	}
+	r := New()
+	r.Render(scope)
+	if renders != 1 {
+		t.Fatalf("initial renders=%d, want 1", renders)
+	}
+
+	a.Set(1)
+	a.Set(2)
+	b.Set(5)
+	if renders != 1 {
+		t.Fatalf("re-render happened before flush (not batched): renders=%d", renders)
+	}
+
+	muts := r.Scheduler.Flush()
+	if renders != 2 {
+		t.Fatalf("3 writes should batch into 1 re-render (renders=2), got renders=%d", renders)
+	}
+	// And the single write reflects the final state, coalesced.
+	setV := 0
+	for _, m := range muts {
+		if m.Type == core.MutSetAttribute && m.Key == "data-v" {
+			setV++
+			if m.Value != "2-5" {
+				t.Fatalf("data-v should reflect final state 2-5, got %v", m.Value)
+			}
+		}
+	}
+	if setV != 1 {
+		t.Fatalf("expected a single coalesced data-v write, got %d", setV)
+	}
+}
+
+// A parent scope that re-renders and removes a dirty child in the same frame
+// must cancel the child's pending re-render (no re-render of a removed subtree).
+func TestParentReRenderCancelsDirtyChild(t *testing.T) {
+	show := core.NewSignal(true)
+	inner := core.NewSignal(0)
+	childRenders := 0
+
+	childScope := &core.ScopeNode{
+		Deps: []core.SignalAccessor{inner},
+		Render: func() core.Node {
+			childRenders++
+			return &core.ElementNode{Tag: "span", Attrs: []core.Attr{
+				{Name: "v", Value: fmt.Sprintf("%d", inner.Get())},
+			}}
+		},
+	}
+	parent := &core.ScopeNode{
+		Deps: []core.SignalAccessor{show},
+		Render: func() core.Node {
+			if show.Get() {
+				return &core.ElementNode{Tag: "div", Children: []core.Node{childScope}}
+			}
+			return &core.ElementNode{Tag: "p"}
+		},
+	}
+	root := &core.ElementNode{Tag: "main", Children: []core.Node{parent}}
+	r := New()
+	r.Render(root)
+	if childRenders != 1 {
+		t.Fatalf("initial child renders=%d, want 1", childRenders)
+	}
+
+	// Same frame: dirty the child, and remove it via the parent.
+	inner.Set(1)
+	show.Set(false)
+	r.Scheduler.Flush()
+
+	if childRenders != 1 {
+		t.Fatalf("child re-rendered after parent removed it: childRenders=%d, want 1", childRenders)
+	}
+}
