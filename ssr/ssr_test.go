@@ -6,6 +6,8 @@ import (
 	"goowee/dom"
 	"goowee/hooks"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -250,5 +252,63 @@ func TestBindSerialization(t *testing.T) {
 	html := r.Render(n)
 	if !strings.Contains(html, `title="hello"`) {
 		t.Fatalf("expected title attribute with resolved value, got %s", html)
+	}
+}
+
+// Concurrent server renders must not share the frame stack. With the old
+// package-global renderStack this races (and can cross-wire frames); each
+// render now runs under its own RenderContext. Run under -race.
+func TestConcurrentServerRendersNoRace(t *testing.T) {
+	build := func(n int) core.Node {
+		return core.Component("Outer", func() core.Node {
+			return &core.ElementNode{Tag: "div", Children: []core.Node{
+				core.Component("Inner", func() core.Node {
+					return &core.ElementNode{Tag: "span", Children: []core.Node{
+						&core.TextNode{Value: fmt.Sprintf("n=%d", n)},
+					}}
+				}),
+			}}
+		})
+	}
+
+	const goroutines = 64
+	var wg sync.WaitGroup
+	errs := make(chan string, goroutines)
+	for i := 0; i < goroutines; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got := New().Render(build(i))
+			if want := fmt.Sprintf("n=%d</span>", i); !strings.Contains(got, want) {
+				errs <- fmt.Sprintf("render %d missing %q in %q", i, want, got)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Error(e)
+	}
+}
+
+// Effects/OnMount must not execute during a server render (they'd leak a
+// goroutine or subscription per request, never cleaned up server-side).
+func TestServerRenderSkipsEffects(t *testing.T) {
+	var ran int32
+	comp := core.Component("Effectful", func() core.Node {
+		hooks.OnMount(func() func() {
+			atomic.AddInt32(&ran, 1)
+			return nil
+		})
+		return &core.ElementNode{Tag: "div", Children: []core.Node{&core.TextNode{Value: "x"}}}
+	})
+
+	html := New().Render(comp)
+	if !strings.Contains(html, "x") {
+		t.Fatalf("expected rendered content, got %q", html)
+	}
+	if atomic.LoadInt32(&ran) != 0 {
+		t.Fatalf("OnMount ran during ssr.Render (ran=%d), should be skipped server-side", ran)
 	}
 }

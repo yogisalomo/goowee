@@ -47,17 +47,29 @@ func (r *Renderer) allocID() int {
 }
 
 func (r *Renderer) Render(n core.Node) string {
-	r.Reset()
-	var buf strings.Builder
-	r.renderNode(n, &buf, "")
-	return buf.String()
+	var out string
+	// Server render context: per-request frame stack (no shared global) and
+	// EnvServer so component effects/OnMount don't run or leak goroutines.
+	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+		r.Reset()
+		var buf strings.Builder
+		r.renderNode(n, &buf, "")
+		out = buf.String()
+	})
+	return out
 }
 
 func (r *Renderer) RenderWithMeta(n core.Node, path string, hooks []core.SignalAccessor) (string, HydrationMeta) {
-	r.Reset()
-	var buf strings.Builder
-	r.renderNodeWithMeta(n, &buf, path, hooks, 0)
-	return buf.String(), r.Meta
+	var out string
+	var meta HydrationMeta
+	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+		r.Reset()
+		var buf strings.Builder
+		r.renderNodeWithMeta(n, &buf, path, hooks, 0)
+		out = buf.String()
+		meta = r.Meta
+	})
+	return out, meta
 }
 
 func (r *Renderer) renderNode(n core.Node, buf *strings.Builder, path string) {

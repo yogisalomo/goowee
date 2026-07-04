@@ -10,6 +10,13 @@ type effectState struct {
 }
 
 func UseEffect(deps []core.SignalAccessor, fn func() func()) {
+	// Effects are lifecycle side-effects; they must not run during a server
+	// render (no mount/unmount there, and RunFrameCleanup is never called
+	// server-side, so any goroutine/subscription would leak per request).
+	if core.CurrentEnv() == core.EnvServer {
+		return
+	}
+
 	frame := core.CurrentComponent()
 	state := &effectState{Deps: deps, Fn: fn}
 	if frame != nil {
