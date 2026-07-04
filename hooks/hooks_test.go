@@ -103,3 +103,39 @@ func TestOnMountNilCleanup(t *testing.T) {
 	core.PopComponent()
 	RunFrameCleanup(frame) // must not panic on a nil cleanup
 }
+
+func TestUseEffectSkippedOnServer(t *testing.T) {
+	// Client render: the effect body runs.
+	var clientRan int
+	core.UseContext(core.NewRenderContext(core.EnvClient), func() {
+		core.PushComponent()
+		UseEffect(nil, func() func() { clientRan++; return nil })
+		core.PopComponent()
+	})
+	if clientRan != 1 {
+		t.Fatalf("client effect should run once, got %d", clientRan)
+	}
+
+	// Server render: the effect body must not run.
+	var serverRan int
+	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+		core.PushComponent()
+		UseEffect(nil, func() func() { serverRan++; return nil })
+		core.PopComponent()
+	})
+	if serverRan != 0 {
+		t.Fatalf("server effect should be skipped, got %d", serverRan)
+	}
+}
+
+func TestOnMountSkippedOnServer(t *testing.T) {
+	var ran int
+	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+		core.PushComponent()
+		OnMount(func() func() { ran++; return nil })
+		core.PopComponent()
+	})
+	if ran != 0 {
+		t.Fatalf("OnMount should not run on the server, got %d", ran)
+	}
+}
