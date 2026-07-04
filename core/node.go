@@ -118,9 +118,27 @@ func (f *FragmentNode) String() string {
 
 type ComponentNode struct {
 	Name   string
+	Key    any // used by keyed reconciliation (For); nil = unkeyed
 	Render func() Node
 	Prev   Node
 	Frame  *ComponentFrame
+}
+
+// SetKey sets the reconciliation key on a node that carries one (elements and
+// components). Other node types have no key and are left unchanged. Used by
+// list helpers (For, VirtualList) so keyed matching preserves identity across
+// reorders regardless of whether rows are elements or components.
+func SetKey(n Node, key any) {
+	switch v := n.(type) {
+	case *ElementNode:
+		if v != nil {
+			v.Key = key
+		}
+	case *ComponentNode:
+		if v != nil {
+			v.Key = key
+		}
+	}
 }
 
 func (c *ComponentNode) nodeMarker() {}

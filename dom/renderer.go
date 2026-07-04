@@ -46,15 +46,9 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 		muts = append(muts, core.Mutation{
 			Type: core.MutAppendChild, NodeID: 0, ChildID: rootID,
 		})
-	} else if frag, ok := n.(*core.FragmentNode); ok {
-		for _, c := range frag.Children {
-			if id := nodeID(c); id != 0 {
-				muts = append(muts, core.Mutation{
-					Type: core.MutAppendChild, NodeID: 0, ChildID: id,
-				})
-			}
-		}
 	}
+	// A top-level fragment attaches its own children to the root container
+	// (node 0) inside renderNode; nothing more to do here.
 	return muts, rootID
 }
 
@@ -128,8 +122,23 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		if v == nil {
 			return 0
 		}
+		// A fragment has no DOM node of its own; attach each child to the
+		// nearest enclosing element (top of parentStack). This is how a
+		// multi-root list (e.g. For) mounts under its real parent instead of
+		// being orphaned.
+		parentID := 0
+		if len(r.parentStack) > 0 {
+			parentID = r.parentStack[len(r.parentStack)-1]
+		}
+		// parentID 0 is the root container, a valid target for a top-level
+		// fragment.
 		for _, child := range v.Children {
-			r.renderNode(child, muts)
+			cid := r.renderNode(child, muts)
+			if cid != 0 {
+				*muts = append(*muts, core.Mutation{
+					Type: core.MutAppendChild, NodeID: parentID, ChildID: cid,
+				})
+			}
 		}
 		return 0
 
@@ -246,7 +255,15 @@ func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
 
 	var muts []core.Mutation
 
-	if rootTypeChanged(s.Prev, newTree) {
+	// Push the scope's parent so any multi-root (fragment) content mounted
+	// during this diff attaches under the real parent, not the root.
+	r.parentStack = append(r.parentStack, parentID)
+
+	oldFrag, oldIsFrag := s.Prev.(*core.FragmentNode)
+	newFrag, newIsFrag := newTree.(*core.FragmentNode)
+
+	switch {
+	case rootTypeChanged(s.Prev, newTree):
 		newRootID := r.renderNode(newTree, &muts)
 		oldRootID := rootIDFromTree(s.Prev)
 		if newRootID != 0 {
@@ -273,9 +290,18 @@ func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
 		if s.Prev != nil {
 			r.emitRemoveTree(s.Prev, &muts)
 		}
-	} else {
+	case oldIsFrag && newIsFrag:
+		// Multi-root list content (e.g. For): reconcile the children directly
+		// against the scope's real parent so keyed reorders, inserts, and
+		// removes land in the right place — this is what makes keyed lists
+		// (of elements or components) work when they aren't wrapped in an
+		// element of their own.
+		r.diffChildren(parentID, oldFrag.Children, newFrag.Children, &muts)
+	default:
 		r.diffNode(s.Prev, newTree, &muts)
 	}
+
+	r.parentStack = r.parentStack[:len(r.parentStack)-1]
 
 	if len(muts) > 0 {
 		r.Scheduler.Enqueue(muts...)
@@ -455,9 +481,26 @@ func (r *DOMRenderer) diffChildren(parentID int, old, new []core.Node, muts *[]c
 	r.diffChildrenPositional(parentID, old, new, muts)
 }
 
+// keyOf returns a node's reconciliation key, if it carries one (elements and
+// components). Keyed matching therefore works uniformly whether list rows are
+// elements or components.
+func keyOf(n core.Node) (any, bool) {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		if v != nil && v.Key != nil {
+			return v.Key, true
+		}
+	case *core.ComponentNode:
+		if v != nil && v.Key != nil {
+			return v.Key, true
+		}
+	}
+	return nil, false
+}
+
 func hasAnyKey(nodes []core.Node) bool {
 	for _, n := range nodes {
-		if el, ok := n.(*core.ElementNode); ok && el != nil && el.Key != nil {
+		if _, ok := keyOf(n); ok {
 			return true
 		}
 	}
@@ -512,12 +555,12 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 	oldByKey := map[any]int{}
 	oldUnkeyed := []int{}
 	for i, n := range old {
-		if el, ok := n.(*core.ElementNode); ok && el != nil && el.Key != nil {
-			if _, dup := oldByKey[el.Key]; dup {
-				log.Printf("goowee: duplicate key %v in keyed children; treating extra as unkeyed", el.Key)
+		if k, ok := keyOf(n); ok {
+			if _, dup := oldByKey[k]; dup {
+				log.Printf("goowee: duplicate key %v in keyed children; treating extra as unkeyed", k)
 				continue
 			}
-			oldByKey[el.Key] = i
+			oldByKey[k] = i
 		} else {
 			oldUnkeyed = append(oldUnkeyed, i)
 		}
@@ -530,10 +573,10 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 	unkeyedIdx := 0
 	for i, n := range new {
 		oldIndexForNew[i] = -1
-		if el, ok := n.(*core.ElementNode); ok && el != nil && el.Key != nil {
-			if oldIdx, ok := oldByKey[el.Key]; ok {
+		if k, ok := keyOf(n); ok {
+			if oldIdx, ok := oldByKey[k]; ok {
 				if paired[oldIdx] {
-					log.Printf("goowee: duplicate key %v in keyed children; treating extra as unkeyed", el.Key)
+					log.Printf("goowee: duplicate key %v in keyed children; treating extra as unkeyed", k)
 					continue
 				}
 				paired[oldIdx] = true

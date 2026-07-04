@@ -47,9 +47,7 @@ func For[T any, K comparable](items *core.Signal[[]T], key func(T) K, render fun
 		children := make([]core.Node, 0, len(xs))
 		for _, x := range xs {
 			n := render(x)
-			if el, ok := n.(*core.ElementNode); ok && el != nil {
-				el.Key = key(x)
-			}
+			core.SetKey(n, key(x))
 			children = append(children, n)
 		}
 		return &core.FragmentNode{Children: children}

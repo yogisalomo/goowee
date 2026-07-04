@@ -1334,3 +1334,133 @@ func TestComponentMountUnmountInScope(t *testing.T) {
 		t.Fatalf("after remount want 2/1, got %d/%d", setups, cleanups)
 	}
 }
+
+// A fragment-rooted list (what For produces) nested in an element must attach
+// its rows to that element — on initial render and on later inserts — not to
+// the root. Regression for fragments orphaning / attaching to node 0.
+func TestFragmentListAttachesToParent(t *testing.T) {
+	order := core.NewSignal([]int{1, 2})
+	scope := &core.ScopeNode{
+		Deps: []core.SignalAccessor{order},
+		Render: func() core.Node {
+			var kids []core.Node
+			for _, id := range order.Get() {
+				kids = append(kids, &core.ElementNode{Tag: "li", Key: id})
+			}
+			return &core.FragmentNode{Children: kids}
+		},
+	}
+	ul := &core.ElementNode{Tag: "ul", Children: []core.Node{scope}}
+	r := New()
+	initMuts, _ := r.Render(ul)
+
+	appended := 0
+	for _, m := range initMuts {
+		if m.Type == core.MutAppendChild && m.NodeID == ul.ID {
+			appended++
+		}
+	}
+	if appended != 2 {
+		t.Fatalf("want 2 <li> appended under <ul> on init, got %d (muts=%v)", appended, initMuts)
+	}
+
+	order.Set([]int{1, 2, 3}) // append a third
+	muts := r.Scheduler.Flush()
+	insertedUnderUl := false
+	for _, m := range muts {
+		if m.Type == core.MutInsertBefore && m.NodeID == ul.ID {
+			insertedUnderUl = true
+		}
+		if (m.Type == core.MutInsertBefore || m.Type == core.MutAppendChild) && m.NodeID == 0 {
+			t.Fatalf("list row wrongly placed under root: %+v", m)
+		}
+	}
+	if !insertedUnderUl {
+		t.Fatalf("expected new <li> inserted under <ul>, got %v", muts)
+	}
+}
+
+// Reordering a keyed list of *components* must reuse each component (setup and
+// effects run once, output DOM reused) and reorder within the real parent —
+// the whole point of keyed matching for component rows.
+func TestKeyedComponentListReorderPreservesIdentity(t *testing.T) {
+	order := core.NewSignal([]int{1, 2, 3})
+	setups := map[int]int{}
+	cleanups := map[int]int{}
+
+	scope := &core.ScopeNode{
+		Deps: []core.SignalAccessor{order},
+		Render: func() core.Node {
+			var kids []core.Node
+			for _, id := range order.Get() {
+				id := id
+				c := core.Component("Row", func() core.Node {
+					setups[id]++
+					hooks.OnMount(func() func() { return func() { cleanups[id]++ } })
+					return &core.ElementNode{Tag: "li"}
+				})
+				c.Key = id
+				kids = append(kids, c)
+			}
+			return &core.FragmentNode{Children: kids}
+		},
+	}
+	ul := &core.ElementNode{Tag: "ul", Children: []core.Node{scope}}
+	r := New()
+	initMuts, _ := r.Render(ul)
+
+	outID := map[int]int{}
+	for _, n := range scope.Prev.(*core.FragmentNode).Children {
+		c := n.(*core.ComponentNode)
+		outID[c.Key.(int)] = rootIDFromTree(c.Prev)
+	}
+	for id := 1; id <= 3; id++ {
+		if setups[id] != 1 || outID[id] == 0 {
+			t.Fatalf("mount id=%d: setups=%d outID=%d", id, setups[id], outID[id])
+		}
+	}
+	appended := map[int]bool{}
+	for _, m := range initMuts {
+		if m.Type == core.MutAppendChild && m.NodeID == ul.ID {
+			appended[m.ChildID] = true
+		}
+	}
+	for id := 1; id <= 3; id++ {
+		if !appended[outID[id]] {
+			t.Fatalf("component row %d (node %d) not attached under <ul> on init", id, outID[id])
+		}
+	}
+
+	order.Set([]int{3, 1, 2}) // reorder
+	muts := r.Scheduler.Flush()
+
+	for id := 1; id <= 3; id++ {
+		if setups[id] != 1 {
+			t.Fatalf("component %d re-mounted on reorder: setups=%d, want 1", id, setups[id])
+		}
+		if cleanups[id] != 0 {
+			t.Fatalf("component %d unmounted on reorder: cleanups=%d, want 0", id, cleanups[id])
+		}
+	}
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement {
+			t.Fatalf("reorder created a node (should reuse all): %+v", m)
+		}
+	}
+	// Identity preserved: each key still maps to its original output node.
+	for _, n := range scope.Prev.(*core.FragmentNode).Children {
+		c := n.(*core.ComponentNode)
+		if got := rootIDFromTree(c.Prev); got != outID[c.Key.(int)] {
+			t.Fatalf("component %v output changed %d -> %d (identity lost)", c.Key, outID[c.Key.(int)], got)
+		}
+	}
+	reorderedUnderUl := false
+	for _, m := range muts {
+		if m.Type == core.MutInsertBefore && m.NodeID == ul.ID {
+			reorderedUnderUl = true
+		}
+	}
+	if !reorderedUnderUl {
+		t.Fatalf("expected reorder InsertBefore under <ul>, got %v", muts)
+	}
+}
