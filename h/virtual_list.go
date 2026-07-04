@@ -80,9 +80,7 @@ func renderVisible[T any](startIdx, endIdx int, items []T, renderItem func(int, 
 	for i := startIdx; i < endIdx; i++ {
 		idx := i
 		n := renderItem(idx, items[i])
-		if el, ok := n.(*core.ElementNode); ok && el != nil {
-			el.Key = idx
-		}
+		core.SetKey(n, idx)
 		out = append(out, n)
 	}
 	return out

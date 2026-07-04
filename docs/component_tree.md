@@ -131,9 +131,13 @@ even when the scope re-renders for an unrelated reason.** (Previously every
 scope re-render tore down and re-ran all nested components, losing their state
 and churning their effects.)
 
-Components in a list are matched positionally by `Name` today; keyed matching
-applies to elements. Rows that are whole components therefore rely on stable
-ordering.
+Keyed matching (`ElementNode.Key` / `ComponentNode.Key`, set by `For` /
+`VirtualList`) works for **both elements and components**: reordering a keyed
+list reuses each row — including a component row's frame, state, and effects —
+and just moves the DOM. A list produced by `For` is a fragment; the renderer
+reconciles a fragment-rooted scope's children against the scope's real parent
+element, so inserts/moves/removes land in the right place even though the
+fragment has no DOM node of its own.
 
 ---
 
