@@ -141,3 +141,78 @@ func TestRouteExactBeatsPrefix(t *testing.T) {
 		t.Fatalf("expected exact match to win, got %q", got)
 	}
 }
+
+func TestRouteParamMatch(t *testing.T) {
+	got := ""
+	r := New("/users/42/posts/7")
+	r.Route(map[string]func() core.Node{
+		"/users/:uid/posts/:pid": func() core.Node {
+			got = "match"
+			return &core.ElementNode{Tag: "div"}
+		},
+	}).Render()
+	if got != "match" {
+		t.Fatal("expected param route to match")
+	}
+	if r.Param("uid") != "42" || r.Param("pid") != "7" {
+		t.Fatalf("captured params uid=%q pid=%q", r.Param("uid"), r.Param("pid"))
+	}
+}
+
+func TestRouteExactBeatsParam(t *testing.T) {
+	got := ""
+	r := New("/todos/new")
+	r.Route(map[string]func() core.Node{
+		"/todos/new": func() core.Node { got = "exact"; return &core.ElementNode{Tag: "div"} },
+		"/todos/:id": func() core.Node { got = "param"; return &core.ElementNode{Tag: "span"} },
+	}).Render()
+	if got != "exact" {
+		t.Fatalf("expected exact /todos/new to win, got %q", got)
+	}
+}
+
+func TestRouteParamMoreLiteralsWin(t *testing.T) {
+	got := ""
+	r := New("/x/y")
+	r.Route(map[string]func() core.Node{
+		"/:a/:b": func() core.Node { got = "generic"; return &core.ElementNode{Tag: "div"} },
+		"/x/:b":  func() core.Node { got = "specific"; return &core.ElementNode{Tag: "span"} },
+	}).Render()
+	if got != "specific" {
+		t.Fatalf("more-literal route should win, got %q", got)
+	}
+}
+
+func TestRouteParamSegmentCountMustMatch(t *testing.T) {
+	got := "none"
+	r := New("/users/1/extra")
+	r.Route(map[string]func() core.Node{
+		"/users/:id": func() core.Node { got = "match"; return &core.ElementNode{Tag: "div"} },
+	}).Render()
+	if got != "none" {
+		t.Fatalf("param route should not match a different segment count, got %q", got)
+	}
+}
+
+func TestParamSignalReactive(t *testing.T) {
+	r := New("/todos/1")
+	scope := r.Route(map[string]func() core.Node{
+		"/todos/:id": func() core.Node { return &core.ElementNode{Tag: "div"} },
+	})
+	scope.Render() // match /todos/1
+	id := r.ParamSignal("id")
+	if id.Get() != "1" || r.Param("id") != "1" {
+		t.Fatalf("initial id: signal=%q param=%q", id.Get(), r.Param("id"))
+	}
+
+	// Navigate to a new param value; the derived signal must update (this is
+	// what lets a preserved component re-render on param change).
+	r.Path.Set("/todos/2")
+	scope.Render()
+	if id.Get() != "2" {
+		t.Fatalf("ParamSignal did not react to param change: %q", id.Get())
+	}
+	if r.Param("id") != "2" {
+		t.Fatalf("Param snapshot not updated: %q", r.Param("id"))
+	}
+}

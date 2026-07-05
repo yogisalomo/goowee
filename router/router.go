@@ -8,12 +8,16 @@ import (
 )
 
 type Router struct {
-	Path  *core.Signal[string]
-	navFn func(string)
+	Path   *core.Signal[string]
+	params *core.Signal[map[string]string]
+	navFn  func(string)
 }
 
 func New(initial string) *Router {
-	return &Router{Path: core.NewSignal(initial)}
+	return &Router{
+		Path:   core.NewSignal(initial),
+		params: core.NewSignal(map[string]string{}).WithEquals(sameParams),
+	}
 }
 
 func (r *Router) SetNavFn(fn func(string)) {
@@ -35,28 +39,63 @@ func (r *Router) Link(to, text string) *core.ElementNode {
 	)
 }
 
-// Route renders the handler whose pattern matches the current path. Patterns
-// are either exact ("/counter") or a prefix wildcard ("/docs/*"). Exact paths
-// win; among prefixes the most specific (longest) wins, so matching is
-// deterministic regardless of Go's randomized map iteration. "/404" is used
-// as the fallback if present.
-//
-// URL params (e.g. "/todos/:id") are not supported yet; a route needing an id
-// reads it from the path in its own handler for now.
-func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
-	// Precompute prefix patterns ordered most-specific-first, once.
-	type prefixRoute struct {
-		prefix string
-		fn     func() core.Node
+// Param returns the value of a URL param captured by the currently matched
+// route ("" if absent). This is a snapshot — good for event handlers and
+// one-shot reads. To update a still-mounted component when only the param
+// changes (e.g. /todos/1 -> /todos/2, where the same component is preserved),
+// bind reactively with ParamSignal instead.
+func (r *Router) Param(name string) string {
+	return r.params.Get()[name]
+}
+
+// Params is the reactive signal of the current route's params.
+func (r *Router) Params() *core.Signal[map[string]string] {
+	return r.params
+}
+
+// ParamSignal returns a derived signal of one param's value that updates as the
+// route's params change. Bind it reactively, e.g. h.TextS(r.ParamSignal("id"))
+// or h.Textf("Todo %s", r.ParamSignal("id")).
+func (r *Router) ParamSignal(name string) *core.Signal[string] {
+	return core.Computed([]core.SignalAccessor{r.params}, func() string {
+		return r.params.Get()[name]
+	})
+}
+
+func (r *Router) setParams(p map[string]string) {
+	if p == nil {
+		p = map[string]string{}
 	}
-	var prefixes []prefixRoute
+	r.params.Set(p)
+}
+
+// Route renders the handler whose pattern matches the current path. Patterns:
+//
+//	"/counter"        exact
+//	"/todos/:id"      param — captures id, read via Param/ParamSignal
+//	"/docs/*"         prefix wildcard — matches /docs and anything under it
+//
+// Exact paths win. Among the rest the most specific wins (more literal
+// segments first, then non-wildcard over wildcard), so matching is
+// deterministic regardless of Go's randomized map iteration. "/404" is the
+// fallback if present.
+func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
+	// Compile non-exact patterns (params or prefix wildcards) once, ordered
+	// most-specific-first.
+	var matchers []routeMatcher
 	for pattern, fn := range routes {
-		if strings.HasSuffix(pattern, "/*") {
-			prefixes = append(prefixes, prefixRoute{pattern[:len(pattern)-1], fn})
+		if strings.Contains(pattern, ":") || strings.HasSuffix(pattern, "/*") {
+			matchers = append(matchers, compileMatcher(pattern, fn))
 		}
 	}
-	sort.Slice(prefixes, func(i, j int) bool {
-		return len(prefixes[i].prefix) > len(prefixes[j].prefix)
+	sort.Slice(matchers, func(i, j int) bool {
+		if matchers[i].literals != matchers[j].literals {
+			return matchers[i].literals > matchers[j].literals
+		}
+		if matchers[i].wildcard != matchers[j].wildcard {
+			return !matchers[i].wildcard // non-wildcard is more specific
+		}
+		return len(matchers[i].segs) > len(matchers[j].segs)
 	})
 
 	return &core.ScopeNode{
@@ -64,17 +103,92 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 		Render: func() core.Node {
 			path := r.Path.Get()
 			if fn, ok := routes[path]; ok {
+				r.setParams(nil)
 				return fn()
 			}
-			for _, pr := range prefixes {
-				if strings.HasPrefix(path, pr.prefix) {
-					return pr.fn()
+			pathSegs := segsOf(path)
+			for _, m := range matchers {
+				if params, ok := m.match(pathSegs); ok {
+					r.setParams(params)
+					return m.fn()
 				}
 			}
+			r.setParams(nil)
 			if fn, ok := routes["/404"]; ok {
 				return fn()
 			}
 			return h.P(h.Text("404 — page not found"))
 		},
 	}
+}
+
+type routeMatcher struct {
+	segs     []string // pattern segments; a trailing "*" matches the rest
+	wildcard bool     // last segment is "*"
+	literals int      // count of fixed (non-param, non-wildcard) segments
+	fn       func() core.Node
+}
+
+func compileMatcher(pattern string, fn func() core.Node) routeMatcher {
+	m := routeMatcher{segs: segsOf(pattern), fn: fn}
+	for _, s := range m.segs {
+		switch {
+		case s == "*":
+			m.wildcard = true
+		case strings.HasPrefix(s, ":"):
+			// param segment
+		default:
+			m.literals++
+		}
+	}
+	return m
+}
+
+// match returns captured params if pathSegs matches, else (nil, false).
+func (m routeMatcher) match(pathSegs []string) (map[string]string, bool) {
+	var params map[string]string
+	for i, seg := range m.segs {
+		if seg == "*" {
+			return params, true // trailing wildcard consumes the rest
+		}
+		if i >= len(pathSegs) {
+			return nil, false
+		}
+		if strings.HasPrefix(seg, ":") {
+			if params == nil {
+				params = map[string]string{}
+			}
+			params[seg[1:]] = pathSegs[i]
+			continue
+		}
+		if seg != pathSegs[i] {
+			return nil, false
+		}
+	}
+	if len(m.segs) != len(pathSegs) {
+		return nil, false
+	}
+	return params, true
+}
+
+func segsOf(path string) []string {
+	var out []string
+	for _, s := range strings.Split(path, "/") {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func sameParams(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }

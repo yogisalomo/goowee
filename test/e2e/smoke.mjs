@@ -102,6 +102,15 @@ async function main() {
   await waitFor(hasCounter, "back to counter");
   check(await evalJS(`location.pathname`) === "/counter", "back did not restore /counter");
 
+  // --- URL params (preserved component reads the param reactively) ---
+  await evalJS(`[...document.querySelectorAll('a')].find(a=>a.textContent.trim()==='Greet').click()`);
+  await waitFor(`/Hello, alice!/.test(document.body.innerText)`, "greet alice");
+  check(await evalJS(`location.pathname`) === "/greet/alice", "greet nav path");
+  await evalJS(`[...document.querySelectorAll('a')].find(a=>a.textContent.trim()==='Bob').click()`);
+  await waitFor(`/Hello, bob!/.test(document.body.innerText)`, "greet bob (reactive param change)");
+  check(await evalJS(`location.pathname`) === "/greet/bob", "greet bob path");
+  check(!(await evalJS(`/Hello, alice!/.test(document.body.innerText)`)), "stale 'alice' after param change");
+
   if (logs.length) console.log("--- browser logs ---\n" + logs.join("\n"));
   if (fail.length) { console.log("E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }
   else console.log("E2E PASS: hydration reuses SSR DOM, interactive, routing + history work.");

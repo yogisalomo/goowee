@@ -13,13 +13,14 @@ func App(r *router.Router) core.Node {
 	return core.Component("App", func() core.Node {
 		return appLayout(r,
 			r.Route(map[string]func() core.Node{
-				"/":          homePage,
-				"/counter":   counterPage,
-				"/about":     aboutPage,
-				"/form":      formPage,
-				"/todos":     todosPage,
-				"/stopwatch": stopwatchPage,
-				"/dashboard": dashboardPage,
+				"/":            homePage,
+				"/counter":     counterPage,
+				"/about":       aboutPage,
+				"/form":        formPage,
+				"/todos":       todosPage,
+				"/stopwatch":   stopwatchPage,
+				"/dashboard":   dashboardPage,
+				"/greet/:name": func() core.Node { return greetPage(r) },
 			}),
 		)
 	})
@@ -47,7 +48,28 @@ func appHeader(r *router.Router) core.Node {
 		r.Link("/stopwatch", "Stopwatch"),
 		Text(" | "),
 		r.Link("/dashboard", "Dashboard"),
+		Text(" | "),
+		r.Link("/greet/alice", "Greet"),
 	)
+}
+
+// greetPage demonstrates a URL param route. The component mounts once and is
+// preserved across /greet/:name changes; it reads the name reactively via
+// ParamSignal, so navigating between names updates the text in place.
+func greetPage(r *router.Router) core.Node {
+	return core.Component("GreetPage", func() core.Node {
+		return Div(
+			H2(Text("Greeting")),
+			P(Textf("Hello, %s!", r.ParamSignal("name"))),
+			Nav(Class("nav"),
+				r.Link("/greet/alice", "Alice"),
+				Text(" | "),
+				r.Link("/greet/bob", "Bob"),
+				Text(" | "),
+				r.Link("/greet/carol", "Carol"),
+			),
+		)
+	})
 }
 
 func homePage() core.Node {
