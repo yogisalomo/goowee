@@ -56,6 +56,7 @@ type Handler struct {
 type HandlerOptions struct {
 	PreventDefault  bool
 	StopPropagation bool
+	SelectOnFocus   bool // select all text when the element receives focus
 }
 
 type Item interface {

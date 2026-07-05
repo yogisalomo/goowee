@@ -81,19 +81,22 @@ function buildPayload(type, e) {
 }
 
 function dispatchToGo(type, e) {
-    const payload = JSON.stringify(buildPayload(type, e));
-    let el = e.target;
-    while (el) {
-        if (el._nodeID !== undefined) {
-            const r = handleEvent(el._nodeID, type, payload);
-            if (r && r.handled) {
-                if (r.preventDefault) e.preventDefault();
-                if (r.stopPropagation) e.stopPropagation();
-                return;
-            }
-        }
-        el = el.parentElement;
-    }
+	const payload = JSON.stringify(buildPayload(type, e));
+	let el = e.target;
+	while (el) {
+		if (el._nodeID !== undefined) {
+			const r = handleEvent(el._nodeID, type, payload);
+			if (r && r.handled) {
+				if (r.preventDefault) e.preventDefault();
+				if (r.stopPropagation) e.stopPropagation();
+				if (r.selectOnFocus && type === "focus") {
+					el.select();
+				}
+				return;
+			}
+		}
+		el = el.parentElement;
+	}
 }
 
 window.applyMutations = function applyMutations(json) {
@@ -123,10 +126,18 @@ window.applyMutations = function applyMutations(json) {
                 el = nodeMap[mut.nodeId];
                 if (el) el.setAttribute(mut.key, mut.value);
                 break;
-            case 3: // SetProperty
-                el = nodeMap[mut.nodeId];
-                if (el) el[mut.key] = mut.value;
-                break;
+		case 3: // SetProperty
+				el = nodeMap[mut.nodeId];
+				if (el) {
+					// Preserve cursor position when a signal update sets the
+					// value of a focused input — skip the DOM write so the
+					// cursor doesn't jump to the end while the user types.
+					if (mut.key === "value" && el === document.activeElement) {
+						break;
+					}
+					el[mut.key] = mut.value;
+				}
+				break;
             case 4: { // AppendChild
                 const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
                 const child = nodeMap[mut.childId];

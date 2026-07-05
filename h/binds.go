@@ -30,3 +30,23 @@ func BindChecked(sig *core.Signal[bool]) core.Item {
 		OnInputE(func(e core.EventData) { sig.Set(e.Checked()) }),
 	)
 }
+
+// BindSelect binds a signal to a <select> element's value. Uses the "change"
+// event (not "input") so the value only updates on explicit selection.
+func BindSelect(sig *core.Signal[string]) core.Item {
+	return Group(
+		ValueS(sig),
+		OnChangeE(func(e core.EventData) { sig.Set(e.Value()) }),
+	)
+}
+
+// BindValueLazy binds a signal to an <input>'s value, updating on "change"
+// rather than "input". Use it when you want to batch updates until the user
+// finishes editing (e.g. search-after-typing-stops, debounced at the signal
+// consumer level).
+func BindValueLazy(sig *core.Signal[string]) core.Item {
+	return Group(
+		ValueS(sig),
+		OnChangeE(func(e core.EventData) { sig.Set(e.Value()) }),
+	)
+}
