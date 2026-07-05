@@ -1,4 +1,4 @@
-.PHONY: wasm ssr-server test bench size serve serve-ssr clean cpwasm cpjs
+.PHONY: wasm ssr-server test bench size e2e serve serve-ssr clean cpwasm cpjs
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -36,3 +36,6 @@ serve-ssr: wasm ssr-server cpwasm cpjs
 
 clean:
 	rm -f $(WASM_OUT) bin/ssr-server
+
+e2e:
+	./test/e2e/run.sh
