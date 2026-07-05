@@ -2,6 +2,7 @@ package core
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -421,5 +422,41 @@ func TestSchedulerMarkDirtyDedups(t *testing.T) {
 	s.Flush()
 	if renders != 1 {
 		t.Fatalf("repeated MarkDirty on the same key should re-render once, got %d", renders)
+	}
+}
+
+func TestSchedulerPostGoroutineSafe(t *testing.T) {
+	s := NewScheduler()
+	got := 0
+	const n = 200
+	var wg sync.WaitGroup
+	wg.Add(n)
+	// Many goroutines Post concurrently; the inbox is mutex-protected.
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			s.Post(func() { got++ }) // fn bodies run single-threaded, inside Flush
+		}()
+	}
+	wg.Wait()
+	s.Flush() // single drain on this goroutine
+	if got != n {
+		t.Fatalf("expected %d posted callbacks to run, got %d", n, got)
+	}
+}
+
+func TestSchedulerPostRunsOnFlushSetsSignals(t *testing.T) {
+	s := NewScheduler()
+	sig := NewSignal(0)
+	fired := 0
+	sig.Subscribe(func() { fired++ })
+
+	s.Post(func() { sig.Set(1) })
+	if sig.Get() != 0 {
+		t.Fatal("Post must defer the update until flush, not run inline")
+	}
+	s.Flush()
+	if sig.Get() != 1 || fired != 1 {
+		t.Fatalf("after flush want value=1 fired=1, got value=%d fired=%d", sig.Get(), fired)
 	}
 }

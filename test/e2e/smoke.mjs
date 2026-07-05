@@ -111,6 +111,15 @@ async function main() {
   check(await evalJS(`location.pathname`) === "/greet/bob", "greet bob path");
   check(!(await evalJS(`/Hello, alice!/.test(document.body.innerText)`)), "stale 'alice' after param change");
 
+  // --- Off-loop updates (core.Schedule): the stopwatch ticks from a goroutine ---
+  const disp = `(()=>{const p=[...document.querySelectorAll('p')].find(p=>/^\\d\\d:\\d\\d\\.\\d$/.test(p.textContent.trim()));return p?p.textContent.trim():'';})()`;
+  await evalJS(`[...document.querySelectorAll('a')].find(a=>a.textContent.trim()==='Stopwatch').click()`);
+  await waitFor(`(${disp}) === '00:00.0'`, "stopwatch page (display at 00:00.0)");
+  await evalJS(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Start').click()`);
+  // The 100ms ticker goroutine posts updates via core.Schedule; the display
+  // should advance past 00:00.0 within a couple of seconds.
+  await waitFor(`(${disp}) !== '' && (${disp}) !== '00:00.0'`, "stopwatch advanced via goroutine (core.Schedule)");
+
   if (logs.length) console.log("--- browser logs ---\n" + logs.join("\n"));
   if (fail.length) { console.log("E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }
   else console.log("E2E PASS: hydration reuses SSR DOM, interactive, routing + history work.");

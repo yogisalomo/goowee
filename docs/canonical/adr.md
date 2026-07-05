@@ -212,7 +212,8 @@ hydration. The marker doubles as a separator that prevents text-node merging.
 
 ## ADR-010: Signals are single-threaded (no locking)
 
-**Status:** Accepted (2026-07-05) — **with a known gap; see roadmap P1.1**
+**Status:** Accepted (2026-07-05). The cross-goroutine gap noted below is
+addressed by **ADR-015** (`core.Schedule`).
 
 **Context.** Go WASM runs on a single OS thread; goroutines are cooperatively
 scheduled.
@@ -223,11 +224,10 @@ contract is that signals are touched on the render loop.
 **Alternatives.** Mutex/atomic-protected signals. Rejected as unnecessary
 overhead and complexity given single-threaded WASM.
 
-**Consequences.** Correct today. But mutating a signal from a goroutine (timer,
-fetch) concurrently with a render is unsafe and unguarded — a real footgun.
-Roadmap P1.1 will add a safe cross-goroutine update path (route through the
-scheduler) and document the rule. Revisit locking only if Go WASM gains real
-threads.
+**Consequences.** Correct today. Mutating a signal from a goroutine (timer,
+fetch) concurrently with a render is unsafe and unguarded — a real footgun,
+now resolved by the `core.Schedule` path in ADR-015. Revisit locking only if
+Go WASM gains real threads.
 
 ---
 
@@ -311,3 +311,35 @@ Rejected: harder to review and to keep bisectable.
 
 **Consequences.** Clean history, each PR independently verified. `main` stays
 releasable.
+
+---
+
+## ADR-015: Off-loop state updates go through `core.Schedule`
+
+**Status:** Accepted (2026-07-06)
+
+**Context.** Signals aren't thread-safe (ADR-010). Code that runs *off* the
+render loop — a timer goroutine, a network/fetch callback, a channel receiver —
+must not call `Set` directly, or it races the renderer (the mutation queue,
+subscriber lists, and dirty set are unguarded).
+
+**Decision.** Provide `core.Schedule(fn func())`: it queues `fn` (via the
+scheduler's mutex-guarded `Post`) to run on the render loop at the next frame,
+where it may `Get`/`Set` signals safely. The client registers its scheduler
+once at startup via `bridge.Init` → `core.SetActiveScheduler`; `Schedule` is a
+no-op when none is registered (SSR, tests). The rule: **touch signals only on
+the render loop; from a goroutine, wrap the update in `core.Schedule`.** The
+stopwatch example's ticker is the canonical use.
+
+**Alternatives.** (a) Make `Set` itself defer when off-loop — but `Set` can't
+tell where it's called from and is used during renders. (b) A goroutine-local
+"am I on the loop" flag — fragile. (c) Full mutex-locked signals — rejected in
+ADR-010. (d) Pass the scheduler explicitly to every effect — breaks the
+run-once ergonomics. A single client-side "active scheduler" + `Schedule` is
+the pragmatic fit; it doesn't reintroduce the SSR global-state problem
+(ADR-007) because SSR has no scheduler and never registers one.
+
+**Consequences.** Off-loop updates are batched onto the next frame (a tick of
+extra latency, which is fine). Forgetting `Schedule` and calling `Set` from a
+goroutine is still possible — it's a documented rule, not enforced by the type
+system. Only one active scheduler per client process (the norm).
