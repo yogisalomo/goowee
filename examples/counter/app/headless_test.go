@@ -60,6 +60,15 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 				id: m.NodeID, tag: m.Value.(string), parent: -1,
 				attrs: map[string]string{}, props: map[string]any{},
 			}
+		case core.MutHydrate:
+			// Claim a server-rendered node: keep it if present, else create
+			// (the JS-side fallback for a hydration miss).
+			if _, ok := d.nodes[m.NodeID]; !ok {
+				d.nodes[m.NodeID] = &fnode{
+					id: m.NodeID, tag: m.Value.(string), parent: -1,
+					attrs: map[string]string{}, props: map[string]any{},
+				}
+			}
 		case core.MutRemoveNode:
 			d.detach(m.NodeID)
 			delete(d.nodes, m.NodeID)

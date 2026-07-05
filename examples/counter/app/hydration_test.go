@@ -193,3 +193,85 @@ func TestGreetParamRouteReactive(t *testing.T) {
 		t.Fatalf("stale 'alice' text remained after nav, tree = %q", h.dom.text(0))
 	}
 }
+
+// In hydrate mode the client render must emit ONLY claim mutations — no
+// create/set/append — and applying them over the server DOM must change
+// nothing (the optimization: reuse, don't rebuild).
+func TestHydrateRenderEmitsOnlyClaims(t *testing.T) {
+	for name, page := range map[string]func() core.Node{
+		"home": homePage, "counter": counterPage, "form": formPage, "todos": todosPage,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var serverMuts []core.Mutation
+			core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+				serverMuts, _ = dom.New().Render(page())
+			})
+			serverNodes := 0
+			for _, m := range serverMuts {
+				if m.Type == core.MutCreateElement {
+					serverNodes++
+				}
+			}
+			fd := newFakeDOM()
+			fd.apply(serverMuts)
+			nodesBefore := len(fd.nodes)
+			textBefore := fd.text(0)
+
+			r := dom.New()
+			r.SetHydrating(true)
+			var clientMuts []core.Mutation
+			core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+				clientMuts, _ = r.Render(page())
+			})
+
+			if len(clientMuts) == 0 {
+				t.Fatal("expected claim mutations")
+			}
+			for _, m := range clientMuts {
+				if m.Type != core.MutHydrate {
+					t.Fatalf("hydrate render emitted %v (want only Hydrate): %+v", m.Type, m)
+				}
+			}
+			// Exactly one claim per server-rendered node — nothing rebuilt.
+			if len(clientMuts) != serverNodes {
+				t.Fatalf("expected %d claims (one per server node), got %d", serverNodes, len(clientMuts))
+			}
+
+			fd.apply(clientMuts) // claims — must not change the DOM
+			if len(fd.nodes) != nodesBefore {
+				t.Fatalf("hydration changed node count %d -> %d", nodesBefore, len(fd.nodes))
+			}
+			if fd.text(0) != textBefore {
+				t.Fatalf("hydration changed text:\nbefore=%q\nafter =%q", textBefore, fd.text(0))
+			}
+		})
+	}
+}
+
+// After a hydrate render, handlers and bindings are wired, so the app is
+// interactive without a full client re-render.
+func TestHydrateStaysReactive(t *testing.T) {
+	var serverMuts []core.Mutation
+	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+		serverMuts, _ = dom.New().Render(counterPage())
+	})
+	fd := newFakeDOM()
+	fd.apply(serverMuts)
+
+	r := dom.New()
+	r.SetHydrating(true)
+	var clientMuts []core.Mutation
+	r.Render(counterPage()) // hydrate; sets client ids == server ids (parity)
+	// (clientMuts unused; claims don't change fd)
+	_ = clientMuts
+
+	incr := fd.buttonWithText("Count: 0")
+	if incr == 0 {
+		t.Fatalf("increment button not found after hydrate; tree=%q", fd.text(0))
+	}
+	r.Registry.Dispatch(incr, "click", "{}")
+	fd.apply(r.Scheduler.Flush())
+	if !strings.Contains(fd.text(incr), "Count: 1") {
+		t.Fatalf("not reactive after hydration: %q", fd.text(incr))
+	}
+}
