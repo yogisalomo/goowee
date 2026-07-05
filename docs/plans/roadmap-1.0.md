@@ -38,14 +38,14 @@ is exported and importable, which makes every field a de-facto public contract. 
 
 ## P1 — Correctness footguns (silent breakage in real apps)
 
-**1.1 Concurrency model.** Signals have no locking; they are correct *only*
-because Go WASM is single-threaded today. A timer/goroutine/fetch that calls
-`Set` concurrently with a render is a data race waiting to happen (and will
-break if Go WASM ever gets threads). Define the rule ("signals are read/written
-on the render loop only") and provide a safe cross-goroutine update path — e.g.
-route external updates through a scheduler channel/`Post(fn)` that runs on the
-frame loop. Document it prominently; the stopwatch `OnMount` timer is the
-canonical example. **M**
+**1.1 Concurrency model.** ✅ **Done.** `core.Schedule(fn)` runs off-loop
+updates (timers, network, channels) on the render loop via the scheduler's
+mutex-guarded `Post` inbox, drained at flush; the client registers its
+scheduler in `bridge.Init`. The rule — *touch signals only on the render loop;
+from a goroutine, wrap the update in `core.Schedule`* — is documented (ADR-015)
+and demonstrated by the stopwatch ticker. Covered by a `-race` test and the E2E
+(the stopwatch advances via a goroutine). *Still a documented rule, not
+type-enforced (ADR-015 consequences).*
 
 **1.2 Hydration mismatch recovery.** Hydration trusts SSR/DOM id parity and, on
 a miss, creates a bare node and logs — it does not recover. Any non-deterministic

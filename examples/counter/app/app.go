@@ -285,9 +285,14 @@ func stopwatchPage() core.Node {
 					case <-stop:
 						return
 					case <-ticker.C:
-						if running.Get() {
-							setElapsed(elapsed.Get() + 1)
-						}
+						// The ticker runs off the render loop, so hand the state
+						// change to the scheduler rather than touching signals
+						// here (see core.Schedule / ADR-015).
+						core.Schedule(func() {
+							if running.Get() {
+								setElapsed(elapsed.Get() + 1)
+							}
+						})
 					}
 				}
 			}()
