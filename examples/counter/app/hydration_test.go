@@ -4,10 +4,12 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	"goowee/core"
 	"goowee/dom"
+	"goowee/router"
 	"goowee/ssr"
 )
 
@@ -169,5 +171,25 @@ func TestSSRTextHydrationMarkers(t *testing.T) {
 	// The marker must sit immediately before its text content.
 	if !regexp.MustCompile(`<!--g\d+-->Welcome to Goowee`).MatchString(html) {
 		t.Fatalf("text marker not positioned before its content: %q", html)
+	}
+}
+
+// A URL-param route: the component mounts once and is preserved across param
+// changes; it reads the name reactively (ParamSignal), so navigating between
+// /greet/alice and /greet/bob updates the text in place.
+func TestGreetParamRouteReactive(t *testing.T) {
+	r := router.New("/greet/alice")
+	h := mount(t, App(r))
+	if !strings.Contains(h.dom.text(0), "Hello, alice!") {
+		t.Fatalf("want 'Hello, alice!' on mount, tree = %q", h.dom.text(0))
+	}
+
+	r.Navigate("/greet/bob")
+	h.flush()
+	if !strings.Contains(h.dom.text(0), "Hello, bob!") {
+		t.Fatalf("param change should update text in place, tree = %q", h.dom.text(0))
+	}
+	if strings.Contains(h.dom.text(0), "Hello, alice!") {
+		t.Fatalf("stale 'alice' text remained after nav, tree = %q", h.dom.text(0))
 	}
 }
