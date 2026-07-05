@@ -2,7 +2,7 @@ package dom
 
 import (
 	"encoding/json"
-	"goowee/core"
+	"github.com/yogisalomo/goowee/core"
 	"log"
 )
 

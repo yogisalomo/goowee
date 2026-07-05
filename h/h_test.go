@@ -1,7 +1,7 @@
 package h
 
 import (
-	"goowee/core"
+	"github.com/yogisalomo/goowee/core"
 	"strconv"
 	"strings"
 	"testing"

@@ -1,8 +1,8 @@
 package bridge
 
 import (
-	"goowee/core"
-	"goowee/dom"
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/dom"
 )
 
 type Bridge interface {

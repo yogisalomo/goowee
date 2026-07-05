@@ -2,9 +2,9 @@ package ssr
 
 import (
 	"fmt"
-	"goowee/core"
-	"goowee/dom"
-	"goowee/hooks"
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/dom"
+	"github.com/yogisalomo/goowee/hooks"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,7 +13,7 @@ import (
 
 func TestSSRRender(t *testing.T) {
 	n := &core.ElementNode{
-		Tag: "div",
+		Tag:   "div",
 		Attrs: []core.Attr{{Name: "class", Value: "greeting"}},
 		Children: []core.Node{
 			&core.TextNode{Value: "hello"},
@@ -35,7 +35,7 @@ func TestSSRRender(t *testing.T) {
 func TestSSRWithMeta(t *testing.T) {
 	count := core.NewSignal(0)
 	n := &core.ElementNode{
-		Tag: "button",
+		Tag:   "button",
 		Attrs: []core.Attr{{Name: "class", Value: "btn"}},
 		Binds: []core.Bind{{
 			Target: core.BindToProp, Name: "textContent", Signal: count,
@@ -132,7 +132,7 @@ func TestSSRIDMatchesDOM(t *testing.T) {
 	comp := core.Component("IDTest", func() core.Node {
 		count, _ := hooks.UseState(0)
 		return &core.ElementNode{
-			Tag: "span",
+			Tag:   "span",
 			Attrs: []core.Attr{{Name: "class", Value: "test"}},
 			Binds: []core.Bind{{
 				Target: core.BindToProp, Name: "textContent", Signal: count,
@@ -195,7 +195,7 @@ func TestVoidElements(t *testing.T) {
 	}
 
 	input := &core.ElementNode{
-		Tag: "input",
+		Tag:   "input",
 		Attrs: []core.Attr{{Name: "type", Value: "text"}},
 	}
 	html2 := r.Render(input)

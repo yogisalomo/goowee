@@ -1,8 +1,8 @@
 package h
 
 import (
-	"goowee/core"
-	"goowee/hooks"
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/hooks"
 )
 
 // Show renders then() while cond is true and nothing otherwise. It

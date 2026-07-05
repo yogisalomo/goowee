@@ -224,8 +224,6 @@ func TestNotificationOrderIsSubscriptionOrder(t *testing.T) {
 	}
 }
 
-
-
 func TestUpdate(t *testing.T) {
 	s := NewSignal(0)
 	s.Update(func(v int) int { return v + 5 })

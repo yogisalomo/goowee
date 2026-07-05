@@ -1,16 +1,38 @@
 # Goowee
 
-A Go framework for building reactive web UIs compiled to WebAssembly.
+A Go framework for building reactive web UIs, compiled to WebAssembly, with
+server-side rendering and hydration.
 
 ```go
+import . "github.com/yogisalomo/goowee/h"
+
 func App() core.Node {
-    count, setCount := hooks.UseState(0)
-    return html.Button(html.Props{
-        "textContent": count,
-        "onclick": func(core.EventData) { setCount(count.Get() + 1) },
+    return core.Component("App", func() core.Node {
+        count, setCount := hooks.UseState(0)
+        return Div(
+            P(Textf("Count: %d", count)),
+            Button(OnClick(func() { setCount(count.Get() + 1) }), Text("Click me")),
+        )
     })
 }
 ```
+
+> **Status: experimental (v0).** The core is hardened and tested (see
+> `docs/26-07-02-fable-review.md` and the PRs that resolved it), but the public
+> API is not yet stable — expect breaking changes. See `docs/plans/roadmap-1.0.md`
+> for the path to production readiness, and `docs/canonical/adr.md` for the
+> design decisions behind the framework.
+
+## How it works
+
+- **Signals** are the unit of reactivity. Components are **setup functions that
+  run once** (Solid-style, not React): state lives in signals captured by
+  closures, and updates happen at fine grain — a signal bound to a node updates
+  just that node; a *scope* re-renders a small region and diffs it.
+- **The bridge is thin.** All logic is in Go; `runtime/goowee.js` only applies
+  DOM mutations, forwards events, and claims server-rendered nodes on hydration.
+- **SSR-first.** Render to HTML on the server, then hydrate: the client claims
+  the existing DOM instead of rebuilding it.
 
 ## Quick start
 
@@ -18,7 +40,7 @@ Requires Go 1.25+.
 
 ```bash
 go mod init myapp
-go get goowee
+go get github.com/yogisalomo/goowee
 ```
 
 Create `main.go`:
@@ -29,11 +51,12 @@ Create `main.go`:
 package main
 
 import (
-    "goowee/bridge"
-    "goowee/core"
-    "goowee/dom"
-    "goowee/html"
-    "goowee/hooks"
+    . "github.com/yogisalomo/goowee/h"
+
+    "github.com/yogisalomo/goowee/bridge"
+    "github.com/yogisalomo/goowee/core"
+    "github.com/yogisalomo/goowee/dom"
+    "github.com/yogisalomo/goowee/hooks"
 )
 
 func main() {
@@ -47,36 +70,27 @@ func main() {
 func App() core.Node {
     return core.Component("App", func() core.Node {
         count, setCount := hooks.UseState(0)
-        return html.Div(nil,
-            html.P(html.Props{"textContent": count}),
-            html.Button(html.Props{
-                "textContent": "Click me",
-                "onclick":     func(core.EventData) { setCount(count.Get() + 1) },
-            }),
+        return Div(Class("counter"),
+            P(Textf("Count: %d", count)),
+            Button(OnClick(func() { setCount(count.Get() + 1) }), Text("Click me")),
         )
     })
 }
 ```
 
-Build:
+Build and serve:
 
 ```bash
 GOOS=js GOARCH=wasm go build -o main.wasm .
+cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" .
+cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js .
 ```
-
-Copy the runtime JS and Go's wasm_exec.js next to your binary:
-
-```bash
-cp $GOROOT/misc/wasm/wasm_exec.js .
-cp $(go env GOMODCACHE)/goowee@latest/runtime/goowee.js .
-```
-
-Serve it all with any static file server:
 
 ```html
 <!DOCTYPE html>
 <script src="wasm_exec.js"></script>
 <script src="goowee.js"></script>
+<div id="root"></div>
 <script>
     const go = new Go();
     WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
@@ -84,25 +98,30 @@ Serve it all with any static file server:
 </script>
 ```
 
+The runnable reference app lives in `examples/counter` — `make serve` (client)
+or `make serve-ssr` (SSR + hydration).
+
 ## Concepts
 
-### Nodes
+### Elements — the `h` package
 
-Every component returns a `core.Node`. Build them with the `html` package helpers or directly:
+Dot-import `h` and build elements with typed constructors. Attributes,
+properties, events, and children are all just items passed to a constructor:
 
 ```go
-// helper
-html.Div(html.Props{"class": "container"}, html.Text("hello"))
-
-// or raw structs
-&core.ElementNode{
-    Tag: "div",
-    Props: map[string]any{"class": "container"},
-    Children: []core.Node{&core.TextNode{Value: "hello"}},
-}
+Div(Class("card"), ID("main"),
+    H2(Text("Title")),
+    Button(OnClick(handleClick), Text("Go")),
+)
 ```
 
-Available helpers: `Div`, `Span`, `P`, `H1`–`H6`, `A`, `Ul`, `Ol`, `Li`, `Form`, `Input`, `Button`, `Label`, `Select`, `Option`, `Textarea`, `Nav`, `Main`, `Section`, `Header`, `Footer`, `Article`, `Aside`, `Img`, `Br`, `Hr`, `Table`, `Thead`, `Tbody`, `Tr`, `Th`, `Td`, `Strong`, `Em`, `Code`, `Pre`, `Fragment`, `Text`.
+Attributes are typed helpers (`Class`, `Href`, `Type`, `Placeholder`, …);
+properties too (`Value`, `Checked`, `Disabled`, …). Text is a child node:
+`Text("static")`, `TextS(sig)` (a signal), or `Textf("Count: %d", count)`
+(printf where any signal argument is reactive).
+
+Reactive variants of attributes/properties use an `-S` suffix — `Class` is
+static, `ClassS(sig)` binds a signal (see ADR-004).
 
 ### State
 
@@ -112,112 +131,120 @@ Available helpers: `Div`, `Span`, `P`, `H1`–`H6`, `A`, `Ul`, `Ol`, `Li`, `Form
 count, setCount := hooks.UseState(0)
 ```
 
-Pass the signal directly to a prop for automatic reactivity:
+Bind a signal to text or a property and it updates that node when the signal
+changes — no component re-render:
 
 ```go
-html.Span(html.Props{"textContent": count})
+Span(TextS(count))          // reactive text
+Input(ValueS(name))         // reactive property
+Input(BindValue(name))      // two-way (value + oninput)
 ```
 
-The signal binding is set up once during render. When you call `setCount(n)`, the DOM node updates automatically — no component re-render needed for property changes.
+`core.Computed(deps, fn)` derives a signal from others.
 
-### Structural updates: UseScope
+### Control flow
 
-For conditional rendering or lists, wrap the dynamic part in `hooks.UseScope`:
+Conditional and list rendering re-render a small scope when their deps change:
 
 ```go
-show, setShow := hooks.UseState(true)
+Show(loggedIn, func() core.Node { return P(Text("Welcome")) })
 
-return html.Div(nil,
-    hooks.UseScope(func() core.Node {
-        if show.Get() {
-            return html.P(html.Props{"textContent": "Now you see me"})
-        }
-        return nil
-    }, show),
-    html.Button(html.Props{
-        "textContent": "Toggle",
-        "onclick":     func(core.EventData) { setShow(!show.Get()) },
-    }),
+ShowElse(loading,
+    func() core.Node { return Spinner() },
+    func() core.Node { return Content() },
 )
+
+For(todos, func(t Todo) int { return t.ID }, func(t Todo) core.Node {
+    return Li(Text(t.Title))
+})
+
+Switch(tab, map[string]func() core.Node{
+    "home":    homeView,
+    "profile": profileView,
+}, notFoundView)
 ```
 
-The scope re-executes when `show` changes, diffs the old and new trees, and emits only the mutations needed to update the DOM.
+`For` is keyed — reordering reuses each row (element *or* component), preserving
+its state and DOM.
 
 ### Effects
 
-For side effects that respond to signal changes:
+`OnMount` runs setup once and returns a cleanup for unmount — the place for
+timers, goroutines, and subscriptions:
 
 ```go
-hooks.UseEffect([]core.SignalAccessor{count}, func() func() {
-    fmt.Println("count is now", count.Get())
-    return nil // optional cleanup
+hooks.OnMount(func() func() {
+    stop := startTicker()
+    return func() { stop() } // runs on unmount
 })
 ```
 
-Effects run once immediately, then re-run when any dependency changes. Return a cleanup function to tear down subscriptions or timers.
+`Watch(deps, fn)` reacts to signal changes; `UseEffect(deps, fn)` runs on mount
+and on each change with cleanup. (Effects don't run during server rendering.)
 
 ### Routing
 
 ```go
-import "goowee/router"
+import "github.com/yogisalomo/goowee/router"
 
-r := router.New("/")
-r.SetNavFn(func(path string) {
-    // update browser URL via history.pushState
-})
+r := router.New(router.CurrentPath())
+r.BindHistory() // pushState on navigation, popstate on back/forward
 
-// define routes
 r.Route(map[string]func() core.Node{
-    "/":      homePage,
-    "/about": aboutPage,
+    "/":            homePage,
+    "/about":       aboutPage,
+    "/users/:id":   func() core.Node { return userPage(r) },
 })
 
-// link without page reload
-r.Link("/about", "About us")
+r.Link("/about", "About") // navigates without a page reload
 ```
 
-### VirtualList
+Matching is deterministic (exact > most-specific prefix/param). Read a URL
+param reactively with `r.ParamSignal("id")` so a preserved view updates when the
+param changes; `r.Param("id")` is a snapshot for handlers.
 
-Render large lists efficiently — only visible items are in the DOM:
+### Server-side rendering & hydration
 
 ```go
-html.VirtualList(itemsSignal, itemHeight, func(i int, item Item) core.Node {
-    return html.Li(nil, html.Text(item.Name))
-}, html.VirtualListHeight(400))
+import "github.com/yogisalomo/goowee/ssr"
+
+body := ssr.New().Render(App())
+// serve <div id="root">{body}</div> + the wasm loader
 ```
 
-### Server-side rendering
-
-Serve pre-rendered HTML from your Go server:
-
-```go
-import "goowee/ssr"
-
-renderer := ssr.New()
-html := renderer.Render(app.App(router.New(path)))
-```
-
-The SSR output includes `data-node-id` attributes for hydration metadata.
+SSR emits `data-node-id` attributes and text markers. On boot the client
+detects the server-rendered DOM and **hydrates** — claiming the existing nodes
+and wiring up handlers/bindings instead of rebuilding. `cmd/ssr-server` is a
+working example.
 
 ## Project layout
 
 ```
-core/       Node types, signals, scheduler, bindings
-dom/        DOM renderer, diff algorithm, event registry
-hooks/      UseState, UseEffect, UseScope
-bridge/     WASM bridge (Go ↔ JS interop)
-html/       Element helpers and VirtualList
-router/     Client-side router
-ssr/        Server-side HTML renderer
-runtime/    JS runtime (goowee.js)
-examples/   Demo app with 7 pages
-cmd/        SSR server binary
+core/         Signals, scheduler, node types, bindings, render context
+dom/          DOM renderer, diff/reconciliation, hydration, event registry
+hooks/        UseState, UseEffect, OnMount, Watch, UseScope
+h/            Typed element/attr/event DSL, control flow, VirtualList
+router/       Client-side router (matching, params, history)
+ssr/          Server-side HTML renderer
+bridge/       WASM bridge (Go ↔ JS)
+runtime/      JS runtime (goowee.js)
+examples/     Demo app (counter, form, todos, dashboard, routing, params)
+cmd/          SSR server binary
+test/e2e/     Headless-browser smoke test
+docs/         Design docs, ADRs, roadmap
 ```
 
 ## Building and running
 
 ```bash
-make test       # run all Go tests
-make serve      # build WASM and serve on :8083
-make serve-ssr  # build + SSR-rendered server on :8081
+make test        # go test ./...
+make bench       # benchmarks
+make size        # WASM binary size vs budget
+make e2e         # headless-Chrome end-to-end smoke test (needs Node + Chrome)
+make serve       # build WASM and serve on :8083
+make serve-ssr   # SSR-rendered server on :8081
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

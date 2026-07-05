@@ -1,6 +1,6 @@
 package hooks
 
-import "goowee/core"
+import "github.com/yogisalomo/goowee/core"
 
 // Watch runs fn whenever any dep changes. It does not run on mount (unlike
 // OnMount) and takes no cleanup (unlike UseEffect) — it is the plain "when

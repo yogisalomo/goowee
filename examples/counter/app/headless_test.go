@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"goowee/core"
-	"goowee/dom"
-	"goowee/hooks"
-	"goowee/router"
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/dom"
+	"github.com/yogisalomo/goowee/hooks"
+	"github.com/yogisalomo/goowee/router"
 )
 
 // ---------------------------------------------------------------------------
@@ -223,10 +223,12 @@ func (h *harness) dispatch(id int, event string, data map[string]any) {
 	h.flush()
 }
 
-func (h *harness) click(id int)                { h.dispatch(id, "click", map[string]any{}) }
-func (h *harness) input(id int, v string)      { h.dispatch(id, "input", map[string]any{"value": v}) }
-func (h *harness) change(id int, v string)     { h.dispatch(id, "change", map[string]any{"value": v}) }
-func (h *harness) check(id int, checked bool)  { h.dispatch(id, "input", map[string]any{"checked": checked}) }
+func (h *harness) click(id int)            { h.dispatch(id, "click", map[string]any{}) }
+func (h *harness) input(id int, v string)  { h.dispatch(id, "input", map[string]any{"value": v}) }
+func (h *harness) change(id int, v string) { h.dispatch(id, "change", map[string]any{"value": v}) }
+func (h *harness) check(id int, checked bool) {
+	h.dispatch(id, "input", map[string]any{"checked": checked})
+}
 func (h *harness) submit(id int, vals map[string]any) {
 	h.dispatch(id, "submit", map[string]any{"values": vals})
 }

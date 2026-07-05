@@ -1,6 +1,6 @@
 package hooks
 
-import "goowee/core"
+import "github.com/yogisalomo/goowee/core"
 
 func UseState[T any](initial T) (*core.Signal[T], func(T)) {
 	sig := core.NewSignal(initial)

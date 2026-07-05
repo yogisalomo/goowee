@@ -1,7 +1,7 @@
 package hooks
 
 import (
-	"goowee/core"
+	"github.com/yogisalomo/goowee/core"
 	"testing"
 )
 

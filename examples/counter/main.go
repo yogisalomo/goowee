@@ -3,10 +3,10 @@
 package main
 
 import (
-	"goowee/bridge"
-	"goowee/dom"
-	"goowee/examples/counter/app"
-	"goowee/router"
+	"github.com/yogisalomo/goowee/bridge"
+	"github.com/yogisalomo/goowee/dom"
+	"github.com/yogisalomo/goowee/examples/counter/app"
+	"github.com/yogisalomo/goowee/router"
 	"syscall/js"
 )
 

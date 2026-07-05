@@ -1,6 +1,6 @@
 package h
 
-import "goowee/core"
+import "github.com/yogisalomo/goowee/core"
 
 type HandlerOption func(*core.HandlerOptions)
 

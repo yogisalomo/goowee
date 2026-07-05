@@ -1,8 +1,8 @@
 package router
 
 import (
-	"goowee/core"
-	"goowee/h"
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/h"
 	"sort"
 	"strings"
 )

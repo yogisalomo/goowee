@@ -4,8 +4,8 @@ package bridge
 
 import (
 	"encoding/json"
-	"goowee/core"
-	"goowee/dom"
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/dom"
 	"syscall/js"
 )
 

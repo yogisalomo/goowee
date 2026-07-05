@@ -231,7 +231,6 @@ func CollectIDs(n Node) []int {
 	return ids
 }
 
-
 type EventData struct {
 	Type   string
 	Target int
@@ -252,8 +251,8 @@ func (e EventData) num(k string) float64 {
 	return 0
 }
 
-func (e EventData) Value() string       { return e.str("value") }
-func (e EventData) Key() string         { return e.str("key") }
+func (e EventData) Value() string { return e.str("value") }
+func (e EventData) Key() string   { return e.str("key") }
 func (e EventData) Checked() bool {
 	v, _ := e.Data["checked"].(bool)
 	return v

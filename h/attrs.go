@@ -1,7 +1,7 @@
 package h
 
 import (
-	"goowee/core"
+	"github.com/yogisalomo/goowee/core"
 	"strconv"
 )
 
@@ -31,11 +31,11 @@ func Width(v string) core.Item        { return attrItem{"width", v} }
 func Height(v string) core.Item       { return attrItem{"height", v} }
 func AriaLabel(v string) core.Item    { return attrItem{"aria-label", v} }
 
-func Rows(v int) core.Item      { return attrItem{"rows", strconv.Itoa(v)} }
-func Cols(v int) core.Item      { return attrItem{"cols", strconv.Itoa(v)} }
-func TabIndex(v int) core.Item  { return attrItem{"tabindex", strconv.Itoa(v)} }
-func Colspan(v int) core.Item   { return attrItem{"colspan", strconv.Itoa(v)} }
-func Rowspan(v int) core.Item   { return attrItem{"rowspan", strconv.Itoa(v)} }
+func Rows(v int) core.Item     { return attrItem{"rows", strconv.Itoa(v)} }
+func Cols(v int) core.Item     { return attrItem{"cols", strconv.Itoa(v)} }
+func TabIndex(v int) core.Item { return attrItem{"tabindex", strconv.Itoa(v)} }
+func Colspan(v int) core.Item  { return attrItem{"colspan", strconv.Itoa(v)} }
+func Rowspan(v int) core.Item  { return attrItem{"rowspan", strconv.Itoa(v)} }
 
 func Attr(name, value string) core.Item { return attrItem{name, value} }
 func Data(name, value string) core.Item { return attrItem{"data-" + name, value} }
