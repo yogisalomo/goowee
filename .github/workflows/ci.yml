@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race)
+        run: go test -race ./...
+
+      - name: Build (native)
+        run: go build ./...
+
+      - name: Build SSR server
+        run: go build -o /tmp/ssr-server ./cmd/ssr-server
+
+      - name: Build WASM + size budget
+        run: |
+          GOOS=js GOARCH=wasm go build -o /tmp/main.wasm ./examples/counter
+          size=$(stat -c%s /tmp/main.wasm)
+          budget=6291456   # 6 MiB — current build is ~3.7 MiB; guards against a blowup
+          echo "main.wasm: $size bytes (budget $budget)"
+          if [ "$size" -gt "$budget" ]; then
+            echo "::error::WASM binary $size bytes exceeds budget $budget"
+            exit 1
+          fi
+
+      - name: Benchmarks (smoke)
+        run: go test -run '^$' -bench . -benchtime=10x ./core/ ./dom/
