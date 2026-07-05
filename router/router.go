@@ -5,12 +5,16 @@ import (
 	"github.com/yogisalomo/goowee/h"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type Router struct {
-	Path   *core.Signal[string]
-	params *core.Signal[map[string]string]
-	navFn  func(string)
+	Path      *core.Signal[string]
+	params    *core.Signal[map[string]string]
+	navFn     func(string) // Navigate — calls pushState
+	replaceFn func(string) // NavigateReplace — calls replaceState
+	backFn    func()       // Back
+	forwardFn func()      // Forward
 }
 
 func New(initial string) *Router {
@@ -20,6 +24,8 @@ func New(initial string) *Router {
 	}
 }
 
+// SetNavFn sets the browser-history callback for Navigate. Kept for backward
+// compatibility; prefer BindHistory which sets all callbacks at once.
 func (r *Router) SetNavFn(fn func(string)) {
 	r.navFn = fn
 }
@@ -28,6 +34,31 @@ func (r *Router) Navigate(path string) {
 	r.Path.Set(path)
 	if r.navFn != nil {
 		r.navFn(path)
+	}
+}
+
+// NavigateReplace updates the path without pushing a new history entry
+// (calls replaceState instead of pushState). Use it for non-destructive
+// transitions — tab switches, search params, wizard steps where back
+// should skip the intermediate step.
+func (r *Router) NavigateReplace(path string) {
+	r.Path.Set(path)
+	if r.replaceFn != nil {
+		r.replaceFn(path)
+	}
+}
+
+// Back navigates backward in browser history. Only works after BindHistory.
+func (r *Router) Back() {
+	if r.backFn != nil {
+		r.backFn()
+	}
+}
+
+// Forward navigates forward in browser history. Only works after BindHistory.
+func (r *Router) Forward() {
+	if r.forwardFn != nil {
+		r.forwardFn()
 	}
 }
 
@@ -119,6 +150,107 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 			}
 			return h.P(h.Text("404 — page not found"))
 		},
+	}
+}
+
+// SubRoute creates a nested route group under prefix. When the current path
+// starts with prefix, the prefix is stripped and routing continues against
+// the sub-routes. Returns nothing (empty FragmentNode) when the prefix doesn't
+// match, so it can be placed inside a parent route handler that provides the
+// surrounding layout.
+//
+//	r.Route(map[string]func() core.Node{
+//	    "/dashboard/*": func() core.Node {
+//	        return h.Div(
+//	            h.Nav(h.A(...)),
+//	            r.SubRoute("/dashboard", map[string]func() core.Node{
+//	                "/":         dashboardHome,
+//	                "/settings": dashboardSettings,
+//	            }),
+//	        )
+//	    },
+//	})
+func (r *Router) SubRoute(prefix string, routes map[string]func() core.Node) core.Node {
+	var (
+		mu       sync.Mutex
+		children *core.ScopeNode
+	)
+
+	matchSub := func(path string) core.Node {
+		if path == prefix {
+			return matchRoute(r, "/", routes)
+		}
+		if strings.HasPrefix(path, prefix+"/") {
+			suffix := path[len(prefix):]
+			return matchRoute(r, suffix, routes)
+		}
+		return &core.FragmentNode{}
+	}
+
+	children = &core.ScopeNode{
+		Deps: []core.SignalAccessor{r.Path},
+		Render: func() core.Node {
+			mu.Lock()
+			defer mu.Unlock()
+			return matchSub(r.Path.Get())
+		},
+	}
+	return children
+}
+
+// matchRoute is like Route's internal dispatch but without the sticky params
+// and without compiling routes (SubRoute routes are already compiled).
+func matchRoute(r *Router, path string, routes map[string]func() core.Node) core.Node {
+	if fn, ok := routes[path]; ok {
+		return fn()
+	}
+
+	pathSegs := segsOf(path)
+	for pattern, fn := range routes {
+		if !strings.Contains(pattern, ":") && !strings.HasSuffix(pattern, "/*") {
+			continue
+		}
+		m := compileMatcher(pattern, fn)
+		if params, ok := m.match(pathSegs); ok {
+			r.setParams(params)
+			return fn()
+		}
+	}
+
+	if fn, ok := routes["/404"]; ok {
+		return fn()
+	}
+	return &core.FragmentNode{}
+}
+
+// Guard wraps a route handler with an access check. If check returns true,
+// the route handler runs; otherwise fallback is rendered. Use it for auth
+// guards, feature flags, or any conditional rendering at the route level.
+//
+//	r.Route(map[string]func() core.Node{
+//	    "/admin": router.Guard(isAdmin, loginPage, adminPanel),
+//	})
+func Guard(check func() bool, fallback, route func() core.Node) func() core.Node {
+	return func() core.Node {
+		if check() {
+			return route()
+		}
+		return fallback()
+	}
+}
+
+// Lazy defers route handler initialization. load is called once, the first
+// time the route is matched, and its result is cached for subsequent matches.
+// Use it for code splitting: Lazy(func() func() core.Node { return heavyPage })
+// defers importing heavyPage until the route is actually visited.
+func Lazy(load func() func() core.Node) func() core.Node {
+	var (
+		once sync.Once
+		fn   func() core.Node
+	)
+	return func() core.Node {
+		once.Do(func() { fn = load() })
+		return fn()
 	}
 }
 

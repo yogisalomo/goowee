@@ -595,6 +595,118 @@ func TestForRendersKeyedChildren(t *testing.T) {
 	}
 }
 
+func TestAriaHidden(t *testing.T) {
+	el := El("div", AriaHidden(true))
+	if len(el.Attrs) != 1 || el.Attrs[0].Name != "aria-hidden" || el.Attrs[0].Value != "true" {
+		t.Fatalf("unexpected aria-hidden: %v", el.Attrs)
+	}
+}
+
+func TestAriaExpanded(t *testing.T) {
+	el := El("button", AriaExpanded(false))
+	if len(el.Attrs) != 1 || el.Attrs[0].Value != "false" {
+		t.Fatalf("unexpected aria-expanded: %v", el.Attrs)
+	}
+}
+
+func TestAriaCurrent(t *testing.T) {
+	el := El("a", AriaCurrent("page"))
+	if len(el.Attrs) != 1 || el.Attrs[0].Name != "aria-current" || el.Attrs[0].Value != "page" {
+		t.Fatalf("unexpected aria-current: %v", el.Attrs)
+	}
+}
+
+func TestAriaDescribedBy(t *testing.T) {
+	el := El("input", AriaDescribedBy("desc-id"))
+	if el.Attrs[0].Value != "desc-id" {
+		t.Fatalf("expected aria-describedby=desc-id, got %v", el.Attrs[0])
+	}
+}
+
+func TestAriaLabelledBy(t *testing.T) {
+	el := El("div", AriaLabelledBy("label-id"))
+	if el.Attrs[0].Name != "aria-labelledby" {
+		t.Fatalf("expected aria-labelledby, got %v", el.Attrs[0])
+	}
+}
+
+func TestAriaControls(t *testing.T) {
+	el := El("button", AriaControls("panel-1"))
+	if el.Attrs[0].Value != "panel-1" {
+		t.Fatalf("expected aria-controls, got %v", el.Attrs[0])
+	}
+}
+
+func TestAriaPressed(t *testing.T) {
+	el := El("button", AriaPressed(true))
+	if el.Attrs[0].Name != "aria-pressed" || el.Attrs[0].Value != "true" {
+		t.Fatalf("unexpected aria-pressed: %v", el.Attrs)
+	}
+}
+
+func TestAriaSelected(t *testing.T) {
+	el := El("option", AriaSelected(true))
+	if el.Attrs[0].Name != "aria-selected" || el.Attrs[0].Value != "true" {
+		t.Fatalf("unexpected aria-selected: %v", el.Attrs)
+	}
+}
+
+func TestAriaInvalid(t *testing.T) {
+	el := El("input", AriaInvalid(true))
+	if el.Attrs[0].Name != "aria-invalid" || el.Attrs[0].Value != "true" {
+		t.Fatalf("unexpected aria-invalid: %v", el.Attrs)
+	}
+}
+
+func TestAriaRequired(t *testing.T) {
+	el := El("input", AriaRequired(true))
+	if el.Attrs[0].Name != "aria-required" || el.Attrs[0].Value != "true" {
+		t.Fatalf("unexpected aria-required: %v", el.Attrs)
+	}
+}
+
+func TestAriaModal(t *testing.T) {
+	el := El("div", AriaModal(true))
+	if el.Attrs[0].Name != "aria-modal" || el.Attrs[0].Value != "true" {
+		t.Fatalf("unexpected aria-modal: %v", el.Attrs)
+	}
+}
+
+func TestAriaLive(t *testing.T) {
+	el := El("div", AriaLive("polite"))
+	if el.Attrs[0].Name != "aria-live" || el.Attrs[0].Value != "polite" {
+		t.Fatalf("unexpected aria-live: %v", el.Attrs)
+	}
+}
+
+func TestAriaAtomic(t *testing.T) {
+	el := El("div", AriaAtomic(true))
+	if el.Attrs[0].Name != "aria-atomic" || el.Attrs[0].Value != "true" {
+		t.Fatalf("unexpected aria-atomic: %v", el.Attrs)
+	}
+}
+
+func TestAriaBusy(t *testing.T) {
+	el := El("div", AriaBusy(true))
+	if el.Attrs[0].Name != "aria-busy" || el.Attrs[0].Value != "true" {
+		t.Fatalf("unexpected aria-busy: %v", el.Attrs)
+	}
+}
+
+func TestAriaHaspopup(t *testing.T) {
+	el := El("button", AriaHaspopup("menu"))
+	if el.Attrs[0].Name != "aria-haspopup" || el.Attrs[0].Value != "menu" {
+		t.Fatalf("unexpected aria-haspopup: %v", el.Attrs)
+	}
+}
+
+func TestAutoFocus(t *testing.T) {
+	el := El("input", AutoFocus(true))
+	if len(el.Props) != 1 || el.Props[0].Name != "autofocus" {
+		t.Fatalf("expected autofocus prop, got %v", el.Props)
+	}
+}
+
 func TestForNilAndEmptyLists(t *testing.T) {
 	items := core.NewSignal([]string{})
 	fn := For(items, func(s string) string { return s }, func(s string) core.Node {

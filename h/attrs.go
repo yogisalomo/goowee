@@ -29,7 +29,22 @@ func Pattern(v string) core.Item      { return attrItem{"pattern", v} }
 func Accept(v string) core.Item       { return attrItem{"accept", v} }
 func Width(v string) core.Item        { return attrItem{"width", v} }
 func Height(v string) core.Item       { return attrItem{"height", v} }
-func AriaLabel(v string) core.Item    { return attrItem{"aria-label", v} }
+func AriaLabel(v string) core.Item     { return attrItem{"aria-label", v} }
+func AriaHidden(v bool) core.Item      { return attrItem{"aria-hidden", fmtBool(v)} }
+func AriaExpanded(v bool) core.Item    { return attrItem{"aria-expanded", fmtBool(v)} }
+func AriaCurrent(v string) core.Item   { return attrItem{"aria-current", v} }
+func AriaDescribedBy(v string) core.Item { return attrItem{"aria-describedby", v} }
+func AriaLabelledBy(v string) core.Item  { return attrItem{"aria-labelledby", v} }
+func AriaControls(v string) core.Item    { return attrItem{"aria-controls", v} }
+func AriaPressed(v bool) core.Item       { return attrItem{"aria-pressed", fmtBool(v)} }
+func AriaSelected(v bool) core.Item      { return attrItem{"aria-selected", fmtBool(v)} }
+func AriaInvalid(v bool) core.Item       { return attrItem{"aria-invalid", fmtBool(v)} }
+func AriaRequired(v bool) core.Item      { return attrItem{"aria-required", fmtBool(v)} }
+func AriaHaspopup(v string) core.Item    { return attrItem{"aria-haspopup", v} }
+func AriaModal(v bool) core.Item         { return attrItem{"aria-modal", fmtBool(v)} }
+func AriaLive(v string) core.Item        { return attrItem{"aria-live", v} }
+func AriaAtomic(v bool) core.Item        { return attrItem{"aria-atomic", fmtBool(v)} }
+func AriaBusy(v bool) core.Item          { return attrItem{"aria-busy", fmtBool(v)} }
 
 func Rows(v int) core.Item     { return attrItem{"rows", strconv.Itoa(v)} }
 func Cols(v int) core.Item     { return attrItem{"cols", strconv.Itoa(v)} }
@@ -49,4 +64,13 @@ func ReadOnly(v bool) core.Item { return propItem{"readOnly", v} }
 func Multiple(v bool) core.Item { return propItem{"multiple", v} }
 func Required(v bool) core.Item { return propItem{"required", v} }
 
+func AutoFocus(v bool) core.Item { return propItem{"autofocus", v} }
+
 func Prop(name string, v any) core.Item { return propItem{name, v} }
+
+func fmtBool(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
+}
