@@ -1070,6 +1070,16 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 			if p, ok := d.nodes[m.NodeID]; ok {
 				ins := m.ChildID
 				ref := m.RefID
+
+				// Simulate DOM insertBefore: move existing node (remove then
+				// re-insert), or just insert a new one.
+				for i := len(p.Children) - 1; i >= 0; i-- {
+					if p.Children[i] == ins {
+						p.Children = append(p.Children[:i], p.Children[i+1:]...)
+						break
+					}
+				}
+
 				idx := len(p.Children)
 				for i, cid := range p.Children {
 					if cid == ref {
@@ -1142,11 +1152,10 @@ func TestFakeDOMKeyedProperty(t *testing.T) {
 		fd := newFakeDOM()
 		fd.nodes[parentID] = &fakeNode{ID: parentID, Tag: "div"}
 
-		oldSeen := map[int]bool{}
 		for _, n := range oldNodes {
 			if el, ok := n.(*core.ElementNode); ok {
 				fd.nodes[el.ID] = &fakeNode{ID: el.ID, Tag: el.Tag, ParentID: parentID}
-				oldSeen[el.ID] = true
+				fd.nodes[parentID].Children = append(fd.nodes[parentID].Children, el.ID)
 			}
 		}
 
