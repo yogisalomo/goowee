@@ -96,3 +96,48 @@ func TestLinkHasPreventDefault(t *testing.T) {
 		t.Fatal("expected PreventDefault on link handler")
 	}
 }
+
+func TestRouteDeterministicPrefixMatch(t *testing.T) {
+	newRoutes := func(hits map[string]int) map[string]func() core.Node {
+		return map[string]func() core.Node{
+			"/docs/*":     func() core.Node { hits["docs"]++; return &core.ElementNode{Tag: "div"} },
+			"/docs/api/*": func() core.Node { hits["api"]++; return &core.ElementNode{Tag: "section"} },
+			"/*":          func() core.Node { hits["root"]++; return &core.ElementNode{Tag: "main"} },
+		}
+	}
+
+	cases := map[string]string{
+		"/docs/api/v1": "api",  // most specific prefix wins
+		"/docs/readme": "docs", // less specific
+		"/other":       "root", // catch-all
+	}
+
+	// Build the router fresh many times so different map-iteration orders all
+	// resolve the same way (the old code iterated the map directly → random).
+	for path, want := range cases {
+		for i := 0; i < 50; i++ {
+			hits := map[string]int{}
+			r := New(path)
+			r.Route(newRoutes(hits)).Render()
+			if hits[want] != 1 {
+				t.Fatalf("path %s: expected %q to match once, got %v", path, want, hits)
+			}
+			total := hits["docs"] + hits["api"] + hits["root"]
+			if total != 1 {
+				t.Fatalf("path %s: expected exactly one match, got %v", path, hits)
+			}
+		}
+	}
+}
+
+func TestRouteExactBeatsPrefix(t *testing.T) {
+	got := ""
+	r := New("/docs")
+	r.Route(map[string]func() core.Node{
+		"/docs":   func() core.Node { got = "exact"; return &core.ElementNode{Tag: "div"} },
+		"/docs/*": func() core.Node { got = "prefix"; return &core.ElementNode{Tag: "section"} },
+	}).Render()
+	if got != "exact" {
+		t.Fatalf("expected exact match to win, got %q", got)
+	}
+}
