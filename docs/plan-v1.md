@@ -7,13 +7,28 @@ Build a minimal but working UI framework in Go that runs in the browser via WebA
 The framework must support:
 
 - Fine-grained reactivity via signals
-- Hook-based developer API (React-like ergonomics)
+- Hook-style developer API (signals + run-once components, Solid-style)
 - Frame-batched DOM updates (requestAnimationFrame loop)
 - Server-side rendering (SSR) with hydration
 - Lenient hydration model
 - Manual dependency declaration (NO automatic tracking)
 - No virtual DOM diffing as primary update mechanism
 - Minimal JavaScript bridge (event forwarding + DOM mutation only)
+
+---
+
+> **Implementation status (updated 2026-07-05).** This document is the original
+> design plan. The framework has since been hardened per the review in
+> `docs/26-07-02-fable-review.md`; its core items (§1–§9) are implemented and
+> merged: Solid-style run-once components with reconciliation, token-based
+> signal subscriptions, request-safe SSR, dirty-scope render batching, keyed
+> reconciliation, working hydration (SSR DOM reuse), typed events, `Computed`,
+> deterministic routing + built-in history, plus benchmarks, CI, and a WASM
+> size budget. Where this plan and the code disagree, **the code and
+> `docs/component_tree.md` are the source of truth** — some sections below still
+> describe the original intent (notably React-style hook slots, which were
+> never built: the model is Solid-style, components run once). See
+> `docs/plans/ergonomics-improvements.md` for the typed `h` DSL.
 
 ---
 
@@ -745,25 +760,26 @@ No full error recovery system for MVP — just predictable, debuggable behavior 
 
 These test core logic without browser dependencies:
 
-* Signal system — subscribe, notify, unsubscribe, cleanup
-* Scheduler queue — enqueue, flush ordering, frame batching
+* Signal system — subscribe, notify, unsubscribe (token-based), reentrancy, equality skip
+* Scheduler — enqueue, coalescing, dirty-scope batching (parent-before-child, cancellation)
 * Mutation queue — batch accumulation, clear on flush
-* Hook state management — slot allocation, component isolation
-* SSR HTML rendering + hydration metadata generation — component to string, node ID assignment, attribute serialization
-* Component tree — push/pop stack, parent/child traversal, unmount walk
-* Node type — construction, prop access, serialization to/from DOM and SSR
+* Hook lifecycle — `OnMount`/`Watch`/`UseEffect` timing and cleanup on unmount; effects skipped on the server
+* Component reconciliation — run-once components preserved across scope re-renders; keyed lists (elements + components)
+* SSR — HTML rendering, attribute escaping, void elements, and SSR/DOM node-ID parity (the hydration invariant)
+* Component tree / RenderContext — push/pop, parent/child traversal, per-render context (concurrent SSR safety)
+* Node type — construction, typed fields, serialization to DOM mutations and SSR HTML
 
-Run with: `go test ./core/... ./hooks/... ./ssr/...`
+Run with: `go test ./...` (add `-race` for the concurrency-sensitive suites). Benchmarks: `make bench`.
 
-## Integration Tests (Requires WASM Build)
+## Integration Tests (headless browser)
 
-These test the full pipeline end-to-end:
+A headless-Chrome smoke test drives the real WASM app end-to-end (`test/e2e/smoke.mjs`, over the DevTools Protocol, no npm deps):
 
-* Counter renders in browser, click updates DOM
-* SSR produces HTML, hydration activates interactivity
-* Event flow: click → signal update → DOM mutation
+* Hydration reuses the server-rendered DOM (no duplicated text, markers removed)
+* Event flow: click → signal update → DOM mutation (`Count: 0` → `Count: 1`)
+* Routing + history: nav link `pushState`-navigates and swaps the route; browser back restores it
 
-Run with: `GOOS=js GOARCH=wasm go test ./...` (or a small test harness that loads the WASM binary in a headless browser).
+Run with: `make e2e` (builds the WASM app, serves it via the SSR server, and runs the smoke test). Requires Go, Node ≥ 21, and Google Chrome.
 
 ---
 
