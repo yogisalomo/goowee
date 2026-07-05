@@ -149,6 +149,21 @@ window.applyMutations = function applyMutations(json) {
                 if (el) el.removeAttribute(mut.key);
                 break;
             }
+            case 7: // Hydrate — claim a server-rendered node by id
+                el = preexistingNodes[mut.nodeId];
+                if (el) {
+                    delete preexistingNodes[mut.nodeId];
+                } else {
+                    // No server node for this id (SSR/client divergence). Fall
+                    // back to a fresh node so we don't crash; it will be bare.
+                    console.warn("goowee: hydration miss for node", mut.nodeId, mut.value);
+                    el = mut.value === "#text"
+                        ? document.createTextNode("")
+                        : document.createElement(mut.value);
+                }
+                el._nodeID = mut.nodeId;
+                nodeMap[mut.nodeId] = el;
+                break;
         }
     }
 };

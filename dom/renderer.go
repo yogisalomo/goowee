@@ -13,8 +13,18 @@ type DOMRenderer struct {
 	Scheduler   *core.Scheduler
 	Registry    *NodeRegistry
 	parentStack []int
-	scopeSeq    int // monotonic mount order; parents mount before children
+	scopeSeq    int  // monotonic mount order; parents mount before children
+	hydrating   bool // initial render claims server-rendered nodes
 }
+
+// SetHydrating puts the renderer into hydration mode for the next Render: it
+// claims the server-rendered DOM (MutHydrate) and skips the create/attribute/
+// property/append/initial-bind mutations the SSR already applied, while still
+// registering handlers and bindings. It relies on SSR/DOM node-id parity
+// (see TestSSRDOMIDParity); a claim that finds no server node falls back to
+// creating one (logged) on the JS side. The flag is cleared after Render, so
+// subsequent signal-driven re-renders emit normal mutations.
+func (r *DOMRenderer) SetHydrating(h bool) { r.hydrating = h }
 
 func New() *DOMRenderer {
 	sched := core.NewScheduler()
@@ -40,10 +50,15 @@ func (r *DOMRenderer) allocID() int {
 }
 
 func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
+	// Hydration is a property of this one initial render; re-renders are normal.
+	hydrating := r.hydrating
+	defer func() { r.hydrating = false }()
+
 	var muts []core.Mutation
 	n = core.FlatTree(n)
 	rootID := r.renderNode(n, &muts)
-	if rootID != 0 {
+	if rootID != 0 && !hydrating {
+		// When hydrating, the root is already attached to #root by the server.
 		muts = append(muts, core.Mutation{
 			Type: core.MutAppendChild, NodeID: 0, ChildID: rootID,
 		})
@@ -61,6 +76,25 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		}
 		id := r.allocID()
 		v.ID = id
+		if r.hydrating {
+			// Claim the server-rendered element; its attributes, properties,
+			// and children are already in the DOM, so only reactivity
+			// (handlers, binding subscriptions) needs wiring up.
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutHydrate, NodeID: id, Key: "tag", Value: v.Tag,
+			})
+			for _, b := range v.Binds {
+				r.Bindings.Bind(id, b) // subscription only; SSR rendered the value
+			}
+			for _, hd := range v.Handlers {
+				r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
+			}
+			for _, child := range v.Children {
+				r.renderNode(child, muts) // claimed; already attached
+			}
+			return id
+		}
+
 		*muts = append(*muts, core.Mutation{
 			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: v.Tag,
 		})
@@ -100,6 +134,18 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		}
 		id := r.allocID()
 		v.ID = id
+		if r.hydrating {
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutHydrate, NodeID: id, Key: "tag", Value: "#text",
+			})
+			// SSR already wrote the text; only wire a signal binding if any.
+			if sig, ok := v.Value.(core.SignalAccessor); ok {
+				r.Bindings.Bind(id, core.Bind{
+					Target: core.BindToProp, Name: "textContent", Signal: sig,
+				})
+			}
+			return id
+		}
 		*muts = append(*muts, core.Mutation{
 			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: "#text",
 		})
@@ -135,7 +181,7 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		// fragment.
 		for _, child := range v.Children {
 			cid := r.renderNode(child, muts)
-			if cid != 0 {
+			if cid != 0 && !r.hydrating { // hydration: already attached by SSR
 				*muts = append(*muts, core.Mutation{
 					Type: core.MutAppendChild, NodeID: parentID, ChildID: cid,
 				})

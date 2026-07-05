@@ -160,6 +160,7 @@ const (
 	MutAppendChild
 	MutInsertBefore
 	MutRemoveAttribute
+	MutHydrate // claim a server-rendered node by id (Value = tag or "#text")
 )
 
 func (mt MutationType) String() string {
@@ -178,6 +179,8 @@ func (mt MutationType) String() string {
 		return "InsertBefore"
 	case MutRemoveAttribute:
 		return "RemoveAttribute"
+	case MutHydrate:
+		return "Hydrate"
 	default:
 		return "Unknown"
 	}
