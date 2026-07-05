@@ -1,6 +1,7 @@
-.PHONY: wasm ssr-server test serve serve-ssr clean cpwasm cpjs
+.PHONY: wasm ssr-server test bench size serve serve-ssr clean cpwasm cpjs
 
 WASM_OUT = examples/counter/main.wasm
+WASM_BUDGET = 6291456
 
 wasm:
 	GOOS=js GOARCH=wasm go build -o $(WASM_OUT) ./examples/counter
@@ -16,6 +17,14 @@ cpjs:
 
 test:
 	go test ./...
+
+bench:
+	go test -run '^$$' -bench . ./core/ ./dom/
+
+size: wasm
+	@bytes=$$(wc -c < $(WASM_OUT) | tr -d ' '); \
+	echo "main.wasm: $$bytes bytes (budget $(WASM_BUDGET))"; \
+	if [ "$$bytes" -gt "$(WASM_BUDGET)" ]; then echo "over budget"; exit 1; fi
 
 serve: wasm cpwasm cpjs
 	@echo "Open http://localhost:8083"
