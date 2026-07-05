@@ -9,15 +9,18 @@ type Node interface {
 }
 
 type ElementNode struct {
-	ID       int
-	Tag      string
-	Key      any
-	Attrs    []Attr
-	Props    []Prop
-	Binds    []Bind
-	Handlers []Handler
-	Children []Node
+	ID        int
+	Tag       string
+	Namespace string
+	Key       any
+	Attrs     []Attr
+	Props     []Prop
+	Binds     []Bind
+	Handlers  []Handler
+	Children  []Node
 }
+
+const NamespaceSVG = "http://www.w3.org/2000/svg"
 
 func (e *ElementNode) nodeMarker() {}
 func (e *ElementNode) String() string {

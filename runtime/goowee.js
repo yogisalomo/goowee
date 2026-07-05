@@ -108,6 +108,8 @@ window.applyMutations = function applyMutations(json) {
                     delete preexistingNodes[mut.nodeId];
                 } else if (mut.value === "#text") {
                     el = document.createTextNode("");
+                } else if (mut.ns) {
+                    el = document.createElementNS(mut.ns, mut.value);
                 } else {
                     el = document.createElement(mut.value);
                 }
@@ -159,6 +161,8 @@ window.applyMutations = function applyMutations(json) {
                     console.warn("goowee: hydration miss for node", mut.nodeId, mut.value);
                     el = mut.value === "#text"
                         ? document.createTextNode("")
+                        : mut.ns
+                        ? document.createElementNS(mut.ns, mut.value)
                         : document.createElement(mut.value);
                 }
                 el._nodeID = mut.nodeId;

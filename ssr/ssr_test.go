@@ -312,3 +312,92 @@ func TestServerRenderSkipsEffects(t *testing.T) {
 		t.Fatalf("OnMount ran during ssr.Render (ran=%d), should be skipped server-side", ran)
 	}
 }
+
+func TestSSRSVGIncludesXMLNS(t *testing.T) {
+	svg := &core.ElementNode{
+		Tag:       "svg",
+		Namespace: core.NamespaceSVG,
+		Children: []core.Node{
+			&core.ElementNode{
+				Tag:       "circle",
+				Namespace: core.NamespaceSVG,
+				Attrs:     []core.Attr{{Name: "cx", Value: "50"}, {Name: "r", Value: "40"}},
+			},
+		},
+	}
+	html := New().Render(svg)
+	if !strings.Contains(html, `xmlns="http://www.w3.org/2000/svg"`) {
+		t.Fatalf("expected xmlns attribute in SVG SSR output, got %q", html)
+	}
+	if !strings.Contains(html, "<circle") {
+		t.Fatalf("expected <circle> in SVG SSR output, got %q", html)
+	}
+}
+
+func TestSSRSVGNoDoubleXMLNS(t *testing.T) {
+	svg := &core.ElementNode{
+		Tag:       "svg",
+		Namespace: core.NamespaceSVG,
+		Attrs:     []core.Attr{{Name: "xmlns", Value: "http://www.w3.org/2000/svg"}},
+	}
+	html := New().Render(svg)
+	// Count occurrences
+	count := strings.Count(html, `xmlns="http://www.w3.org/2000/svg"`)
+	if count != 1 {
+		t.Fatalf("expected exactly 1 xmlns attribute, got %d in %q", count, html)
+	}
+}
+
+func TestSSRSVGNonRootElementNoXMLNS(t *testing.T) {
+	// Make a circle as a standalone root — it gets xmlns because there's no
+	// parent namespace context.
+	circle := &core.ElementNode{
+		Tag:       "circle",
+		Namespace: core.NamespaceSVG,
+		Attrs:     []core.Attr{{Name: "cx", Value: "10"}},
+	}
+	html := New().Render(circle)
+	if !strings.Contains(html, `xmlns="http://www.w3.org/2000/svg"`) {
+		t.Fatalf("standalone SVG element should get xmlns, got %q", html)
+	}
+
+	// Nested SVG element inside an SVG parent: no xmlns needed.
+	svg := &core.ElementNode{
+		Tag:       "svg",
+		Namespace: core.NamespaceSVG,
+		Children: []core.Node{
+			&core.ElementNode{
+				Tag:       "circle",
+				Namespace: core.NamespaceSVG,
+				Attrs:     []core.Attr{{Name: "cx", Value: "10"}},
+			},
+		},
+	}
+	html2 := New().Render(svg)
+	count := strings.Count(html2, `xmlns`)
+	if count != 1 {
+		t.Fatalf("nested SVG: expected 1 xmlns (on root), got %d in %q", count, html2)
+	}
+}
+
+func TestSSRSVGWithHydration(t *testing.T) {
+	svg := &core.ElementNode{
+		Tag:       "svg",
+		Namespace: core.NamespaceSVG,
+		Attrs:     []core.Attr{{Name: "viewBox", Value: "0 0 100 100"}},
+		Children: []core.Node{
+			&core.ElementNode{
+				Tag:       "circle",
+				Namespace: core.NamespaceSVG,
+				Attrs:     []core.Attr{{Name: "cx", Value: "50"}},
+			},
+		},
+	}
+	html, meta := New().RenderWithMeta(svg, "root/0", nil)
+	if !strings.Contains(html, `xmlns="http://www.w3.org/2000/svg"`) {
+		t.Fatalf("expected xmlns in hydrated SVG output")
+	}
+	if len(meta.NodeMap) != 2 {
+		t.Fatalf("expected 2 node IDs in meta (svg + circle), got %d", len(meta.NodeMap))
+	}
+}

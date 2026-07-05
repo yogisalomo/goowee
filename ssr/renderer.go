@@ -73,7 +73,11 @@ func (r *Renderer) RenderWithMeta(n core.Node, path string, hooks []core.SignalA
 }
 
 func (r *Renderer) renderNode(n core.Node, buf *strings.Builder, path string) {
-	r.renderNodeWithMeta(n, buf, path, nil, 0)
+	r.renderNodeWithMetaNS("", n, buf, path, nil, 0)
+}
+
+func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path string, hooks []core.SignalAccessor, hookIdx int) {
+	r.renderNodeWithMetaNS("", n, buf, path, hooks, hookIdx)
 }
 
 func escapeAttr(s string) string {
@@ -94,7 +98,7 @@ var propToAttr = map[string]string{
 	"readOnly": "readonly",
 }
 
-func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path string, hooks []core.SignalAccessor, hookIdx int) {
+func (r *Renderer) renderNodeWithMetaNS(parentNS string, n core.Node, buf *strings.Builder, path string, hooks []core.SignalAccessor, hookIdx int) {
 	switch v := n.(type) {
 	case *core.ElementNode:
 		if v == nil {
@@ -143,6 +147,19 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 			}
 		}
 
+		if v.Namespace != "" && v.Namespace != parentNS {
+			hasNS := false
+			for _, a := range v.Attrs {
+				if a.Name == "xmlns" {
+					hasNS = true
+					break
+				}
+			}
+			if !hasNS {
+				fmt.Fprintf(buf, ` xmlns="%s"`, escapeAttr(v.Namespace))
+			}
+		}
+
 		for _, b := range v.Binds {
 			val := fmt.Sprintf("%v", b.Signal.Value())
 			r.Meta.Deps[id] = append(r.Meta.Deps[id], SlotRef{
@@ -180,8 +197,12 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 			return
 		}
 
+		childNS := parentNS
+		if v.Namespace != "" {
+			childNS = v.Namespace
+		}
 		for i, child := range v.Children {
-			r.renderNodeWithMeta(child, buf, path+"/"+itoa(i), hooks, hookIdx)
+			r.renderNodeWithMetaNS(childNS, child, buf, path+"/"+itoa(i), hooks, hookIdx)
 		}
 
 		buf.WriteString("</")
@@ -215,7 +236,7 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 			return
 		}
 		for _, child := range v.Children {
-			r.renderNodeWithMeta(child, buf, path+"/frag", hooks, hookIdx)
+			r.renderNodeWithMetaNS(parentNS, child, buf, path+"/frag", hooks, hookIdx)
 		}
 
 	case *core.ComponentNode:
@@ -224,7 +245,7 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 		}
 		core.PushComponent()
 		inner := v.Render()
-		r.renderNodeWithMeta(inner, buf, path, hooks, hookIdx)
+		r.renderNodeWithMetaNS(parentNS, inner, buf, path, hooks, hookIdx)
 		core.PopComponent()
 
 	case *core.ScopeNode:
@@ -232,7 +253,7 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 			return
 		}
 		inner := v.Render()
-		r.renderNodeWithMeta(inner, buf, path, hooks, hookIdx)
+		r.renderNodeWithMetaNS(parentNS, inner, buf, path, hooks, hookIdx)
 	}
 }
 

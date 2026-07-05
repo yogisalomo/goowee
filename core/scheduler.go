@@ -142,12 +142,13 @@ func (s *Scheduler) String() string {
 }
 
 type Mutation struct {
-	Type    MutationType `json:"type"`
-	NodeID  int          `json:"nodeId"`
-	Key     string       `json:"key,omitempty"`
-	Value   any          `json:"value,omitempty"`
-	ChildID int          `json:"childId,omitempty"`
-	RefID   int          `json:"refId,omitempty"`
+	Type      MutationType `json:"type"`
+	NodeID    int          `json:"nodeId"`
+	Key       string       `json:"key,omitempty"`
+	Value     any          `json:"value,omitempty"`
+	ChildID   int          `json:"childId,omitempty"`
+	RefID     int          `json:"refId,omitempty"`
+	Namespace string       `json:"ns,omitempty"`
 }
 
 type MutationType int

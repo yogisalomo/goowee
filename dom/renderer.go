@@ -96,7 +96,7 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		}
 
 		*muts = append(*muts, core.Mutation{
-			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: v.Tag,
+			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: v.Tag, Namespace: v.Namespace,
 		})
 
 		for _, a := range v.Attrs {
@@ -382,7 +382,7 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 	switch old := oldNode.(type) {
 	case *core.ElementNode:
 		new, ok := newNode.(*core.ElementNode)
-		if !ok || old.Tag != new.Tag {
+		if !ok || old.Tag != new.Tag || old.Namespace != new.Namespace {
 			r.emitRemoveTree(old, muts)
 			return r.renderNode(newNode, muts)
 		}

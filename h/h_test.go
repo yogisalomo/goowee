@@ -613,3 +613,96 @@ func TestForNilAndEmptyLists(t *testing.T) {
 		t.Fatalf("expected 0 children for empty list, got %d", len(frag.Children))
 	}
 }
+
+func TestSVGElementSetsNamespace(t *testing.T) {
+	svg := Svg(ViewBox("0 0 100 100"))
+	if svg.Namespace != core.NamespaceSVG {
+		t.Fatalf("expected Namespace=%q, got %q", core.NamespaceSVG, svg.Namespace)
+	}
+	if svg.Tag != "svg" {
+		t.Fatalf("expected Tag=svg, got %q", svg.Tag)
+	}
+	if len(svg.Attrs) != 1 || svg.Attrs[0].Name != "viewBox" {
+		t.Fatalf("expected viewBox attr, got %v", svg.Attrs)
+	}
+}
+
+func TestSVGChildElementsInheritNamespace(t *testing.T) {
+	svg := Svg(
+		ViewBox("0 0 200 200"),
+		Circle(Cx("100"), Cy("100"), R("50"), Fill("red")),
+		Rect(SvgX("10"), SvgY("10"), Width("50"), Height("50")),
+		Path(D("M10 10 L100 100"), Stroke("black"), StrokeWidth("2")),
+		Ellipse(Cx("50"), Cy("50"), Rx("30"), Ry("20")),
+		Line(SvgX("0"), SvgY("0"), Dx("100"), Dy("100")),
+		Polyline(Points("0,0 50,50 100,0")),
+		Polygon(Points("10,10 50,50 90,10")),
+		SvgText(SvgX("10"), SvgY("20"), Text("hello")),
+		Tspan(Dx("5"), Text("world")),
+		Use(Attr("href", "#icon")),
+		Defs(LinearGradient(
+			Attr("id", "grad"),
+			Stop(Attr("offset", "0%"), Attr("stop-color", "red")),
+		)),
+		ClipPath(Path(D("M0 0 L100 0 L100 100 Z"))),
+		Mask(Rect(SvgX("0"), SvgY("0"), Width("100"), Height("100"), Fill("white"))),
+	)
+
+	if svg.Namespace != core.NamespaceSVG {
+		t.Fatal("root svg missing namespace")
+	}
+	for _, child := range svg.Children {
+		el, ok := child.(*core.ElementNode)
+		if !ok {
+			continue
+		}
+		if el.Namespace != core.NamespaceSVG {
+			t.Fatalf("child %s missing SVG namespace", el.Tag)
+		}
+	}
+}
+
+func TestSVGAttributeHelpers(t *testing.T) {
+	el := Circle(Cx("10"), Cy("20"), R("5"), Fill("blue"), Stroke("red"), StrokeWidth("1.5"))
+	if len(el.Attrs) != 6 {
+		t.Fatalf("expected 6 attrs, got %d: %v", len(el.Attrs), el.Attrs)
+	}
+	check := func(name, want string) {
+		for _, a := range el.Attrs {
+			if a.Name == name {
+				if a.Value != want {
+					t.Fatalf("%s: want %q, got %q", name, want, a.Value)
+				}
+				return
+			}
+		}
+		t.Fatalf("missing attr %s", name)
+	}
+	check("cx", "10")
+	check("cy", "20")
+	check("r", "5")
+	check("fill", "blue")
+	check("stroke", "red")
+	check("stroke-width", "1.5")
+}
+
+func TestSVGPathLengthFillOpacity(t *testing.T) {
+	el := Path(D("M0 0"), PathLength("100"), FillOpacity("0.5"), StrokeOpacity("0.8"),
+		StrokeLinecap("round"), StrokeLinejoin("round"))
+	if len(el.Attrs) != 6 {
+		t.Fatalf("expected 6 attrs, got %d", len(el.Attrs))
+	}
+}
+
+func TestElNSSetsNamespace(t *testing.T) {
+	el := ElNS("custom-elem", "urn:example:ns", Class("test"))
+	if el.Namespace != "urn:example:ns" {
+		t.Fatalf("expected ns=urn:example:ns, got %q", el.Namespace)
+	}
+	if el.Tag != "custom-elem" {
+		t.Fatalf("expected tag=custom-elem, got %q", el.Tag)
+	}
+	if len(el.Attrs) != 1 || el.Attrs[0].Value != "test" {
+		t.Fatal("expected class=test attr")
+	}
+}

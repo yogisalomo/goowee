@@ -3,7 +3,11 @@ package h
 import "github.com/yogisalomo/goowee/core"
 
 func El(tag string, items ...core.Item) *core.ElementNode {
-	el := &core.ElementNode{Tag: tag}
+	return ElNS(tag, "", items...)
+}
+
+func ElNS(tag string, ns string, items ...core.Item) *core.ElementNode {
+	el := &core.ElementNode{Tag: tag, Namespace: ns}
 	for _, it := range items {
 		if it != nil {
 			it.Apply(el)

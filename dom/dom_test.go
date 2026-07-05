@@ -1040,10 +1040,11 @@ func TestKeyedAndUnkeyedMix(t *testing.T) {
 }
 
 type fakeNode struct {
-	ID       int
-	ParentID int
-	Tag      string
-	Children []int
+	ID        int
+	ParentID  int
+	Tag       string
+	Namespace string
+	Children  []int
 }
 
 type fakeDOM struct {
@@ -1058,7 +1059,7 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 	for _, m := range muts {
 		switch m.Type {
 		case core.MutCreateElement:
-			d.nodes[m.NodeID] = &fakeNode{ID: m.NodeID, Tag: m.Value.(string)}
+			d.nodes[m.NodeID] = &fakeNode{ID: m.NodeID, Tag: m.Value.(string), Namespace: m.Namespace}
 		case core.MutAppendChild:
 			if p, ok := d.nodes[m.NodeID]; ok {
 				p.Children = append(p.Children, m.ChildID)
@@ -1551,5 +1552,129 @@ func TestParentReRenderCancelsDirtyChild(t *testing.T) {
 
 	if childRenders != 1 {
 		t.Fatalf("child re-rendered after parent removed it: childRenders=%d, want 1", childRenders)
+	}
+}
+
+func TestDOMSVGRenderHasNamespace(t *testing.T) {
+	svg := &core.ElementNode{
+		Tag:       "svg",
+		Namespace: core.NamespaceSVG,
+		Attrs:     []core.Attr{{Name: "viewBox", Value: "0 0 100 100"}},
+		Children: []core.Node{
+			&core.ElementNode{
+				Tag:       "circle",
+				Namespace: core.NamespaceSVG,
+				Attrs:     []core.Attr{{Name: "cx", Value: "50"}, {Name: "r", Value: "40"}},
+			},
+		},
+	}
+	r := New()
+	muts, _ := r.Render(svg)
+
+	svgCreated := false
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement && m.Value == "svg" {
+			svgCreated = true
+			if m.Namespace != core.NamespaceSVG {
+				t.Fatalf("expected Namespace=%q on svg, got %q", core.NamespaceSVG, m.Namespace)
+			}
+		}
+		if m.Type == core.MutCreateElement && m.Value == "circle" {
+			if m.Namespace != core.NamespaceSVG {
+				t.Fatalf("expected Namespace=%q on circle, got %q", core.NamespaceSVG, m.Namespace)
+			}
+		}
+	}
+	if !svgCreated {
+		t.Fatal("expected MutCreateElement for svg")
+	}
+
+	fd := newFakeDOM()
+	fd.nodes[0] = &fakeNode{ID: 0, Tag: "#root"}
+	fd.apply(muts)
+
+	checkNS := func(id int, want string) {
+		if n, ok := fd.nodes[id]; !ok {
+			t.Fatalf("node %d not found in fakeDOM", id)
+		} else if n.Namespace != want {
+			t.Fatalf("node %d Namespace=%q, want %q", id, n.Namespace, want)
+		}
+	}
+	// svg is node 1, circle is node 2
+	checkNS(1, core.NamespaceSVG)
+	checkNS(2, core.NamespaceSVG)
+}
+
+func TestDOMSVGDiffReplacesOnNamespaceChange(t *testing.T) {
+	old := &core.ElementNode{Tag: "span"}
+	svg := &core.ElementNode{Tag: "svg", Namespace: core.NamespaceSVG}
+
+	r := New()
+	r.Render(old)
+
+	var muts []core.Mutation
+	r.diffNode(old, svg, &muts)
+
+	foundCreate := false
+	foundRemove := false
+	for _, m := range muts {
+		switch m.Type {
+		case core.MutCreateElement:
+			foundCreate = true
+			if m.Namespace != core.NamespaceSVG {
+				t.Fatalf("expected Namespace on create, got %q", m.Namespace)
+			}
+		case core.MutRemoveNode:
+			foundRemove = true
+		}
+	}
+	if !foundRemove {
+		t.Fatal("expected RemoveNode for namespace change diff")
+	}
+	if !foundCreate {
+		t.Fatal("expected CreateElement for namespace change diff")
+	}
+}
+
+func TestDOMSVGKeepsIDOnReRender(t *testing.T) {
+	svg := &core.ElementNode{Tag: "svg", Namespace: core.NamespaceSVG}
+	r := New()
+	muts, _ := r.Render(svg)
+	if len(muts) == 0 {
+		t.Fatal("expected mutations")
+	}
+	svgID := svg.ID
+	if svgID == 0 {
+		t.Fatal("expected non-zero ID after render")
+	}
+
+	svg2 := &core.ElementNode{Tag: "svg", Namespace: core.NamespaceSVG}
+	var muts2 []core.Mutation
+	r.diffNode(svg, svg2, &muts2)
+	if svg2.ID != svgID {
+		t.Fatalf("expected ID to be preserved (%d), got %d", svgID, svg2.ID)
+	}
+	for _, m := range muts2 {
+		if m.Type == core.MutCreateElement {
+			t.Fatal("unexpected CreateElement for same-namespace diff")
+		}
+	}
+}
+
+func TestDOMSVGHRElementCreatesCorrectly(t *testing.T) {
+	el := &core.ElementNode{Tag: "circle", Namespace: core.NamespaceSVG}
+	r := New()
+	muts, _ := r.Render(el)
+	found := false
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement && m.Value == "circle" {
+			found = true
+			if m.Namespace != core.NamespaceSVG {
+				t.Fatalf("expected Namespace=%q, got %q", core.NamespaceSVG, m.Namespace)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected MutCreateElement for circle")
 	}
 }
