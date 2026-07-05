@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"goowee/core"
+	"github.com/yogisalomo/goowee/core"
 )
 
 // Re-rendering + keyed-diffing an M-row list on every dep change (§4 batching

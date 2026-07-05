@@ -3,8 +3,8 @@ package dom
 import (
 	"log"
 
-	"goowee/core"
-	"goowee/hooks"
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/hooks"
 )
 
 type DOMRenderer struct {

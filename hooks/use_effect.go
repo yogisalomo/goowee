@@ -1,6 +1,6 @@
 package hooks
 
-import "goowee/core"
+import "github.com/yogisalomo/goowee/core"
 
 type effectState struct {
 	Deps    []core.SignalAccessor

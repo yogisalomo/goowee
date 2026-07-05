@@ -1,8 +1,8 @@
 package h
 
-import "goowee/core"
+import "github.com/yogisalomo/goowee/core"
 
-func Div(items ...core.Item) *core.ElementNode       { return El("div", items...) }
+func Div(items ...core.Item) *core.ElementNode        { return El("div", items...) }
 func Span(items ...core.Item) *core.ElementNode       { return El("span", items...) }
 func P(items ...core.Item) *core.ElementNode          { return El("p", items...) }
 func H1(items ...core.Item) *core.ElementNode         { return El("h1", items...) }

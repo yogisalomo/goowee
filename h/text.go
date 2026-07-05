@@ -2,7 +2,7 @@ package h
 
 import (
 	"fmt"
-	"goowee/core"
+	"github.com/yogisalomo/goowee/core"
 )
 
 func Text(s string) *core.TextNode { return &core.TextNode{Value: s} }

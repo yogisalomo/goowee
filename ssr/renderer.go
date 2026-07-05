@@ -2,7 +2,7 @@ package ssr
 
 import (
 	"fmt"
-	"goowee/core"
+	"github.com/yogisalomo/goowee/core"
 	"log"
 	"strings"
 )

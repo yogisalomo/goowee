@@ -1,6 +1,6 @@
 package h
 
-import "goowee/core"
+import "github.com/yogisalomo/goowee/core"
 
 func BindProp(name string, sig core.SignalAccessor) core.Item {
 	return bindItem{core.BindToProp, name, sig}

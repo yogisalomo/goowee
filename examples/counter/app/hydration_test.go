@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"goowee/core"
-	"goowee/dom"
-	"goowee/router"
-	"goowee/ssr"
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/dom"
+	"github.com/yogisalomo/goowee/router"
+	"github.com/yogisalomo/goowee/ssr"
 )
 
 var (

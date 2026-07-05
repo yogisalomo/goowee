@@ -2,8 +2,8 @@ package h
 
 import (
 	"fmt"
-	"goowee/core"
-	"goowee/hooks"
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/hooks"
 	"math"
 )
 

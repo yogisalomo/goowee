@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"goowee/examples/counter/app"
-	"goowee/router"
-	"goowee/ssr"
+	"github.com/yogisalomo/goowee/examples/counter/app"
+	"github.com/yogisalomo/goowee/router"
+	"github.com/yogisalomo/goowee/ssr"
 )
 
 func main() {

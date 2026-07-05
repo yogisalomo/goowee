@@ -2,11 +2,11 @@ package app
 
 import (
 	"fmt"
+	"github.com/yogisalomo/goowee/core"
+	. "github.com/yogisalomo/goowee/h"
+	"github.com/yogisalomo/goowee/hooks"
+	"github.com/yogisalomo/goowee/router"
 	"time"
-	. "goowee/h"
-	"goowee/core"
-	"goowee/hooks"
-	"goowee/router"
 )
 
 func App(r *router.Router) core.Node {
@@ -402,4 +402,3 @@ func aboutPage() core.Node {
 		P(Text("A minimal Go WASM signal-based UI framework.")),
 	)
 }
-

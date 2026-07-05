@@ -1,6 +1,6 @@
 package h
 
-import "goowee/core"
+import "github.com/yogisalomo/goowee/core"
 
 func El(tag string, items ...core.Item) *core.ElementNode {
 	el := &core.ElementNode{Tag: tag}
