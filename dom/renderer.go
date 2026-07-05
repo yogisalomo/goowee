@@ -76,6 +76,9 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		}
 		id := r.allocID()
 		v.ID = id
+		if v.Ref != nil {
+			v.Ref.ID = id
+		}
 		if r.hydrating {
 			// Claim the server-rendered element; its attributes, properties,
 			// and children are already in the DOM, so only reactivity
@@ -244,6 +247,21 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 			})
 		}
 		return id
+
+	case *core.PortalNode:
+		if v == nil {
+			return 0
+		}
+		for _, child := range v.Children {
+			childID := r.renderNode(child, muts)
+			if childID != 0 {
+				*muts = append(*muts, core.Mutation{
+					Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: v.Target,
+				})
+			}
+		}
+		return 0
+
 	}
 	return 0
 }
@@ -525,6 +543,35 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 			return 0
 		}
 		return r.renderNode(newScope, muts)
+
+	case *core.PortalNode:
+		new, ok := newNode.(*core.PortalNode)
+		if !ok || old.Target != new.Target {
+			for _, c := range old.Children {
+				r.emitRemoveTree(c, muts)
+			}
+			for _, c := range new.Children {
+				childID := r.renderNode(c, muts)
+				if childID != 0 {
+					*muts = append(*muts, core.Mutation{
+						Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: new.Target,
+					})
+				}
+			}
+			return 0
+		}
+		for _, c := range old.Children {
+			r.emitRemoveTree(c, muts)
+		}
+		for _, c := range new.Children {
+			childID := r.renderNode(c, muts)
+			if childID != 0 {
+				*muts = append(*muts, core.Mutation{
+					Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: new.Target,
+				})
+			}
+		}
+		return 0
 	}
 	return 0
 }
@@ -726,6 +773,10 @@ func (r *DOMRenderer) disposeReactive(n core.Node) {
 			r.disposeReactive(c)
 		}
 	case *core.FragmentNode:
+		for _, c := range v.Children {
+			r.disposeReactive(c)
+		}
+	case *core.PortalNode:
 		for _, c := range v.Children {
 			r.disposeReactive(c)
 		}

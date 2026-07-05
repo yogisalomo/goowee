@@ -160,7 +160,8 @@ const (
 	MutAppendChild
 	MutInsertBefore
 	MutRemoveAttribute
-	MutHydrate // claim a server-rendered node by id (Value = tag or "#text")
+	MutHydrate       // claim a server-rendered node by id (Value = tag or "#text")
+	MutPortalAppend  // append a child to a different container (Value = CSS selector)
 )
 
 func (mt MutationType) String() string {
@@ -181,6 +182,8 @@ func (mt MutationType) String() string {
 		return "RemoveAttribute"
 	case MutHydrate:
 		return "Hydrate"
+	case MutPortalAppend:
+		return "PortalAppend"
 	default:
 		return "Unknown"
 	}

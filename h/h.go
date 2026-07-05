@@ -16,6 +16,29 @@ func Fragment(children ...core.Node) *core.FragmentNode {
 	return &core.FragmentNode{Children: children}
 }
 
+func Ref() *core.Ref {
+	return &core.Ref{}
+}
+
+type refItem struct {
+	ref *core.Ref
+}
+
+func (r refItem) Apply(el *core.ElementNode) {
+	el.Ref = r.ref
+}
+
+func RefTo(ref *core.Ref) core.Item {
+	if ref == nil {
+		return nil
+	}
+	return refItem{ref}
+}
+
+func Portal(target string, children ...core.Node) *core.PortalNode {
+	return &core.PortalNode{Target: target, Children: children}
+}
+
 func Key(k any) core.Item { return keyItem{k} }
 
 type keyItem struct{ k any }

@@ -613,3 +613,73 @@ func TestForNilAndEmptyLists(t *testing.T) {
 		t.Fatalf("expected 0 children for empty list, got %d", len(frag.Children))
 	}
 }
+
+func TestRefCreatesFreshRef(t *testing.T) {
+	ref := Ref()
+	if ref == nil {
+		t.Fatal("expected non-nil *core.Ref")
+	}
+	if ref.ID != 0 {
+		t.Fatal("expected zero ID on fresh ref")
+	}
+}
+
+func TestRefToSetsRefOnElement(t *testing.T) {
+	ref := Ref()
+	el := El("div", RefTo(ref))
+	if el.Ref != ref {
+		t.Fatal("expected el.Ref to be set")
+	}
+}
+
+func TestRefToNilNoop(t *testing.T) {
+	el := El("div", RefTo(nil))
+	if el.Ref != nil {
+		t.Fatal("expected nil Ref for nil input")
+	}
+}
+
+func TestPortalCreatesPortalNode(t *testing.T) {
+	p := Portal("#modal", Text("hello"))
+	if p.Target != "#modal" {
+		t.Fatalf("expected Target=#modal, got %q", p.Target)
+	}
+	if len(p.Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(p.Children))
+	}
+}
+
+func TestPortalApplyAppendsToElement(t *testing.T) {
+	p := Portal("#modal", Text("content"))
+	el := El("div", p)
+	if len(el.Children) != 1 {
+		t.Fatalf("expected 1 child on element, got %d", len(el.Children))
+	}
+	portal, ok := el.Children[0].(*core.PortalNode)
+	if !ok {
+		t.Fatalf("expected *core.PortalNode, got %T", el.Children[0])
+	}
+	if portal.Target != "#modal" {
+		t.Fatalf("expected target #modal, got %q", portal.Target)
+	}
+}
+
+func TestPortalAndRefTogether(t *testing.T) {
+	ref := Ref()
+	el := El("div",
+		RefTo(ref),
+		Portal("#modal",
+			El("span", Text("inside")),
+		),
+	)
+	if el.Ref != ref {
+		t.Fatal("expected ref on element")
+	}
+	if len(el.Children) != 1 {
+		t.Fatalf("expected 1 child (portal), got %d", len(el.Children))
+	}
+	_, ok := el.Children[0].(*core.PortalNode)
+	if !ok {
+		t.Fatal("expected portal child")
+	}
+}

@@ -149,6 +149,14 @@ window.applyMutations = function applyMutations(json) {
                 if (el) el.removeAttribute(mut.key);
                 break;
             }
+            case 8: { // PortalAppend — append child to a different container
+                const parent = document.querySelector(mut.value);
+                const child = nodeMap[mut.childId];
+                if (parent && child && !child.parentNode) {
+                    parent.appendChild(child);
+                }
+                break;
+            }
             case 7: // Hydrate — claim a server-rendered node by id
                 el = preexistingNodes[mut.nodeId];
                 if (el) {

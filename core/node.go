@@ -12,11 +12,16 @@ type ElementNode struct {
 	ID       int
 	Tag      string
 	Key      any
+	Ref      *Ref
 	Attrs    []Attr
 	Props    []Prop
 	Binds    []Bind
 	Handlers []Handler
 	Children []Node
+}
+
+type Ref struct {
+	ID int
 }
 
 func (e *ElementNode) nodeMarker() {}
@@ -114,6 +119,19 @@ type FragmentNode struct {
 func (f *FragmentNode) nodeMarker() {}
 func (f *FragmentNode) String() string {
 	return fmt.Sprintf("Fragment(%d children)", len(f.Children))
+}
+
+type PortalNode struct {
+	Target   string // CSS selector for the target container
+	Children []Node
+}
+
+func (p *PortalNode) nodeMarker() {}
+func (p *PortalNode) String() string {
+	return fmt.Sprintf("Portal(%s)", p.Target)
+}
+func (p *PortalNode) Apply(el *ElementNode) {
+	el.Children = append(el.Children, p)
 }
 
 type ComponentNode struct {
@@ -216,6 +234,10 @@ func CollectIDs(n Node) []int {
 			ids = append(ids, v.ID)
 		}
 	case *FragmentNode:
+		for _, child := range v.Children {
+			ids = append(ids, CollectIDs(child)...)
+		}
+	case *PortalNode:
 		for _, child := range v.Children {
 			ids = append(ids, CollectIDs(child)...)
 		}

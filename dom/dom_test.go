@@ -1553,3 +1553,164 @@ func TestParentReRenderCancelsDirtyChild(t *testing.T) {
 		t.Fatalf("child re-rendered after parent removed it: childRenders=%d, want 1", childRenders)
 	}
 }
+
+func TestDOMRefSetsID(t *testing.T) {
+	myRef := &core.Ref{}
+	n := &core.ElementNode{Tag: "div", Ref: myRef}
+	r := New()
+	r.Render(n)
+	if myRef.ID == 0 {
+		t.Fatal("expected ref.ID to be set after render")
+	}
+	if myRef.ID != n.ID {
+		t.Fatalf("ref.ID=%d, want %d", myRef.ID, n.ID)
+	}
+}
+
+func TestDOMRefHydrationSetsID(t *testing.T) {
+	myRef := &core.Ref{}
+	n := &core.ElementNode{Tag: "div", Ref: myRef}
+	r := New()
+	r.hydrating = true
+	r.Render(n)
+	if myRef.ID == 0 {
+		t.Fatal("expected ref.ID to be set after hydrate")
+	}
+	if myRef.ID != n.ID {
+		t.Fatalf("ref.ID=%d, want %d", myRef.ID, n.ID)
+	}
+}
+
+func TestDOMRefNillable(t *testing.T) {
+	n := &core.ElementNode{Tag: "span", Ref: nil}
+	r := New()
+	r.Render(n)
+	// Should not panic
+}
+
+func TestDOMPortalEmitsPortalAppend(t *testing.T) {
+	portal := &core.PortalNode{
+		Target: "#modal",
+		Children: []core.Node{
+			&core.ElementNode{Tag: "span"},
+		},
+	}
+	r := New()
+	var muts []core.Mutation
+	r.renderNode(portal, &muts)
+
+	found := false
+	for _, m := range muts {
+		if m.Type == core.MutPortalAppend {
+			found = true
+			if m.Value != "#modal" {
+				t.Fatalf("expected Value=#modal, got %v", m.Value)
+			}
+			if m.ChildID == 0 {
+				t.Fatal("expected non-zero ChildID")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected MutPortalAppend mutation")
+	}
+}
+
+func TestDOMPortalInsideElement(t *testing.T) {
+	parent := &core.ElementNode{
+		Tag: "div",
+		Children: []core.Node{
+			&core.PortalNode{
+				Target: "#modal",
+				Children: []core.Node{
+					&core.ElementNode{Tag: "span"},
+				},
+			},
+		},
+	}
+	r := New()
+	muts, _ := r.Render(parent)
+
+	foundAppend := false
+	foundPortalAppend := false
+	for _, m := range muts {
+		switch m.Type {
+		case core.MutAppendChild:
+			foundAppend = true
+		case core.MutPortalAppend:
+			foundPortalAppend = true
+			if m.Value != "#modal" {
+				t.Fatalf("expected #modal, got %v", m.Value)
+			}
+		}
+	}
+	if !foundAppend {
+		t.Fatal("expected AppendChild for div's children")
+	}
+	if !foundPortalAppend {
+		t.Fatal("expected MutPortalAppend for portal")
+	}
+}
+
+func TestDOMPortalMultipleChildren(t *testing.T) {
+	portal := &core.PortalNode{
+		Target: "#tooltip",
+		Children: []core.Node{
+			&core.ElementNode{Tag: "div"},
+			&core.ElementNode{Tag: "span"},
+			&core.TextNode{Value: "hello"},
+		},
+	}
+	r := New()
+	var muts []core.Mutation
+	r.renderNode(portal, &muts)
+
+	count := 0
+	for _, m := range muts {
+		if m.Type == core.MutPortalAppend {
+			count++
+		}
+	}
+	if count != 3 {
+		t.Fatalf("expected 3 MutPortalAppend mutations, got %d", count)
+	}
+}
+
+func TestDOMPortalEmitRemoveOnDiffTargetChange(t *testing.T) {
+	oldPortal := &core.PortalNode{
+		Target: "#a",
+		Children: []core.Node{&core.ElementNode{Tag: "span"}},
+	}
+	newPortal := &core.PortalNode{
+		Target: "#b",
+		Children: []core.Node{&core.ElementNode{Tag: "div"}},
+	}
+	r := New()
+	r.renderNode(oldPortal, &[]core.Mutation{})
+
+	var muts []core.Mutation
+	r.diffNode(oldPortal, newPortal, &muts)
+
+	hasRemove := false
+	hasCreate := false
+	hasPortalAppend := false
+	for _, m := range muts {
+		switch m.Type {
+		case core.MutRemoveNode:
+			hasRemove = true
+		case core.MutCreateElement:
+			hasCreate = true
+		case core.MutPortalAppend:
+			hasPortalAppend = true
+		}
+	}
+	if !hasRemove {
+		t.Fatal("expected RemoveNode on portal target change")
+	}
+	if !hasCreate {
+		t.Fatal("expected CreateElement on portal target change")
+	}
+	if !hasPortalAppend {
+		t.Fatal("expected MutPortalAppend on portal target change")
+	}
+}
