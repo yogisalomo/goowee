@@ -710,16 +710,100 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 		}
 	}
 
+	// LIS optimisation: compute which existing elements already appear in the
+	// correct relative order and skip DOM moves for them. Only elements NOT in
+	// the LIS (plus new elements) need insertBefore mutations.
+	needsMove := computeNeedsMove(oldIndexForNew)
+
 	refID := 0
 	for i := len(new) - 1; i >= 0; i-- {
 		if newIDs[i] != 0 {
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutInsertBefore, NodeID: parentID,
-				ChildID: newIDs[i], RefID: refID,
-			})
+			if needsMove[i] {
+				*muts = append(*muts, core.Mutation{
+					Type: core.MutInsertBefore, NodeID: parentID,
+					ChildID: newIDs[i], RefID: refID,
+				})
+			}
 			refID = newIDs[i]
 		}
 	}
+}
+
+// computeNeedsMove returns a boolean slice parallel to oldIndexForNew where
+// true means the element at that new position needs a DOM mutation. New
+// elements (oldIdx == -1) always need a move; existing elements whose old
+// index is NOT part of the longest increasing subsequence (by old index,
+// ordered by new position) need a move; the rest stay in place.
+func computeNeedsMove(oldIndexForNew []int) []bool {
+	n := len(oldIndexForNew)
+	needsMove := make([]bool, n)
+
+	// Extract kept (existing) old indices in new-list order.
+	kept := make([]int, 0, n)
+	keptPos := make([]int, 0, n)
+	for i, oldIdx := range oldIndexForNew {
+		if oldIdx >= 0 {
+			kept = append(kept, oldIdx)
+			keptPos = append(keptPos, i)
+		} else {
+			needsMove[i] = true // new element, always needs a move
+		}
+	}
+	if len(kept) == 0 {
+		return needsMove
+	}
+
+	// LIS over kept old indices: which are already in the correct order?
+	inLIS := lis(kept)
+
+	for i, in := range inLIS {
+		if !in {
+			needsMove[keptPos[i]] = true
+		}
+	}
+	return needsMove
+}
+
+// lis computes the longest increasing subsequence on arr (O(n²) DP).
+// Returns a boolean slice where true means the element at that index is
+// part of one longest increasing subsequence.
+func lis(arr []int) []bool {
+	n := len(arr)
+	if n == 0 {
+		return nil
+	}
+
+	dp := make([]int, n)
+	maxLen := 0
+	for i := 0; i < n; i++ {
+		dp[i] = 1
+		for j := 0; j < i; j++ {
+			if arr[j] < arr[i] && dp[j]+1 > dp[i] {
+				dp[i] = dp[j] + 1
+			}
+		}
+		if dp[i] > maxLen {
+			maxLen = dp[i]
+		}
+	}
+
+	inLIS := make([]bool, n)
+	if maxLen == 0 {
+		return inLIS
+	}
+
+	// Reconstruct from the right: pick the rightmost element with dp = target
+	// and value < previously picked value (greedy backwards walk).
+	target := maxLen
+	prev := int(^uint(0) >> 1) // max int
+	for i := n - 1; i >= 0; i-- {
+		if dp[i] == target && arr[i] < prev {
+			inLIS[i] = true
+			target--
+			prev = arr[i]
+		}
+	}
+	return inLIS
 }
 
 func typeCompatible(a, b core.Node) bool {
