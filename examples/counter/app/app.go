@@ -13,7 +13,8 @@ func App(r *router.Router) core.Node {
 	return core.Component("App", func() core.Node {
 		return appLayout(r,
 			r.Route(map[string]func() core.Node{
-				"/":            homePage,
+				"/":            func() core.Node { return landingPage(r) },
+				"/tutorial":    func() core.Node { return tutorialIndex(r) },
 				"/counter":     counterPage,
 				"/about":       aboutPage,
 				"/form":        formPage,
@@ -30,26 +31,19 @@ func appLayout(r *router.Router, children ...core.Node) core.Node {
 	return Div(Class("app"),
 		appHeader(r),
 		Main(Nodes(children)...),
+		footer(),
 	)
 }
 
 func appHeader(r *router.Router) core.Node {
 	return Nav(Class("nav"),
-		r.Link("/", "Home"),
-		Text(" | "),
-		r.Link("/counter", "Counter"),
-		Text(" | "),
-		r.Link("/about", "About"),
-		Text(" | "),
-		r.Link("/form", "Form"),
-		Text(" | "),
-		r.Link("/todos", "Todos"),
-		Text(" | "),
-		r.Link("/stopwatch", "Stopwatch"),
-		Text(" | "),
-		r.Link("/dashboard", "Dashboard"),
-		Text(" | "),
-		r.Link("/greet/alice", "Greet"),
+		A(Class("brand"), Href("/"),
+			OnClickE(func(core.EventData) { r.Navigate("/") }, PreventDefault()),
+			Text("goowee")),
+		A(Href("/tutorial"),
+			OnClickE(func(core.EventData) { r.Navigate("/tutorial") }, PreventDefault()),
+			Text("Tutorial")),
+		A(Href(repoURL), Target("_blank"), Rel("noopener"), Text("GitHub")),
 	)
 }
 

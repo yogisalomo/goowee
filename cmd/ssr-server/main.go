@@ -26,7 +26,7 @@ func main() {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Route known paths through SSR
 		switch r.URL.Path {
-		case "/", "/counter", "/about", "/form", "/todos", "/stopwatch", "/dashboard":
+		case "/", "/tutorial", "/counter", "/about", "/form", "/todos", "/stopwatch", "/dashboard":
 			rtr := router.New(r.URL.Path)
 			renderer := ssr.New()
 			body := renderer.Render(app.App(rtr))
@@ -36,6 +36,9 @@ func main() {
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>goowee — reactive Go UIs in WebAssembly</title>
+    <link rel="stylesheet" href="site.css">
     <script src="wasm_exec.js"></script>
     <script src="goowee.js"></script>
     <script src="counter.js"></script>
