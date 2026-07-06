@@ -151,5 +151,8 @@ async function main() {
   else console.log("E2E PASS: hydration reuses SSR DOM, interactive, routing + history work.");
 }
 
-main().catch((e) => { console.error("E2E ERROR:", e.message); process.exitCode = 2; })
-  .finally(() => { try { ws?.close(); } catch {} chrome.kill("SIGKILL"); });
+main().catch((e) => {
+  console.error("E2E ERROR:", e.message);
+  if (logs.length) console.error("--- browser logs ---\n" + logs.join("\n"));
+  process.exitCode = 2;
+}).finally(() => { try { ws?.close(); } catch {} chrome.kill("SIGKILL"); });

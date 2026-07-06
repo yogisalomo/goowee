@@ -3,6 +3,8 @@
 A Go framework for building reactive web UIs, compiled to WebAssembly, with
 server-side rendering and hydration.
 
+**[Live demo + tutorial →](https://yogisalomo.github.io/goowee/)** (the site is itself a goowee app)
+
 ```go
 import . "github.com/yogisalomo/goowee/h"
 

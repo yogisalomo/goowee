@@ -15,6 +15,12 @@ type Router struct {
 	replaceFn func(string) // NavigateReplace — calls replaceState
 	backFn    func()       // Back
 	forwardFn func()       // Forward
+	// base is the URL prefix the app is served under (e.g. "/goowee" on a
+	// GitHub Pages project site), "" at the domain root. Internal paths
+	// (Path, route patterns) are always base-relative; the base is added back
+	// for the browser URL (Link hrefs, pushState) and stripped from it
+	// (CurrentPath, popstate). Set by BindHistory from the page's <base>.
+	base string
 }
 
 func New(initial string) *Router {
@@ -33,7 +39,7 @@ func (r *Router) SetNavFn(fn func(string)) {
 func (r *Router) Navigate(path string) {
 	r.Path.Set(path)
 	if r.navFn != nil {
-		r.navFn(path)
+		r.navFn(r.base + path) // route matching is base-relative; the URL carries the base
 	}
 }
 
@@ -44,7 +50,7 @@ func (r *Router) Navigate(path string) {
 func (r *Router) NavigateReplace(path string) {
 	r.Path.Set(path)
 	if r.replaceFn != nil {
-		r.replaceFn(path)
+		r.replaceFn(r.base + path)
 	}
 }
 
@@ -64,11 +70,14 @@ func (r *Router) Forward() {
 
 func (r *Router) Link(to, text string) *core.ElementNode {
 	return h.A(
-		h.Href(to),
+		h.Href(r.base+to), // real URL carries the base; internal nav is base-relative
 		h.OnClickE(func(core.EventData) { r.Navigate(to) }, h.PreventDefault()),
 		h.Text(text),
 	)
 }
+
+// BasePath returns the URL prefix the app is served under ("" at the root).
+func (r *Router) BasePath() string { return r.base }
 
 // Param returns the value of a URL param captured by the currently matched
 // route ("" if absent). This is a snapshot — good for event handlers and
