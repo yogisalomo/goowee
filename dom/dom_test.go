@@ -1591,3 +1591,61 @@ func TestSVGNamespacePropagation(t *testing.T) {
 		t.Errorf("HTML elements must not be namespaced: section=%q div=%q", ns["section"], ns["div"])
 	}
 }
+
+func TestRefIDSetOnRender(t *testing.T) {
+	ref := &core.Ref{}
+	el := &core.ElementNode{Tag: "input", Ref: ref}
+	New().Render(el)
+	if ref.ID == 0 || ref.ID != el.ID {
+		t.Fatalf("ref.ID=%d should equal rendered el.ID=%d", ref.ID, el.ID)
+	}
+}
+
+func TestPortalEmitsPortalAppend(t *testing.T) {
+	portal := &core.PortalNode{Target: "#modal", Children: []core.Node{
+		&core.ElementNode{Tag: "span", Children: []core.Node{&core.TextNode{Value: "hi"}}},
+	}}
+	muts, _ := New().Render(portal)
+	appends, creates := 0, 0
+	for _, m := range muts {
+		switch m.Type {
+		case core.MutPortalAppend:
+			appends++
+			if m.Value != "#modal" {
+				t.Fatalf("portal target=%v, want #modal", m.Value)
+			}
+		case core.MutCreateElement:
+			creates++
+		}
+	}
+	if appends != 1 {
+		t.Fatalf("want 1 PortalAppend, got %d", appends)
+	}
+	if creates < 2 {
+		t.Fatalf("want span+text created, got %d", creates)
+	}
+}
+
+func TestPortalRendersFreshDuringHydration(t *testing.T) {
+	portal := &core.PortalNode{Target: "#modal", Children: []core.Node{
+		&core.ElementNode{Tag: "div"},
+	}}
+	r := New()
+	r.SetHydrating(true)
+	muts, _ := r.Render(portal)
+	sawCreate, sawHydrate := false, false
+	for _, m := range muts {
+		switch m.Type {
+		case core.MutCreateElement:
+			sawCreate = true
+		case core.MutHydrate:
+			sawHydrate = true
+		}
+	}
+	if !sawCreate {
+		t.Fatal("portal content must be created fresh during hydration")
+	}
+	if sawHydrate {
+		t.Fatal("portal content must not emit a hydrate claim (server doesn't render portals)")
+	}
+}

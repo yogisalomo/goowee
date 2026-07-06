@@ -167,6 +167,19 @@ window.applyMutations = function applyMutations(json) {
                 if (el) el.removeAttribute(mut.key);
                 break;
             }
+            case 8: { // Invoke — call a method on a node (refs: focus/blur/…)
+                el = nodeMap[mut.nodeId];
+                if (el && typeof el[mut.key] === "function") el[mut.key]();
+                break;
+            }
+            case 9: { // PortalAppend — append child to a container by selector
+                const parent = document.querySelector(mut.value);
+                const child = nodeMap[mut.childId];
+                if (parent && child && child.parentNode !== parent) {
+                    parent.appendChild(child);
+                }
+                break;
+            }
             case 7: { // Hydrate — claim a server-rendered node by id
                 const pre = preexistingNodes[mut.nodeId];
                 const wantText = mut.value === "#text";

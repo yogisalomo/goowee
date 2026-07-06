@@ -12,6 +12,7 @@ type ElementNode struct {
 	ID       int
 	Tag      string
 	Key      any
+	Ref      *Ref
 	Attrs    []Attr
 	Props    []Prop
 	Binds    []Bind
@@ -130,6 +131,29 @@ func (f *FragmentNode) String() string {
 	return fmt.Sprintf("Fragment(%d children)", len(f.Children))
 }
 
+// PortalNode renders its children into a different container in the DOM — a
+// modal or tooltip that lives outside the current subtree. Target is a CSS
+// selector resolved at apply time. Portals are client-side: they are not
+// server-rendered, and their content is created fresh (not hydrated). Because
+// the target is a selector (not a node we can reconcile against), portal
+// children are rebuilt on every re-render — keep portal content simple, or
+// hold its state in signals outside the portal. See ADR-017.
+type PortalNode struct {
+	Target   string
+	Children []Node
+}
+
+func (p *PortalNode) nodeMarker() {}
+func (p *PortalNode) String() string {
+	return fmt.Sprintf("Portal(%s)", p.Target)
+}
+func (p *PortalNode) Apply(el *ElementNode) {
+	if p == nil {
+		return
+	}
+	el.Children = append(el.Children, p)
+}
+
 type ComponentNode struct {
 	Name   string
 	Key    any // used by keyed reconciliation (For); nil = unkeyed
@@ -230,6 +254,10 @@ func CollectIDs(n Node) []int {
 			ids = append(ids, v.ID)
 		}
 	case *FragmentNode:
+		for _, child := range v.Children {
+			ids = append(ids, CollectIDs(child)...)
+		}
+	case *PortalNode:
 		for _, child := range v.Children {
 			ids = append(ids, CollectIDs(child)...)
 		}
