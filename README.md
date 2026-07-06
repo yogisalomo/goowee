@@ -23,6 +23,11 @@ func App() core.Node {
 > for the path to production readiness, and `docs/canonical/adr.md` for the
 > design decisions behind the framework.
 
+> **Building with an AI coding agent?** [`AGENTS.md`](AGENTS.md) is a focused
+> guide (mental model, API cheat sheet, golden rules, anti-patterns) that lets an
+> agent write correct goowee code without trial and error. Copy it into your
+> project as `AGENTS.md`/`CLAUDE.md`, or point your agent instructions at it.
+
 ## How it works
 
 - **Signals** are the unit of reactivity. Components are **setup functions that

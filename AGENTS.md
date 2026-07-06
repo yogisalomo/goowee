@@ -1,0 +1,240 @@
+# Building apps with goowee — a guide for coding agents
+
+This file tells a coding agent how to build a UI with **goowee** (a Go→WebAssembly
+reactive framework) correctly on the first try. If you are working in a project
+that depends on `github.com/yogisalomo/goowee`, read this before writing UI code.
+See [`docs/canonical/adr.md`](docs/canonical/adr.md) for the *why* behind these rules.
+
+> Copy this file into your project (as `AGENTS.md` or `CLAUDE.md`), or add a line
+> to your existing agent instructions: *"This project uses goowee — follow its
+> AGENTS.md."* The **Golden rules** below are the ones that prevent wasted iterations.
+
+---
+
+## Mental model (internalize this first)
+
+goowee is **not React**. The single most important fact:
+
+> **A component's function body runs ONCE, when it mounts.** It is setup, not render.
+> It does not re-run when state changes.
+
+State lives in **signals**. When a signal changes, goowee updates *only* the exact
+DOM text/attribute/list bound to it — there is no re-render pass and no virtual DOM.
+So you never "re-render a component"; you bind parts of the DOM to signals and let
+those parts update.
+
+```go
+func Counter() core.Node {
+    return core.Component("Counter", func() core.Node {
+        count, setCount := hooks.UseState(0) // signal + setter
+
+        // This runs ONCE. `Textf` binds the signal, so only the text updates.
+        return Div(
+            P(Textf("Count: %d", count)),
+            Button(OnClick(func() { setCount(count.Get() + 1) }), Text("increment")),
+        )
+    })
+}
+```
+
+If you find yourself expecting the function body to run again on a click — stop.
+Bind a signal instead.
+
+---
+
+## Golden rules (each prevents a common mistake)
+
+1. **Static vs reactive display.** `Text("x")`, `Class("x")`, `Value("x")` are
+   **static** — they never update. To make display track a signal, use the
+   reactive forms: `TextS(sig)`, `Textf("...", sig)` (any signal arg is reactive),
+   and the `-S`-suffixed attribute/prop helpers (`ClassS`, `ValueS`, `DisabledS`, …).
+2. **Read/write signals** with `sig.Get()` / `setter(v)` (from `UseState`) or
+   `sig.Set(v)`. In markup, pass the **signal itself** to reactive helpers
+   (`Textf("%d", count)`), not `count.Get()` (which captures a one-time value).
+3. **Effects declare their deps explicitly** — there is no auto-tracking:
+   - `hooks.UseEffect([]core.SignalAccessor{a, b}, func() func() { ...; return cleanup })`
+   - `hooks.Watch([]core.SignalAccessor{a}, func() { ... })` (no cleanup)
+   - `hooks.OnMount(func() func() { ...; return cleanup })` (runs once on mount,
+     **client only** — never during SSR; use it for timers, subscriptions, fetches).
+4. **Off the render loop → `core.Schedule`.** Any code running outside the render
+   loop (a `time.Ticker`, `go func`, a fetch/network callback, a channel receive)
+   **must not call a setter or `sig.Set` directly** — that races the renderer.
+   Wrap the update: `core.Schedule(func() { setCount(n) })`. Inside `Schedule` you
+   read/write signals normally.
+5. **Lists → `For` with a stable key.** `For(sig, func(x T) K { return x.ID }, func(x T) core.Node { ... })`.
+   The key must be unique and stable per item so reordering preserves identity.
+6. **Conditionals → `Show` / `ShowElse` / `Switch`** (not an `if` in the body,
+   which only runs once): `ShowElse(flag, func() core.Node {...}, func() core.Node {...})`.
+7. **Derived values → `core.Computed`**, not recomputation in the body:
+   `total := core.Computed([]core.SignalAccessor{items}, func() int { ... })`.
+8. **SSR must be deterministic.** If you server-render, the client must produce the
+   same markup. For content that legitimately differs per request (dates, locale,
+   auth), either wrap it in `h.Dynamic()` (client value wins on hydration) or render
+   a placeholder and fill it in from `OnMount` (client-only).
+9. **Imperative DOM → refs; overlays → portals.** `ref := h.Ref()`, attach with
+   `h.RefTo(ref)`, then `ref.Focus()`/`Blur()`/`Click()`/`ScrollIntoView()` from a
+   handler/effect. `h.Portal("#modal-root", …)` renders outside the current subtree.
+10. **Prefer the typed helpers.** Use `h`'s element/attr/event constructors rather
+    than building `core.ElementNode` literals by hand.
+
+---
+
+## API cheat sheet
+
+Import the DSL with a dot import; keep `core`, `hooks`, `router` qualified:
+
+```go
+import (
+    "github.com/yogisalomo/goowee/core"
+    . "github.com/yogisalomo/goowee/h"
+    "github.com/yogisalomo/goowee/hooks"
+    "github.com/yogisalomo/goowee/router"
+)
+```
+
+**State & reactivity** (`core`, `hooks`)
+- `count, setCount := hooks.UseState(0)` → `*core.Signal[int]`, `func(int)`
+- `sig.Get()`, `sig.Set(v)`, `core.NewSignal(v)`, `sig.WithEquals(eq)`
+- `core.Computed(deps, compute) *Signal[T]`
+- `hooks.UseEffect(deps, func() func())`, `hooks.Watch(deps, func())`, `hooks.OnMount(func() func())`
+- `core.Schedule(func())` — run an update on the render loop from off-loop code
+
+**Elements & content** (`h`, dot-imported)
+- Elements: `Div`, `Span`, `P`, `H1`–`H6`, `Button`, `Input`, `Form`, `Label`,
+  `Ul`/`Li`, `Nav`, `Main`, `Footer`, `A`, `Img`, … and `El("tag", …)` for anything else.
+- Text: `Text("static")`, `TextS(sig)`, `Textf("Count: %d", count)` (reactive args).
+- Attrs: `Class`, `ID`, `Href`, `Type`, `Name`, `Placeholder`, `Style`, `Attr(name, val)`,
+  ARIA (`AriaLabel`, `AriaHidden(true)`, `AriaCurrent("page")`, …). Reactive: add `S`
+  (`ClassS(sig)`, `StyleS(sig)`).
+- Props: `Value`, `Checked`, `Disabled`, `Required`, … and reactive `ValueS`, `DisabledS`, …
+- Control flow: `Show(cond, then)`, `ShowElse(cond, then, else)`,
+  `Switch(sig, map[T]func()core.Node, default)`, `For(sig, keyFn, render)`.
+- SVG: `Svg(...)` roots a namespaced subtree; shapes `Path`, `Circle`, `Rect`, `G`,
+  `Line`, `Polyline`, `Polygon`, `Ellipse`; arbitrary attrs via `Attr("viewBox", …)`.
+- Refs/portals: `Ref()`, `RefTo(ref)`, `Portal(target, …)`.
+
+**Events** (`h`)
+- Simple: `OnClick(func())`, `OnInput(func(string))`, `OnChange(func(string))`,
+  `OnSubmit(func(map[string]string))`, `OnFocus`, `OnBlur`, `OnKeyDown`, …
+- Full event data / options: `OnClickE(func(core.EventData), PreventDefault(), StopPropagation())`.
+- Two-way binding: `BindValue(strSig)`, `BindChecked(boolSig)`, `BindSelect(strSig)`,
+  `BindValueLazy(strSig)` (commits on change).
+
+**Router** (`router`)
+- `r := router.New(router.CurrentPath())`; `r.BindHistory()` (browser back/forward).
+- `r.Route(map[string]func() core.Node{ "/": home, "/todos/:id": todo, "/404": notFound })`
+  — exact wins; `:param` and `/*` supported; most-specific match is deterministic.
+- Params: `r.Param("id")` (snapshot), `r.ParamSignal("id")` (reactive — bind this),
+  `r.Params()`.
+- Navigation: `r.Navigate(path)`, `r.NavigateReplace(path)`, `r.Back()`, `r.Forward()`,
+  `r.Link(to, text)`.
+- Nesting/util: `r.SubRoute(prefix, routes)`, `router.Guard(check, fallback, route)`,
+  `router.Lazy(load)`.
+
+---
+
+## Project setup (WASM entry + build)
+
+A goowee app compiles to WebAssembly. Minimal `main.go`:
+
+```go
+//go:build js && wasm
+
+package main
+
+import (
+    "syscall/js"
+
+    "github.com/yogisalomo/goowee/bridge"
+    "github.com/yogisalomo/goowee/dom"
+    "github.com/yogisalomo/goowee/router"
+    "yourmodule/app" // your App(r) component
+)
+
+func main() {
+    r := router.New(router.CurrentPath())
+    r.BindHistory()
+
+    renderer := dom.New()
+    // If the page was server-rendered, claim that DOM instead of rebuilding it.
+    if js.Global().Get("document").Call("querySelector", "[data-node-id]").Truthy() {
+        renderer.SetHydrating(true)
+    }
+    muts, _ := renderer.Render(app.App(r))
+    renderer.Scheduler.Enqueue(muts...)
+    bridge.Init(renderer.Scheduler, renderer.Registry) // starts the frame loop
+    select {}                                          // keep the program alive
+}
+```
+
+Build and serve:
+
+```sh
+GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app     # your wasm entry
+cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/            # Go's JS loader
+cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/  # the bridge
+# Serve web/ with an index.html that loads: wasm_exec.js, goowee.js, main.wasm,
+# and has a <div id="root"></div>. (See goowee's examples/counter for a template.)
+```
+
+For **SSR + hydration**: on the server, `body := ssr.New().Render(App(r))`, wrap it in
+`<div id="root">{body}</div>`, and serve the same wasm loader. The client detects the
+server DOM (via `data-node-id`) and hydrates it. Keep server and client markup identical
+(rule 8).
+
+---
+
+## Copy-paste patterns
+
+**Fetch on mount (note `core.Schedule` — the fetch callback is off-loop):**
+```go
+func UserCard(id string) core.Node {
+    return core.Component("UserCard", func() core.Node {
+        name, setName := hooks.UseState("loading…")
+        hooks.OnMount(func() func() {
+            go func() {
+                n := fetchUserName(id) // your HTTP call (blocking, in a goroutine)
+                core.Schedule(func() { setName(n) }) // back on the render loop
+            }()
+            return nil
+        })
+        return P(TextS(name))
+    })
+}
+```
+
+**Controlled form:**
+```go
+email, setEmail := hooks.UseState("")
+return Form(
+    OnSubmit(func(vals map[string]string) { submit(vals["email"]) }),
+    Input(Type("email"), Name("email"), BindValue(email)),
+    Button(Text("Save")),
+)
+```
+
+**Keyed list:**
+```go
+For(todos, func(t Todo) int { return t.ID }, func(t Todo) core.Node {
+    return Li(Text(t.Title))
+})
+```
+
+**Reactive param route:** `P(Textf("Todo %s", r.ParamSignal("id")))` — updates in place
+as `/todos/1` → `/todos/2` (bind `ParamSignal`, don't read `Param` once in setup).
+
+---
+
+## Anti-patterns (do NOT do these)
+
+- ❌ Expecting the component body to re-run on state change. It runs once.
+- ❌ `P(Text(count.Get()))` for changing values → renders once, never updates.
+  Use `Textf("%d", count)` / `TextS`.
+- ❌ Calling a setter from `time.AfterFunc`, a goroutine, or a JS callback directly.
+  Wrap in `core.Schedule`.
+- ❌ `if cond { return A } else { return B }` in the body to switch UI reactively.
+  Use `ShowElse`/`Switch`.
+- ❌ A plain Go `for`/`append` to build a list from a signal. Use `For`.
+- ❌ Non-deterministic SSR output (`time.Now()`, random) without `h.Dynamic()` or the
+  placeholder-plus-`OnMount` pattern.
+- ❌ Reaching into the DOM with `syscall/js` from app code. Use a `Ref` (`Focus`, etc.).
