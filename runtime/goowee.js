@@ -149,21 +149,37 @@ window.applyMutations = function applyMutations(json) {
                 if (el) el.removeAttribute(mut.key);
                 break;
             }
-            case 7: // Hydrate — claim a server-rendered node by id
-                el = preexistingNodes[mut.nodeId];
-                if (el) {
+            case 7: { // Hydrate — claim a server-rendered node by id
+                const pre = preexistingNodes[mut.nodeId];
+                const wantText = mut.value === "#text";
+                // The claimed node must match what the client expects; a wrong
+                // tag/type means the server and client rendered different trees.
+                const matches = pre && (wantText
+                    ? pre.nodeType === 3
+                    : pre.nodeType === 1 && pre.nodeName.toLowerCase() === mut.value);
+                if (matches) {
+                    el = pre;
                     delete preexistingNodes[mut.nodeId];
                 } else {
-                    // No server node for this id (SSR/client divergence). Fall
-                    // back to a fresh node so we don't crash; it will be bare.
-                    console.warn("goowee: hydration miss for node", mut.nodeId, mut.value);
-                    el = mut.value === "#text"
-                        ? document.createTextNode("")
-                        : document.createElement(mut.value);
+                    if (pre) {
+                        console.error(
+                            "goowee: hydration mismatch at node " + mut.nodeId +
+                            " — client expected <" + mut.value + ">, server rendered <" +
+                            (pre.nodeName || pre.nodeType).toString().toLowerCase() + ">. " +
+                            "Render deterministic markup, or wrap non-deterministic content with h.Dynamic().");
+                        delete preexistingNodes[mut.nodeId];
+                    } else {
+                        console.error(
+                            "goowee: no server node for " + mut.nodeId + " (<" + mut.value +
+                            ">). SSR/client structure diverged; creating it bare.");
+                    }
+                    // Best-effort recovery so the app keeps running.
+                    el = wantText ? document.createTextNode("") : document.createElement(mut.value);
                 }
                 el._nodeID = mut.nodeId;
                 nodeMap[mut.nodeId] = el;
                 break;
+            }
         }
     }
 };

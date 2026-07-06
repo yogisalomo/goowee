@@ -47,12 +47,16 @@ and demonstrated by the stopwatch ticker. Covered by a `-race` test and the E2E
 (the stopwatch advances via a goroutine). *Still a documented rule, not
 type-enforced (ADR-015 consequences).*
 
-**1.2 Hydration mismatch recovery.** Hydration trusts SSR/DOM id parity and, on
-a miss, creates a bare node and logs — it does not recover. Any non-deterministic
-server output (dates, locale, timezone, auth-dependent content) will corrupt the
-hydrated tree. Add per-subtree render-and-replace on mismatch, a
-`suppressHydration`-style escape hatch for intentionally dynamic nodes, and
-guidance for rendering deterministic markup. **M–L**
+**1.2 Hydration mismatch recovery.** ✅ **Mostly done** (ADR-016). The escape
+hatch shipped: `h.Dynamic()` marks a non-deterministic subtree so hydration
+claims the server nodes but re-applies the client's values (client wins), while
+deterministic content keeps the boot optimization. Structural mismatches (wrong
+tag / missing node) now log a clear `console.error` and best-effort recover
+instead of silently corrupting. The hydration contract (deterministic markup)
+and the placeholder-plus-`OnMount` pattern for client-only values are
+documented. *Remaining:* fully **automatic** per-subtree render-and-replace on
+structural mismatch — deferred (needs renderer DOM access via a build tag or a
+JS→Go round-trip; see ADR-016 alternatives).
 
 ---
 

@@ -343,3 +343,43 @@ the pragmatic fit; it doesn't reintroduce the SSR global-state problem
 extra latency, which is fine). Forgetting `Schedule` and calling `Set` from a
 goroutine is still possible — it's a documented rule, not enforced by the type
 system. Only one active scheduler per client process (the norm).
+
+---
+
+## ADR-016: Hydration trusts SSR/DOM parity; mismatches are opt-in (`h.Dynamic`), not auto-recovered
+
+**Status:** Accepted (2026-07-06)
+
+**Context.** Hydration claims server-rendered nodes by id parity (ADR-008) and
+skips the create/attr/text mutations the SSR already applied (the boot
+optimization). That is only correct when the server and client render the
+**same tree with the same values**. Non-deterministic output — `time.Now`,
+locale, timezone, per-request/auth content — makes the client silently display
+the stale server value; structural divergence corrupts the tree.
+
+**Decision.** The hydration contract is: **render deterministic markup.** For
+the two failure modes:
+
+- **Value differences** (same structure, different text/attrs): opt in with
+  `h.Dynamic()` on the subtree. Hydration still *claims* those nodes (no
+  re-creation, no duplication) but *re-applies* their attributes/properties/
+  text so the client value wins. This is opt-in so deterministic content keeps
+  the boot optimization (most nodes emit one claim and nothing else).
+- **Structural divergence** (wrong tag / missing node): the JS side logs a
+  clear `console.error` naming the node and best-effort creates a bare node so
+  the app keeps running. It is *not* automatically repaired.
+
+**Alternatives.** (a) Re-apply every node's values on hydration (robust but
+taxes every deterministic node — the common case — for a rare one). (b)
+Automatic per-subtree render-and-replace on any mismatch: the client would have
+to detect the mismatch (only JS sees the DOM) and re-render the offending
+subtree in normal mode — needing either a JS→Go round-trip or giving the
+renderer live DOM access behind a build tag. Both are sizable; deferred. The
+opt-in `Dynamic` hatch + loud logging covers the practical cases now.
+
+**Consequences.** Non-deterministic *values* have a clean fix (`Dynamic`).
+Non-deterministic *structure* degrades loudly rather than silently, and is
+documented as a bug to fix with deterministic markup. Full automatic structural
+recovery remains a future item (roadmap). The common client-only-value pattern
+— render a placeholder on the server, set a signal in `OnMount` — also works
+without `Dynamic`, since `OnMount` runs only on the client after hydration.

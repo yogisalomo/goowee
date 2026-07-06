@@ -17,6 +17,11 @@ type ElementNode struct {
 	Binds    []Bind
 	Handlers []Handler
 	Children []Node
+	// Dynamic marks a subtree as non-deterministic (its server and client
+	// output may differ — dates, locale, random). During hydration the nodes
+	// are still claimed, but their attributes/properties/text are re-applied
+	// so the client value wins. See h.Dynamic and ADR-016.
+	Dynamic bool
 }
 
 func (e *ElementNode) nodeMarker() {}
