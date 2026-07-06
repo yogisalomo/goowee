@@ -128,8 +128,10 @@ h3 { font-size: 1.05rem; font-weight: 700; margin: 0 0 6px; }
 }
 .btn:hover { text-decoration: none; border-color: #b9ccd6; }
 .btn:active { transform: translateY(1px); }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: #012a35; }
-.btn-primary:hover { background: #21bde3; border-color: #21bde3; }
+/* Solid fills use the darker cyan so white text passes contrast (~5.5:1);
+   the bright --accent stays for the brand mark, borders, and the live dot. */
+.btn-primary { background: var(--accent-ink); border-color: var(--accent-ink); color: #fff; }
+.btn-primary:hover { background: #005e78; border-color: #005e78; }
 
 /* ---- dark panels (code + live demo) ---- */
 .panel {

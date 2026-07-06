@@ -38,7 +38,6 @@ func landingPage(r *router.Router) core.Node {
 func hero(r *router.Router) core.Node {
 	return Div(Class("hero"),
 		Div(Class("hero-copy"),
-			P(Class("eyebrow"), Text("Go · WebAssembly · SSR")),
 			H1(Text("Reactive web UIs, written in Go.")),
 			P(Class("lead"), Text("goowee compiles to WebAssembly and renders on the server, then hydrates on the client. Signals drive fine-grained updates — no virtual DOM, no build step.")),
 			Div(Class("cta-row"),
