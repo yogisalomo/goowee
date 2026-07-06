@@ -1,0 +1,52 @@
+name: Deploy GitHub Pages
+
+# Rebuilds and redeploys the landing page + tutorial (a client-only WASM build
+# of examples/counter) whenever the site or the framework it depends on changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'examples/counter/**'
+      - 'runtime/**'
+      - 'core/**'
+      - 'dom/**'
+      - 'h/**'
+      - 'hooks/**'
+      - 'router/**'
+      - 'bridge/**'
+      - 'go.mod'
+      - 'scripts/pages-index.html'
+      - 'Makefile'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch: {}
+
+# Least privilege for the Pages deploy.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push supersedes an in-flight run.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Build static site
+        run: make pages PAGES_BASE=/goowee/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4

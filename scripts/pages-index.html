@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Served under a sub-path on GitHub Pages; the base makes relative assets
+         resolve and the router reads it to keep routes base-relative. -->
+    <base href="__BASE__">
+    <title>goowee — reactive Go UIs in WebAssembly</title>
+    <link rel="stylesheet" href="site.css">
+    <script src="wasm_exec.js"></script>
+    <script src="goowee.js"></script>
+    <script>
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
+            .then((result) => go.run(result.instance));
+    </script>
+</head>
+<body>
+    <div id="root"></div>
+</body>
+</html>

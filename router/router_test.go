@@ -417,3 +417,37 @@ func TestParamSignalReactive(t *testing.T) {
 		t.Fatalf("Param snapshot not updated: %q", r.Param("id"))
 	}
 }
+
+func TestStripBase(t *testing.T) {
+	cases := []struct{ path, base, want string }{
+		{"/counter", "", "/counter"}, // no base
+		{"/goowee", "/goowee", "/"},  // base root → "/"
+		{"/goowee/counter", "/goowee", "/counter"},
+		{"/goowee/greet/alice", "/goowee", "/greet/alice"},
+		{"/other", "/goowee", "/other"}, // outside base, unchanged
+	}
+	for _, c := range cases {
+		if got := stripBase(c.path, c.base); got != c.want {
+			t.Errorf("stripBase(%q,%q)=%q want %q", c.path, c.base, got, c.want)
+		}
+	}
+}
+
+func TestBasePathLinkAndNavigate(t *testing.T) {
+	r := New("/")
+	r.base = "/goowee"
+	var pushed string
+	r.navFn = func(url string) { pushed = url }
+
+	link := r.Link("/counter", "Counter")
+	if link.Attrs[0].Value != "/goowee/counter" {
+		t.Fatalf("Link href = %q, want /goowee/counter", link.Attrs[0].Value)
+	}
+	r.Navigate("/counter")
+	if r.Path.Get() != "/counter" {
+		t.Fatalf("internal Path = %q, want /counter (base-relative)", r.Path.Get())
+	}
+	if pushed != "/goowee/counter" {
+		t.Fatalf("pushState url = %q, want /goowee/counter", pushed)
+	}
+}
