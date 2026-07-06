@@ -10,12 +10,16 @@ import (
 )
 
 func Init(sched *core.Scheduler, registry *dom.NodeRegistry) {
+	// Route core.Schedule (off-loop goroutine updates) onto this scheduler.
+	core.SetActiveScheduler(sched)
+
 	js.Global().Set("handleEvent", js.FuncOf(func(this js.Value, args []js.Value) any {
 		opts, handled := registry.Dispatch(args[0].Int(), args[1].String(), args[2].String())
 		return map[string]any{
 			"handled":         handled,
 			"preventDefault":  opts.PreventDefault,
 			"stopPropagation": opts.StopPropagation,
+			"selectOnFocus":   opts.SelectOnFocus,
 		}
 	}))
 

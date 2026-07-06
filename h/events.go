@@ -89,3 +89,37 @@ func OnScroll(fn func(scrollTop float64), opts ...HandlerOption) core.Item {
 func OnScrollE(fn func(core.EventData), opts ...HandlerOption) core.Item {
 	return On("scroll", fn, opts...)
 }
+
+func OnReset(fn func(), opts ...HandlerOption) core.Item {
+	return On("reset", func(core.EventData) { fn() }, opts...)
+}
+
+func OnInvalid(fn func(), opts ...HandlerOption) core.Item {
+	return On("invalid", func(core.EventData) { fn() }, opts...)
+}
+
+func OnPaste(fn func(value string), opts ...HandlerOption) core.Item {
+	return On("paste", func(e core.EventData) { fn(e.Value()) }, opts...)
+}
+
+func OnCut(fn func(value string), opts ...HandlerOption) core.Item {
+	return On("cut", func(e core.EventData) { fn(e.Value()) }, opts...)
+}
+
+func OnCopy(fn func(value string), opts ...HandlerOption) core.Item {
+	return On("copy", func(e core.EventData) { fn(e.Value()) }, opts...)
+}
+
+func OnFocusIn(fn func(), opts ...HandlerOption) core.Item {
+	return On("focusin", func(core.EventData) { fn() }, opts...)
+}
+
+func OnFocusOut(fn func(), opts ...HandlerOption) core.Item {
+	return On("focusout", func(core.EventData) { fn() }, opts...)
+}
+
+// SelectOnFocus returns a handler option that selects all text when the
+// element receives focus — a common UX pattern for input and textarea fields.
+func SelectOnFocus() HandlerOption {
+	return func(o *core.HandlerOptions) { o.SelectOnFocus = true }
+}

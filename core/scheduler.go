@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"sort"
+	"sync"
 )
 
 // maxDirtyPasses bounds re-render cascades (a re-render that dirties another
@@ -26,6 +27,34 @@ type Scheduler struct {
 	// animation frame instead of polling every frame. nil in tests, which
 	// drive Flush directly.
 	OnWork func()
+
+	// posted holds callbacks handed in by off-loop goroutines via Post; they
+	// run on the render loop at the next flush. Guarded because Post is the one
+	// thing called from other goroutines.
+	postMu sync.Mutex
+	posted []func()
+}
+
+// Post queues fn to run on the render loop at the next flush. It is safe to
+// call from any goroutine — this is how off-loop code (timers, network) feeds
+// state changes in without racing the renderer. See core.Schedule.
+func (s *Scheduler) Post(fn func()) {
+	s.postMu.Lock()
+	s.posted = append(s.posted, fn)
+	s.postMu.Unlock()
+	if s.OnWork != nil {
+		s.OnWork() // request a frame (single-threaded WASM: safe cross-goroutine)
+	}
+}
+
+func (s *Scheduler) drainPosted() {
+	s.postMu.Lock()
+	posted := s.posted
+	s.posted = nil
+	s.postMu.Unlock()
+	for _, fn := range posted {
+		fn() // runs on the flush goroutine; may Set signals → dirty/enqueue
+	}
 }
 
 func NewScheduler() *Scheduler {
@@ -80,6 +109,9 @@ func (s *Scheduler) CancelDirty(key any) {
 // place batched render work happens.
 func (s *Scheduler) Flush() []Mutation {
 	s.inFlush = true
+	// Run callbacks posted by off-loop goroutines first, on this goroutine;
+	// their signal writes then feed the dirty/enqueue passes below.
+	s.drainPosted()
 	for pass := 0; pass < maxDirtyPasses && len(s.dirty) > 0; pass++ {
 		current := s.dirty
 		s.dirty = make(map[any]*dirtyScope)
@@ -148,6 +180,7 @@ type Mutation struct {
 	Value   any          `json:"value,omitempty"`
 	ChildID int          `json:"childId,omitempty"`
 	RefID   int          `json:"refId,omitempty"`
+	NS      string       `json:"ns,omitempty"` // XML namespace for CreateElement (SVG)
 }
 
 type MutationType int

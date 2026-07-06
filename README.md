@@ -123,6 +123,10 @@ properties too (`Value`, `Checked`, `Disabled`, …). Text is a child node:
 Reactive variants of attributes/properties use an `-S` suffix — `Class` is
 static, `ClassS(sig)` binds a signal (see ADR-004).
 
+Inline SVG works too: `h.Svg(...)` roots a namespaced subtree (its descendants
+inherit the namespace) with shape helpers like `Path`, `Circle`, `Rect`, `G`,
+and `Attr("viewBox", …)` for arbitrary attributes.
+
 ### State
 
 `hooks.UseState` returns a signal and a setter:
@@ -216,6 +220,12 @@ SSR emits `data-node-id` attributes and text markers. On boot the client
 detects the server-rendered DOM and **hydrates** — claiming the existing nodes
 and wiring up handlers/bindings instead of rebuilding. `cmd/ssr-server` is a
 working example.
+
+Hydration trusts that the server and client render the **same markup**. For
+content that legitimately differs — dates, locale, per-request data — wrap the
+subtree in `h.Dynamic()` so the client's value is re-applied over the server's,
+or render a placeholder and fill it in from `OnMount` (which runs only on the
+client). A structural mismatch logs a clear console error. See ADR-016.
 
 ## Project layout
 

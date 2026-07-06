@@ -89,6 +89,7 @@ function dispatchToGo(type, e) {
             if (r && r.handled) {
                 if (r.preventDefault) e.preventDefault();
                 if (r.stopPropagation) e.stopPropagation();
+                if (r.selectOnFocus && type === "focus") el.select();
                 return;
             }
         }
@@ -108,6 +109,8 @@ window.applyMutations = function applyMutations(json) {
                     delete preexistingNodes[mut.nodeId];
                 } else if (mut.value === "#text") {
                     el = document.createTextNode("");
+                } else if (mut.ns) {
+                    el = document.createElementNS(mut.ns, mut.value); // SVG etc.
                 } else {
                     el = document.createElement(mut.value);
                 }
@@ -125,7 +128,22 @@ window.applyMutations = function applyMutations(json) {
                 break;
             case 3: // SetProperty
                 el = nodeMap[mut.nodeId];
-                if (el) el[mut.key] = mut.value;
+                if (el) {
+                    // Setting .value resets the caret to the end. For a focused
+                    // text field, preserve the selection so typing doesn't jump
+                    // (and programmatic updates still apply — we don't skip the
+                    // write, we restore the caret after it).
+                    if (mut.key === "value" && el === document.activeElement &&
+                        typeof el.selectionStart === "number") {
+                        if (el.value !== mut.value) {
+                            const s = el.selectionStart, end = el.selectionEnd;
+                            el.value = mut.value;
+                            try { el.setSelectionRange(s, end); } catch (_) {}
+                        }
+                    } else {
+                        el[mut.key] = mut.value;
+                    }
+                }
                 break;
             case 4: { // AppendChild
                 const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
@@ -149,21 +167,37 @@ window.applyMutations = function applyMutations(json) {
                 if (el) el.removeAttribute(mut.key);
                 break;
             }
-            case 7: // Hydrate — claim a server-rendered node by id
-                el = preexistingNodes[mut.nodeId];
-                if (el) {
+            case 7: { // Hydrate — claim a server-rendered node by id
+                const pre = preexistingNodes[mut.nodeId];
+                const wantText = mut.value === "#text";
+                // The claimed node must match what the client expects; a wrong
+                // tag/type means the server and client rendered different trees.
+                const matches = pre && (wantText
+                    ? pre.nodeType === 3
+                    : pre.nodeType === 1 && pre.nodeName.toLowerCase() === mut.value);
+                if (matches) {
+                    el = pre;
                     delete preexistingNodes[mut.nodeId];
                 } else {
-                    // No server node for this id (SSR/client divergence). Fall
-                    // back to a fresh node so we don't crash; it will be bare.
-                    console.warn("goowee: hydration miss for node", mut.nodeId, mut.value);
-                    el = mut.value === "#text"
-                        ? document.createTextNode("")
-                        : document.createElement(mut.value);
+                    if (pre) {
+                        console.error(
+                            "goowee: hydration mismatch at node " + mut.nodeId +
+                            " — client expected <" + mut.value + ">, server rendered <" +
+                            (pre.nodeName || pre.nodeType).toString().toLowerCase() + ">. " +
+                            "Render deterministic markup, or wrap non-deterministic content with h.Dynamic().");
+                        delete preexistingNodes[mut.nodeId];
+                    } else {
+                        console.error(
+                            "goowee: no server node for " + mut.nodeId + " (<" + mut.value +
+                            ">). SSR/client structure diverged; creating it bare.");
+                    }
+                    // Best-effort recovery so the app keeps running.
+                    el = wantText ? document.createTextNode("") : document.createElement(mut.value);
                 }
                 el._nodeID = mut.nodeId;
                 nodeMap[mut.nodeId] = el;
                 break;
+            }
         }
     }
 };

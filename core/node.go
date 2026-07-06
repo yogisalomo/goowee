@@ -17,7 +17,20 @@ type ElementNode struct {
 	Binds    []Bind
 	Handlers []Handler
 	Children []Node
+	// Dynamic marks a subtree as non-deterministic (its server and client
+	// output may differ — dates, locale, random). During hydration the nodes
+	// are still claimed, but their attributes/properties/text are re-applied
+	// so the client value wins. See h.Dynamic and ADR-016.
+	Dynamic bool
+	// Namespace is the XML namespace URI for this element (e.g. SVG). Empty for
+	// ordinary HTML. Descendants inherit it, so only the subtree root (e.g. the
+	// <svg>) needs it set. The DOM backend creates namespaced elements with
+	// createElementNS. See h.Svg.
+	Namespace string
 }
+
+// SVGNamespace is the XML namespace URI for SVG elements.
+const SVGNamespace = "http://www.w3.org/2000/svg"
 
 func (e *ElementNode) nodeMarker() {}
 func (e *ElementNode) String() string {
@@ -56,6 +69,7 @@ type Handler struct {
 type HandlerOptions struct {
 	PreventDefault  bool
 	StopPropagation bool
+	SelectOnFocus   bool // select all text when the element receives focus
 }
 
 type Item interface {

@@ -14,7 +14,7 @@ type Router struct {
 	navFn     func(string) // Navigate — calls pushState
 	replaceFn func(string) // NavigateReplace — calls replaceState
 	backFn    func()       // Back
-	forwardFn func()      // Forward
+	forwardFn func()       // Forward
 }
 
 func New(initial string) *Router {
@@ -171,31 +171,21 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 //	    },
 //	})
 func (r *Router) SubRoute(prefix string, routes map[string]func() core.Node) core.Node {
-	var (
-		mu       sync.Mutex
-		children *core.ScopeNode
-	)
-
-	matchSub := func(path string) core.Node {
-		if path == prefix {
-			return matchRoute(r, "/", routes)
-		}
-		if strings.HasPrefix(path, prefix+"/") {
-			suffix := path[len(prefix):]
-			return matchRoute(r, suffix, routes)
-		}
-		return &core.FragmentNode{}
-	}
-
-	children = &core.ScopeNode{
+	// A scope that re-matches the sub-routes whenever the path changes. It runs
+	// on the render loop, so no locking is needed (ADR-010).
+	return &core.ScopeNode{
 		Deps: []core.SignalAccessor{r.Path},
 		Render: func() core.Node {
-			mu.Lock()
-			defer mu.Unlock()
-			return matchSub(r.Path.Get())
+			path := r.Path.Get()
+			if path == prefix {
+				return matchRoute(r, "/", routes)
+			}
+			if strings.HasPrefix(path, prefix+"/") {
+				return matchRoute(r, path[len(prefix):], routes)
+			}
+			return &core.FragmentNode{}
 		},
 	}
-	return children
 }
 
 // matchRoute is like Route's internal dispatch but without the sticky params
@@ -239,10 +229,10 @@ func Guard(check func() bool, fallback, route func() core.Node) func() core.Node
 	}
 }
 
-// Lazy defers route handler initialization. load is called once, the first
-// time the route is matched, and its result is cached for subsequent matches.
-// Use it for code splitting: Lazy(func() func() core.Node { return heavyPage })
-// defers importing heavyPage until the route is actually visited.
+// Lazy defers a route handler's initialization: load runs once, the first time
+// the route is matched, and its result is cached for later matches. Everything
+// ships in the one WASM binary, so this defers setup work (building the handler
+// closure, one-time state), not code loading — there is no dynamic import.
 func Lazy(load func() func() core.Node) func() core.Node {
 	var (
 		once sync.Once

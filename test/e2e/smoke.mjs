@@ -61,7 +61,7 @@ async function main() {
 
   await send("Runtime.enable");
   await send("Page.enable");
-  await send("Page.navigate", { url: URL + "/counter" });
+  await send("Page.navigate", { url: URL + "/" }); // the server-rendered landing page
 
   const evalJS = async (expr) => {
     const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true });
@@ -72,44 +72,57 @@ async function main() {
     for (let i = 0; i < 200; i++) { if (await evalJS(expr).catch(() => false)) return; await sleep(100); }
     throw new Error("timeout waiting for: " + label + (logs.length ? "\n" + logs.join("\n") : ""));
   };
-  const hasCounter = `[...document.querySelectorAll('button')].some(b => b.textContent.includes('Count:'))`;
+  // click a link/button by exact trimmed text, or (…Containing) by substring
+  const clickText = (tag, t) => evalJS(`[...document.querySelectorAll('${tag}')].find(e=>e.textContent.trim()===${JSON.stringify(t)}).click()`);
+  const clickLinkContaining = (sub) => evalJS(`[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})).click()`);
   const markerCount = `(()=>{let n=0;const w=document.createTreeWalker(document.getElementById('root'),NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^g\\d+$/.test(w.currentNode.data))n++;return n;})()`;
+  const heroCount = `(document.querySelector('.count')?.textContent.trim())`;
 
   const fail = [];
   const check = (cond, msg) => { if (!cond) fail.push(msg); };
 
-  // --- Hydration ---
-  // The button exists in the SSR HTML, so wait for a real hydration signal:
-  // the WASM app's first applyMutations removes the marker comments.
-  await waitFor(`(${markerCount}) === 0 && ${hasCounter}`, "hydration complete");
-  check(await evalJS(`(document.body.innerText.match(/Count: 0/g)||[]).length`) === 1, "text duplicated (Count: 0 not once)");
-  check(await evalJS(`(document.body.innerText.match(/Hello!/g)||[]).length`) === 1, "greeting duplicated");
-  check(await evalJS(`(()=>{let n=0;const w=document.createTreeWalker(document.getElementById('root'),NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^g\\d+$/.test(w.currentNode.data))n++;return n;})()`) === 0, "hydration marker comments not removed");
+  // --- Hydration on the landing page ---
+  // Wait for a real hydration signal: the first applyMutations removes markers.
+  await waitFor(`(${markerCount}) === 0 && ${heroCount} === '0'`, "landing hydration complete");
+  check(await evalJS(`(document.body.innerText.match(/Reactive web UIs, written in Go\\./g)||[]).length`) === 1, "landing headline duplicated (hydration)");
+  check(await evalJS(`document.querySelectorAll('.count').length`) === 1, "hero demo duplicated");
+  // Inline SVG (h.Svg) must carry the SVG namespace end-to-end, root and descendants.
+  check(await evalJS(`(()=>{const s=document.querySelector('.logo');const ns='http://www.w3.org/2000/svg';return !!s && s.namespaceURI===ns && s.querySelector('rect')?.namespaceURI===ns;})()`), "inline SVG logo namespaced correctly");
 
-  // --- Interactivity ---
-  await evalJS(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Count:')).click()`);
-  let txt = "";
-  for (let i = 0; i < 40; i++) { txt = await evalJS(`[...document.querySelectorAll('button')].find(b=>/Count:/.test(b.textContent)).textContent`); if (/Count: 1/.test(txt)) break; await sleep(50); }
-  check(/Count: 1/.test(txt), `click did not update count (got ${JSON.stringify(txt)})`);
+  // --- Interactivity: the live hero demo is a real goowee component ---
+  await clickText("button", "increment");
+  await waitFor(`${heroCount} === '1'`, "hero demo increment");
+  check(await evalJS(heroCount) === "1", "hero counter did not update");
 
   // --- Routing + history ---
-  await evalJS(`[...document.querySelectorAll('a')].find(a=>a.textContent.trim()==='About').click()`);
-  await waitFor(`/A minimal Go WASM/.test(document.body.innerText)`, "navigate to about");
-  check(await evalJS(`location.pathname`) === "/about", "nav did not pushState to /about");
-  check(await evalJS(`!(${hasCounter})`), "counter still present after navigating away");
-
+  await clickText("a", "Tutorial");
+  await waitFor(`/Learn goowee by example/.test(document.body.innerText)`, "tutorial index");
+  check(await evalJS(`location.pathname`) === "/tutorial", "Tutorial nav path");
+  await clickLinkContaining("Counter");
+  await waitFor(`[...document.querySelectorAll('button')].some(b=>/Count: 0/.test(b.textContent))`, "counter example");
+  check(await evalJS(`location.pathname`) === "/counter", "counter route path");
   await evalJS(`history.back()`);
-  await waitFor(hasCounter, "back to counter");
-  check(await evalJS(`location.pathname`) === "/counter", "back did not restore /counter");
+  await waitFor(`/Learn goowee by example/.test(document.body.innerText)`, "back to tutorial");
+  check(await evalJS(`location.pathname`) === "/tutorial", "history back path");
 
   // --- URL params (preserved component reads the param reactively) ---
-  await evalJS(`[...document.querySelectorAll('a')].find(a=>a.textContent.trim()==='Greet').click()`);
+  await clickLinkContaining("Greeting");
   await waitFor(`/Hello, alice!/.test(document.body.innerText)`, "greet alice");
-  check(await evalJS(`location.pathname`) === "/greet/alice", "greet nav path");
-  await evalJS(`[...document.querySelectorAll('a')].find(a=>a.textContent.trim()==='Bob').click()`);
-  await waitFor(`/Hello, bob!/.test(document.body.innerText)`, "greet bob (reactive param change)");
-  check(await evalJS(`location.pathname`) === "/greet/bob", "greet bob path");
+  check(await evalJS(`location.pathname`) === "/greet/alice", "greet path");
+  await clickText("a", "Bob");
+  await waitFor(`/Hello, bob!/.test(document.body.innerText)`, "greet bob (reactive param)");
   check(!(await evalJS(`/Hello, alice!/.test(document.body.innerText)`)), "stale 'alice' after param change");
+
+  // --- Off-loop updates (core.Schedule): the stopwatch ticks from a goroutine ---
+  const disp = `(()=>{const p=[...document.querySelectorAll('p')].find(p=>/^\\d\\d:\\d\\d\\.\\d$/.test(p.textContent.trim()));return p?p.textContent.trim():'';})()`;
+  await clickText("a", "goowee");           // brand → landing
+  await clickText("a", "Tutorial");
+  await clickLinkContaining("Stopwatch");
+  await waitFor(`(${disp}) === '00:00.0'`, "stopwatch page (display at 00:00.0)");
+  await clickText("button", "Start");
+  // The 100ms ticker goroutine posts updates via core.Schedule; the display
+  // should advance past 00:00.0 within a couple of seconds.
+  await waitFor(`(${disp}) !== '' && (${disp}) !== '00:00.0'`, "stopwatch advanced via goroutine (core.Schedule)");
 
   if (logs.length) console.log("--- browser logs ---\n" + logs.join("\n"));
   if (fail.length) { console.log("E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }

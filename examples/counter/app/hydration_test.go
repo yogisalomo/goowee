@@ -248,6 +248,51 @@ func TestHydrateRenderEmitsOnlyClaims(t *testing.T) {
 	}
 }
 
+// h.Dynamic marks a subtree as non-deterministic: hydration still claims the
+// server nodes, but re-applies the client's values so the client wins over a
+// differing server value. A plain (non-Dynamic) subtree trusts the server
+// value (the optimization). Simulates SSR "SERVER" vs client "CLIENT".
+func TestHydrateDynamicReappliesValues(t *testing.T) {
+	render := func(n core.Node, hydrate bool) []core.Mutation {
+		r := dom.New()
+		if hydrate {
+			r.SetHydrating(true)
+		}
+		var muts []core.Mutation
+		core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+			muts, _ = r.Render(n)
+		})
+		return muts
+	}
+	server := func() core.Node {
+		return &core.ElementNode{Tag: "span", Children: []core.Node{&core.TextNode{Value: "SERVER"}}}
+	}
+	client := func(dyn bool) core.Node {
+		return &core.ElementNode{Tag: "span", Dynamic: dyn, Children: []core.Node{&core.TextNode{Value: "CLIENT"}}}
+	}
+
+	t.Run("dynamic: client value wins", func(t *testing.T) {
+		fd := newFakeDOM()
+		fd.apply(render(server(), false))
+		if got := fd.text(0); got != "SERVER" {
+			t.Fatalf("server DOM text = %q, want SERVER", got)
+		}
+		fd.apply(render(client(true), true))
+		if got := fd.text(0); got != "CLIENT" {
+			t.Fatalf("Dynamic hydrate should re-apply client text, got %q", got)
+		}
+	})
+
+	t.Run("plain: server value trusted", func(t *testing.T) {
+		fd := newFakeDOM()
+		fd.apply(render(server(), false))
+		fd.apply(render(client(false), true))
+		if got := fd.text(0); got != "SERVER" {
+			t.Fatalf("non-Dynamic hydrate should trust server text, got %q", got)
+		}
+	})
+}
+
 // After a hydrate render, handlers and bindings are wired, so the app is
 // interactive without a full client re-render.
 func TestHydrateStaysReactive(t *testing.T) {
