@@ -121,6 +121,13 @@ async function main() {
   await clickText("button", "Focus name");
   await waitFor(`document.activeElement && document.activeElement.name === 'name'`, "ref.Focus focused the name input");
 
+  // --- Async data (hooks.UseResource): loading → loaded via a goroutine ---
+  await clickText("a", "goowee");
+  await clickText("a", "Tutorial");
+  await clickLinkContaining("Async");
+  await waitFor(`/Loading…/.test(document.body.innerText)`, "async page shows loading");
+  await waitFor(`/Loaded at /.test(document.body.innerText)`, "async resource resolved");
+
   // --- Off-loop updates (core.Schedule): the stopwatch ticks from a goroutine ---
   const disp = `(()=>{const p=[...document.querySelectorAll('p')].find(p=>/^\\d\\d:\\d\\d\\.\\d$/.test(p.textContent.trim()));return p?p.textContent.trim():'';})()`;
   await clickText("a", "goowee");           // brand → landing

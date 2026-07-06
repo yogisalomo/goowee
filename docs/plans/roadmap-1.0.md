@@ -71,10 +71,15 @@ it on `CreateElement`, and the bridge creates namespaced nodes with
 *Limitation:* a re-rendering scope whose root is an SVG child (not the `<svg>`
 itself) won't inherit the namespace — render SVG as a unit for now.
 
-**2.2 Async data & error boundaries.** Real apps load data and fail. Provide an
-idiomatic async primitive (a "resource"/async signal with loading/error
-states) and error boundaries (recover + fallback UI) so a panic in one subtree
-doesn't blank the page. **L**
+**2.2 Async data & error boundaries.** _Async data:_ ✅ **Done.**
+`hooks.UseResource(deps, fetch)` returns a `Resource[T]` with `Data`/`Loading`/
+`Err` signals + `Refetch`; the fetcher runs in a goroutine and its result is
+applied on the render loop via `core.Schedule` (with a generation guard so a
+stale fetch can't overwrite a newer one). Fetches on mount and on dep change;
+client-side (server renders the loading state). The `/async` tutorial page
+dogfoods it; unit tests (`-race`) + E2E. _Error boundaries:_ ⏳ **next** —
+recover a render panic in a subtree and show fallback UI so it doesn't blank
+the page.
 
 **2.3 Forms, inputs, focus.** ✅ **Mostly done.** `BindSelect` (change-based
 `<select>`) and `BindValueLazy` (commit on change) join `BindValue`/

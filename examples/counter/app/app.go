@@ -21,6 +21,7 @@ func App(r *router.Router) core.Node {
 				"/todos":       todosPage,
 				"/stopwatch":   stopwatchPage,
 				"/dashboard":   dashboardPage,
+				"/async":       asyncPage,
 				"/greet/:name": func() core.Node { return greetPage(r) },
 			}),
 		)
@@ -260,6 +261,27 @@ func todosPage() core.Node {
 			),
 			P(TextS(doneCount)),
 			todoList,
+		)
+	})
+}
+
+func asyncPage() core.Node {
+	return core.Component("AsyncPage", func() core.Node {
+		// A goroutine does the "loading" off the render loop; UseResource applies
+		// the result back safely via core.Schedule. Server renders the loading
+		// state; the client loads after hydration.
+		res := hooks.UseResource(nil, func() (string, error) {
+			time.Sleep(500 * time.Millisecond)
+			return "Loaded at " + time.Now().Format("15:04:05.000"), nil
+		})
+		return Div(Class("page"),
+			H2(Text("Async data")),
+			P(Style("color:var(--muted)"), Text("A goroutine loads off the render loop; the view binds loading/data signals.")),
+			ShowElse(res.Loading,
+				func() core.Node { return P(Text("Loading…")) },
+				func() core.Node { return P(TextS(res.Data)) },
+			),
+			Button(Type("button"), OnClick(func() { res.Refetch() }), Text("Reload")),
 		)
 	})
 }

@@ -97,6 +97,7 @@ import (
 - `sig.Get()`, `sig.Set(v)`, `core.NewSignal(v)`, `sig.WithEquals(eq)`
 - `core.Computed(deps, compute) *Signal[T]`
 - `hooks.UseEffect(deps, func() func())`, `hooks.Watch(deps, func())`, `hooks.OnMount(func() func())`
+- `hooks.UseResource(deps, fetch) *Resource[T]` — async load (`Data`/`Loading`/`Err` + `Refetch`)
 - `core.Schedule(func())` — run an update on the render loop from off-loop code
 
 **Elements & content** (`h`, dot-imported)
@@ -186,22 +187,24 @@ server DOM (via `data-node-id`) and hydrates it. Keep server and client markup i
 
 ## Copy-paste patterns
 
-**Fetch on mount (note `core.Schedule` — the fetch callback is off-loop):**
+**Async data — prefer `hooks.UseResource`** (it runs the fetch in a goroutine
+and applies the result safely; don't hand-roll goroutine+Schedule for loads):
 ```go
-func UserCard(id string) core.Node {
-    return core.Component("UserCard", func() core.Node {
-        name, setName := hooks.UseState("loading…")
-        hooks.OnMount(func() func() {
-            go func() {
-                n := fetchUserName(id) // your HTTP call (blocking, in a goroutine)
-                core.Schedule(func() { setName(n) }) // back on the render loop
-            }()
-            return nil
-        })
-        return P(TextS(name))
+func Greeting() core.Node {
+    return core.Component("Greeting", func() core.Node {
+        msg := hooks.UseResource(nil, func() (string, error) { return api.Greeting() })
+        return ShowElse(msg.Loading,
+            func() core.Node { return P(Text("Loading…")) },
+            func() core.Node { return P(TextS(msg.Data)) },
+        )
     })
 }
 ```
+`Resource` exposes `Data`/`Loading`/`Err` signals + `Refetch()`; pass deps
+(`UseResource([]core.SignalAccessor{id}, …)`) to refetch when they change.
+Fetching is client-side, so SSR renders the loading state. (For a one-off
+side-effect that isn't a data load, use `OnMount` + a goroutine + `core.Schedule`
+directly.)
 
 **Controlled form:**
 ```go
