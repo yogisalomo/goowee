@@ -8,13 +8,15 @@ import (
 )
 
 type DOMRenderer struct {
-	nextID      int
-	Bindings    *core.BindingRegistry
-	Scheduler   *core.Scheduler
-	Registry    *NodeRegistry
-	parentStack []int
-	scopeSeq    int  // monotonic mount order; parents mount before children
-	hydrating   bool // initial render claims server-rendered nodes
+	nextID         int
+	Bindings       *core.BindingRegistry
+	Scheduler      *core.Scheduler
+	Registry       *NodeRegistry
+	parentStack    []int
+	scopeSeq       int    // monotonic mount order; parents mount before children
+	hydrating      bool   // initial render claims server-rendered nodes
+	hydrateDynamic bool   // within a Dynamic subtree: re-apply values so client wins
+	currentNS      string // XML namespace inherited by the subtree being rendered (SVG)
 }
 
 // SetHydrating puts the renderer into hydration mode for the next Render: it
@@ -78,25 +80,52 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		v.ID = id
 		if r.hydrating {
 			// Claim the server-rendered element; its attributes, properties,
-			// and children are already in the DOM, so only reactivity
+			// and children are already in the DOM, so normally only reactivity
 			// (handlers, binding subscriptions) needs wiring up.
 			*muts = append(*muts, core.Mutation{
 				Type: core.MutHydrate, NodeID: id, Key: "tag", Value: v.Tag,
 			})
+			// Dynamic subtrees may differ from the server output, so re-apply
+			// the client's values onto the claimed nodes (client wins).
+			dynamic := r.hydrateDynamic || v.Dynamic
+			if dynamic {
+				for _, a := range v.Attrs {
+					*muts = append(*muts, core.Mutation{
+						Type: core.MutSetAttribute, NodeID: id, Key: a.Name, Value: a.Value,
+					})
+				}
+				for _, p := range v.Props {
+					*muts = append(*muts, core.Mutation{
+						Type: core.MutSetProperty, NodeID: id, Key: p.Name, Value: p.Value,
+					})
+				}
+			}
 			for _, b := range v.Binds {
-				r.Bindings.Bind(id, b) // subscription only; SSR rendered the value
+				r.Bindings.Bind(id, b)
+				if dynamic {
+					*muts = append(*muts, core.MutationForBind(id, b))
+				}
 			}
 			for _, hd := range v.Handlers {
 				r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
 			}
+			prevDynamic := r.hydrateDynamic
+			r.hydrateDynamic = dynamic
 			for _, child := range v.Children {
 				r.renderNode(child, muts) // claimed; already attached
 			}
+			r.hydrateDynamic = prevDynamic
 			return id
 		}
 
+		// Namespaced elements (SVG) inherit their namespace from an ancestor, so
+		// only the subtree root carries it explicitly.
+		ns := v.Namespace
+		if ns == "" {
+			ns = r.currentNS
+		}
 		*muts = append(*muts, core.Mutation{
-			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: v.Tag,
+			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: v.Tag, NS: ns,
 		})
 
 		for _, a := range v.Attrs {
@@ -117,6 +146,8 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 			r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
 		}
 		r.parentStack = append(r.parentStack, id)
+		prevNS := r.currentNS
+		r.currentNS = ns
 		for _, child := range v.Children {
 			childID := r.renderNode(child, muts)
 			if childID != 0 {
@@ -125,6 +156,7 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 				})
 			}
 		}
+		r.currentNS = prevNS
 		r.parentStack = r.parentStack[:len(r.parentStack)-1]
 		return id
 
@@ -138,11 +170,23 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 			*muts = append(*muts, core.Mutation{
 				Type: core.MutHydrate, NodeID: id, Key: "tag", Value: "#text",
 			})
-			// SSR already wrote the text; only wire a signal binding if any.
+			// SSR already wrote the text; wire a signal binding if any, and in a
+			// Dynamic subtree re-apply the client's text so it wins over SSR.
 			if sig, ok := v.Value.(core.SignalAccessor); ok {
 				r.Bindings.Bind(id, core.Bind{
 					Target: core.BindToProp, Name: "textContent", Signal: sig,
 				})
+				if r.hydrateDynamic {
+					*muts = append(*muts, core.Mutation{
+						Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: sig.Value(),
+					})
+				}
+			} else if r.hydrateDynamic {
+				if s, ok := v.Value.(string); ok {
+					*muts = append(*muts, core.Mutation{
+						Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: s,
+					})
+				}
 			}
 			return id
 		}
