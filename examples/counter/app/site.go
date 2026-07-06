@@ -170,7 +170,8 @@ func tutorialIndex(r *router.Router) core.Node {
 				link("04", "/dashboard", "Dashboard", "computed values and selection"),
 				link("05", "/stopwatch", "Stopwatch", "OnMount and an off-loop timer"),
 				link("06", "/async", "Async", "UseResource — load data in a goroutine"),
-				link("07", "/greet/alice", "Greeting", "URL params, read reactively"),
+				link("07", "/error", "Error boundary", "recover a render panic, show a fallback"),
+				link("08", "/greet/alice", "Greeting", "URL params, read reactively"),
 			),
 		)
 	})

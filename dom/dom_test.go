@@ -1649,3 +1649,69 @@ func TestPortalRendersFreshDuringHydration(t *testing.T) {
 		t.Fatal("portal content must not emit a hydrate claim (server doesn't render portals)")
 	}
 }
+
+func TestErrorBoundaryCatchesInitialPanic(t *testing.T) {
+	b := &core.ErrorBoundaryNode{
+		Fallback: func(err any) core.Node {
+			return &core.ElementNode{Tag: "p", Children: []core.Node{&core.TextNode{Value: "fallback"}}}
+		},
+		Child: core.Component("Boom", func() core.Node { panic("boom") }),
+	}
+	muts, id := New().Render(b) // must not panic
+	if id == 0 {
+		t.Fatal("expected a fallback root node id")
+	}
+	found := false
+	for _, m := range muts {
+		if m.Type == core.MutSetProperty && m.Key == "textContent" && m.Value == "fallback" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected the fallback to render after catching the panic")
+	}
+}
+
+func TestErrorBoundaryPassesThroughWhenOK(t *testing.T) {
+	b := &core.ErrorBoundaryNode{
+		Fallback: func(err any) core.Node { return &core.ElementNode{Tag: "p"} },
+		Child:    &core.ElementNode{Tag: "span", Children: []core.Node{&core.TextNode{Value: "ok"}}},
+	}
+	muts, _ := New().Render(b)
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement && m.Value == "p" {
+			t.Fatal("fallback rendered despite no panic")
+		}
+	}
+	ok := false
+	for _, m := range muts {
+		if m.Type == core.MutSetProperty && m.Value == "ok" {
+			ok = true
+		}
+	}
+	if !ok {
+		t.Fatal("child content not rendered")
+	}
+}
+
+func TestReRenderPanicIsContained(t *testing.T) {
+	trigger := core.NewSignal(false)
+	scope := &core.ScopeNode{
+		Deps: []core.SignalAccessor{trigger},
+		Render: func() core.Node {
+			if trigger.Get() {
+				panic("re-render boom")
+			}
+			return &core.ElementNode{Tag: "div"}
+		},
+	}
+	r := New()
+	r.Render(scope) // initial render OK
+	trigger.Set(true)
+	defer func() {
+		if rec := recover(); rec != nil {
+			t.Fatalf("Flush should contain the re-render panic, but it propagated: %v", rec)
+		}
+	}()
+	r.Scheduler.Flush() // must not panic — contained + logged
+}

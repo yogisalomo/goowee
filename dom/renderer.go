@@ -243,6 +243,12 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		r.renderPortal(v, muts)
 		return 0
 
+	case *core.ErrorBoundaryNode:
+		if v == nil {
+			return 0
+		}
+		return r.renderBoundary(v, muts)
+
 	case *core.ComponentNode:
 		if v == nil {
 			return 0
@@ -362,6 +368,21 @@ func rootTypeChanged(old, new core.Node) bool {
 }
 
 func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
+	// Contain a panic during re-render: mutations are built into the local
+	// `muts` and only enqueued at the end, so a panic here discards this
+	// scope's partial work (its DOM keeps its previous state) instead of
+	// aborting the whole flush and blanking the page. Restore parentStack,
+	// which a mid-render panic would leave unbalanced.
+	baseStack := len(r.parentStack)
+	frameDepth := core.SaveFrameStack()
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.parentStack = r.parentStack[:baseStack]
+			core.RestoreFrameStack(frameDepth)
+			log.Printf("goowee: recovered panic during re-render (subtree kept its previous state): %v", rec)
+		}
+	}()
+
 	newTree := core.FlatTree(s.Render())
 
 	var muts []core.Mutation
@@ -591,8 +612,81 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 			r.renderPortal(np, muts)
 		}
 		return 0
+
+	case *core.ErrorBoundaryNode:
+		nb, ok := newNode.(*core.ErrorBoundaryNode)
+		if !ok {
+			if old.Prev != nil {
+				r.emitRemoveTree(old.Prev, muts)
+			}
+			return r.renderNode(newNode, muts)
+		}
+		return r.diffBoundary(old, nb, muts)
 	}
 	return 0
+}
+
+// renderBoundary renders the boundary's child, catching a render-time panic and
+// rendering the fallback instead. The child renders into a private buffer so a
+// panic mid-render discards its partial mutations (never attached); renderer
+// state a partial render would clobber (parentStack, namespace, dynamic flag)
+// is rolled back before the fallback renders.
+func (r *DOMRenderer) renderBoundary(b *core.ErrorBoundaryNode, muts *[]core.Mutation) int {
+	baseStack := len(r.parentStack)
+	frameDepth := core.SaveFrameStack()
+	savedNS, savedDyn := r.currentNS, r.hydrateDynamic
+
+	var childMuts []core.Mutation
+	id, rec := r.tryRenderNode(b.Child, &childMuts)
+	if rec != nil {
+		r.parentStack = r.parentStack[:baseStack]
+		core.RestoreFrameStack(frameDepth)
+		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
+		log.Printf("goowee: error boundary caught panic, rendering fallback: %v", rec)
+		fb := core.FlatTree(b.Fallback(rec))
+		b.Prev = fb
+		return r.renderNode(fb, muts)
+	}
+	*muts = append(*muts, childMuts...)
+	b.Prev = b.Child
+	return id
+}
+
+// diffBoundary updates a boundary on re-render. It diffs the previously rendered
+// subtree against the new child (preserving child state); if that panics, it
+// keeps the previous DOM and logs (update-time panics are contained, not
+// swapped to the fallback). When the previous render was the fallback, a
+// successful diff to the new child restores it.
+func (r *DOMRenderer) diffBoundary(old, nb *core.ErrorBoundaryNode, muts *[]core.Mutation) int {
+	baseStack := len(r.parentStack)
+	frameDepth := core.SaveFrameStack()
+	savedNS, savedDyn := r.currentNS, r.hydrateDynamic
+
+	var childMuts []core.Mutation
+	id, rec := r.tryDiffNode(old.Prev, nb.Child, &childMuts)
+	if rec != nil {
+		r.parentStack = r.parentStack[:baseStack]
+		core.RestoreFrameStack(frameDepth)
+		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
+		log.Printf("goowee: error boundary recovered panic on update (subtree kept its previous state): %v", rec)
+		nb.Prev = old.Prev
+		return nodeID(old.Prev)
+	}
+	*muts = append(*muts, childMuts...)
+	nb.Prev = nb.Child
+	return id
+}
+
+func (r *DOMRenderer) tryRenderNode(n core.Node, muts *[]core.Mutation) (id int, rec any) {
+	defer func() { rec = recover() }()
+	id = r.renderNode(n, muts)
+	return
+}
+
+func (r *DOMRenderer) tryDiffNode(old, new core.Node, muts *[]core.Mutation) (id int, rec any) {
+	defer func() { rec = recover() }()
+	id = r.diffNode(old, new, muts)
+	return
 }
 
 // renderPortal renders a portal's children into their target container. The
@@ -899,6 +993,10 @@ func (r *DOMRenderer) disposeReactive(n core.Node) {
 	case *core.PortalNode:
 		for _, c := range v.Children {
 			r.disposeReactive(c)
+		}
+	case *core.ErrorBoundaryNode:
+		if v.Prev != nil {
+			r.disposeReactive(v.Prev)
 		}
 	case *core.ComponentNode:
 		if v.Prev != nil {

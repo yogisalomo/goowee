@@ -154,6 +154,26 @@ func (p *PortalNode) Apply(el *ElementNode) {
 	el.Children = append(el.Children, p)
 }
 
+// ErrorBoundaryNode renders Child, but if rendering Child panics it renders
+// Fallback(err) instead — so a failure in one subtree shows a message rather
+// than blanking the page. See h.ErrorBoundary / ADR-018. Update-time panics in
+// the subtree are contained (the subtree keeps its previous state) but do not
+// switch to the fallback; fallback is for render-time failures.
+type ErrorBoundaryNode struct {
+	Fallback func(err any) Node
+	Child    Node
+	Prev     Node // what is currently rendered (Child's tree, or the fallback)
+}
+
+func (e *ErrorBoundaryNode) nodeMarker()    {}
+func (e *ErrorBoundaryNode) String() string { return "ErrorBoundary" }
+func (e *ErrorBoundaryNode) Apply(parent *ElementNode) {
+	if e == nil {
+		return
+	}
+	parent.Children = append(parent.Children, e)
+}
+
 type ComponentNode struct {
 	Name   string
 	Key    any // used by keyed reconciliation (For); nil = unkeyed
@@ -260,6 +280,10 @@ func CollectIDs(n Node) []int {
 	case *PortalNode:
 		for _, child := range v.Children {
 			ids = append(ids, CollectIDs(child)...)
+		}
+	case *ErrorBoundaryNode:
+		if v.Prev != nil {
+			ids = append(ids, CollectIDs(v.Prev)...)
 		}
 	case *ComponentNode:
 		if v.Prev != nil {

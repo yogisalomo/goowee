@@ -22,6 +22,7 @@ func App(r *router.Router) core.Node {
 				"/stopwatch":   stopwatchPage,
 				"/dashboard":   dashboardPage,
 				"/async":       asyncPage,
+				"/error":       errorPage,
 				"/greet/:name": func() core.Node { return greetPage(r) },
 			}),
 		)
@@ -262,6 +263,28 @@ func todosPage() core.Node {
 			P(TextS(doneCount)),
 			todoList,
 		)
+	})
+}
+
+func errorPage() core.Node {
+	return core.Component("ErrorPage", func() core.Node {
+		return Div(Class("page"),
+			H2(Text("Error boundary")),
+			P(Style("color:var(--muted)"), Text("The box below panics on purpose. The boundary catches it and shows a fallback — the rest of the page keeps working.")),
+			ErrorBoundary(
+				func(err any) core.Node {
+					return P(Style("color:#c0392b;font-family:var(--mono)"), Textf("Recovered: %v", err))
+				},
+				brokenBox(),
+			),
+			P(Text("This line still renders below the boundary.")),
+		)
+	})
+}
+
+func brokenBox() core.Node {
+	return core.Component("BrokenBox", func() core.Node {
+		panic("intentional failure to demo the error boundary")
 	})
 }
 

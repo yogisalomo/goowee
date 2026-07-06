@@ -233,6 +233,15 @@ func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path st
 		}
 		inner := v.Render()
 		r.renderNodeWithMeta(inner, buf, path, hooks, hookIdx)
+
+	case *core.ErrorBoundaryNode:
+		if v == nil {
+			return
+		}
+		// Transparent on the server: render the child so ids match the client's
+		// happy path. The boundary catches *client* render panics; server-side
+		// rendering is expected not to panic (recover at the HTTP layer if it can).
+		r.renderNodeWithMeta(v.Child, buf, path, hooks, hookIdx)
 	}
 }
 

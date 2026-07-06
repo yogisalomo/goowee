@@ -420,3 +420,42 @@ the selector-based rebuild is simple and correct for v0.
 without a DOM dependency in the renderer; measuring is a known gap. Portals work
 for modals/tooltips but lose child state across re-renders — a documented
 limitation, revisitable with id-keyed portal reconciliation.
+
+---
+
+## ADR-018: Error handling — `ErrorBoundary` for render panics, containment for update panics
+
+**Status:** Accepted (2026-07-06)
+
+**Context.** A panic while rendering one subtree must not crash the whole app or
+blank the page. Go's `recover` can catch panics, but a panic mid-render leaves
+renderer state unbalanced (the matching `PopComponent` / `parentStack` pop is
+skipped), so naive recovery corrupts later renders.
+
+**Decision.** Two layers:
+
+- **`h.ErrorBoundary(fallback, child)`** renders `child`, but if rendering it
+  panics, renders `fallback(err)` instead. The child renders into a *private
+  mutation buffer* so its partial work is discarded on panic (nothing was
+  attached), and the renderer state a partial render clobbers — `parentStack`,
+  the component-frame stack (`core.SaveFrameStack`/`RestoreFrameStack`), the
+  namespace and dynamic flags — is rolled back before the fallback renders. On a
+  later re-render the boundary diffs the previous tree against the new child, so
+  a boundary showing its fallback can *recover* to the child if it stops panicking.
+- **Re-render containment.** `reRenderScope` builds mutations into a local slice
+  and only enqueues them at the end, wrapped in `recover`; a panic there discards
+  that scope's partial work (its DOM keeps its previous state), restores the
+  stacks, logs, and lets the rest of the flush proceed. This is the "one bad
+  subtree doesn't blank the page" guarantee for updates.
+
+**Alternatives.** Catching *update*-time panics in the boundary and swapping to
+the fallback: our scopes re-render independently (not through the boundary), so
+routing an update panic to the enclosing boundary would need a boundary stack
+threaded through the renderer. Deferred — update panics are contained + logged
+instead. Server-side boundary recovery: SSR renders the child transparently
+(for id parity); server panics are the HTTP layer's concern.
+
+**Consequences.** Render-time failures (bad data at mount) show a fallback;
+update-time failures are contained but don't switch to the fallback (a
+documented gap). Error boundaries are a client concern; don't rely on them
+during SSR.

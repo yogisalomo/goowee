@@ -128,6 +128,13 @@ async function main() {
   await waitFor(`/Loading…/.test(document.body.innerText)`, "async page shows loading");
   await waitFor(`/Loaded at /.test(document.body.innerText)`, "async resource resolved");
 
+  // --- Error boundary: a panicking subtree shows a fallback; page keeps working ---
+  await clickText("a", "goowee");
+  await clickText("a", "Tutorial");
+  await clickLinkContaining("Error boundary");
+  await waitFor(`/Recovered:/.test(document.body.innerText)`, "error boundary rendered its fallback");
+  check(await evalJS(`/This line still renders/.test(document.body.innerText)`), "page kept rendering around the failed boundary");
+
   // --- Off-loop updates (core.Schedule): the stopwatch ticks from a goroutine ---
   const disp = `(()=>{const p=[...document.querySelectorAll('p')].find(p=>/^\\d\\d:\\d\\d\\.\\d$/.test(p.textContent.trim()));return p?p.textContent.trim():'';})()`;
   await clickText("a", "goowee");           // brand → landing

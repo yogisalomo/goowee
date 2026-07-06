@@ -40,6 +40,18 @@ func Portal(target string, children ...core.Node) *core.PortalNode {
 	return &core.PortalNode{Target: target, Children: children}
 }
 
+// ErrorBoundary renders child, but if rendering it panics, renders
+// fallback(err) instead so the failure doesn't blank the page. Use it around
+// a feature or route subtree. See ADR-018 for what it does and doesn't catch.
+//
+//	h.ErrorBoundary(
+//	    func(err any) core.Node { return P(Text("Something went wrong.")) },
+//	    riskyView(),
+//	)
+func ErrorBoundary(fallback func(err any) core.Node, child core.Node) *core.ErrorBoundaryNode {
+	return &core.ErrorBoundaryNode{Fallback: fallback, Child: child}
+}
+
 func Key(k any) core.Item { return keyItem{k} }
 
 type keyItem struct{ k any }
