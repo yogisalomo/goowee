@@ -140,8 +140,12 @@ counter; a `create-goowee-app`-style scaffold. **M**
 **5.2 Templates (gated).** The `.gwx` compiler from the ergonomics plan
 (Phase 3) — *only* with LSP + formatter + editor support, per the Vugu lesson
 that a template format without tooling is negative value. **L**
-**5.3 Router & a11y.** Nested routes, route guards, lazy routes; accessibility
-helpers (focus management, ARIA conventions). **M**
+**5.3 Router & a11y.** ✅ **Mostly done.** `SubRoute` (nested groups),
+`Guard(check, fallback, route)`, `Lazy` (deferred handler init), and
+`NavigateReplace`/`Back`/`Forward`; a set of `Aria*` attribute helpers +
+`AutoFocus`. *Remaining:* `SubRoute`'s internal matcher isn't most-specific-
+ordered like `Route` (fine for simple sub-routes), and nested-route children
+aren't state-preserved across sub-navigation — refinements, not blockers.
 
 ---
 

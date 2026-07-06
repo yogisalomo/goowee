@@ -194,6 +194,207 @@ func TestRouteParamSegmentCountMustMatch(t *testing.T) {
 	}
 }
 
+func TestNavigateReplace(t *testing.T) {
+	r := New("/")
+	r.NavigateReplace("/settings")
+	if r.Path.Get() != "/settings" {
+		t.Fatalf("expected /settings, got %s", r.Path.Get())
+	}
+}
+
+func TestNavigateReplaceCallsReplaceFn(t *testing.T) {
+	r := New("/")
+	var called string
+	r.replaceFn = func(path string) { called = path }
+	r.NavigateReplace("/replace")
+	if called != "/replace" {
+		t.Fatalf("expected /replace, got %s", called)
+	}
+}
+
+func TestNavigateReplaceDoesNotCallNavFn(t *testing.T) {
+	r := New("/")
+	var navCalled bool
+	r.navFn = func(path string) { navCalled = true }
+	r.replaceFn = func(path string) {}
+	r.NavigateReplace("/replace")
+	if navCalled {
+		t.Fatal("NavigateReplace should not call navFn (pushState)")
+	}
+}
+
+func TestBackCallsBackFn(t *testing.T) {
+	r := New("/")
+	var called bool
+	r.backFn = func() { called = true }
+	r.Back()
+	if !called {
+		t.Fatal("expected backFn to be called")
+	}
+}
+
+func TestForwardCallsForwardFn(t *testing.T) {
+	r := New("/")
+	var called bool
+	r.forwardFn = func() { called = true }
+	r.Forward()
+	if !called {
+		t.Fatal("expected forwardFn to be called")
+	}
+}
+
+func TestSubRouteExactPrefix(t *testing.T) {
+	r := New("/dashboard")
+	sub := r.SubRoute("/dashboard", map[string]func() core.Node{
+		"/": func() core.Node { return &core.ElementNode{Tag: "div"} },
+	})
+	scope, ok := sub.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", sub)
+	}
+	result := scope.Render()
+	if _, ok := result.(*core.ElementNode); !ok {
+		t.Fatal("expected SubRoute to render when path matches prefix")
+	}
+}
+
+func TestSubRouteNestedPath(t *testing.T) {
+	r := New("/dashboard/settings")
+	var rendered string
+	sub := r.SubRoute("/dashboard", map[string]func() core.Node{
+		"/":         func() core.Node { rendered = "home"; return &core.ElementNode{Tag: "div"} },
+		"/settings": func() core.Node { rendered = "settings"; return &core.ElementNode{Tag: "section"} },
+	})
+	scope, ok := sub.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", sub)
+	}
+	scope.Render()
+	if rendered != "settings" {
+		t.Fatalf("expected 'settings', got %q", rendered)
+	}
+}
+
+func TestSubRouteNoMatchReturnsEmpty(t *testing.T) {
+	r := New("/other")
+	sub := r.SubRoute("/dashboard", map[string]func() core.Node{
+		"/": func() core.Node { return &core.ElementNode{Tag: "div"} },
+	})
+	scope, ok := sub.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", sub)
+	}
+	result := scope.Render()
+	if _, ok := result.(*core.FragmentNode); !ok {
+		t.Fatalf("expected empty FragmentNode when prefix doesn't match, got %T", result)
+	}
+}
+
+func TestSubRouteUpdatesOnPathChange(t *testing.T) {
+	r := New("/dashboard")
+	var rendered string
+	sub := r.SubRoute("/dashboard", map[string]func() core.Node{
+		"/":         func() core.Node { rendered = "home"; return &core.ElementNode{Tag: "div"} },
+		"/settings": func() core.Node { rendered = "settings"; return &core.ElementNode{Tag: "section"} },
+	})
+	scope, ok := sub.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", sub)
+	}
+	scope.Render()
+	if rendered != "home" {
+		t.Fatalf("expected 'home', got %q", rendered)
+	}
+
+	r.Path.Set("/dashboard/settings")
+	scope.Render()
+	if rendered != "settings" {
+		t.Fatalf("expected 'settings' after path change, got %q", rendered)
+	}
+}
+
+func TestGuardPassesWhenTrue(t *testing.T) {
+	var ran bool
+	guarded := Guard(func() bool { return true }, func() core.Node {
+		return &core.ElementNode{Tag: "p"}
+	}, func() core.Node {
+		ran = true
+		return &core.ElementNode{Tag: "div"}
+	})
+	guarded()
+	if !ran {
+		t.Fatal("expected guarded route to run when check passes")
+	}
+}
+
+func TestGuardFallsBackWhenFalse(t *testing.T) {
+	var ran, fellBack bool
+	guarded := Guard(func() bool { return false }, func() core.Node {
+		fellBack = true
+		return &core.ElementNode{Tag: "p"}
+	}, func() core.Node {
+		ran = true
+		return &core.ElementNode{Tag: "div"}
+	})
+	guarded()
+	if ran {
+		t.Fatal("expected guarded route NOT to run when check fails")
+	}
+	if !fellBack {
+		t.Fatal("expected fallback to render when check fails")
+	}
+}
+
+func TestGuardWithRoute(t *testing.T) {
+	// Integration: Guard wraps a route handler.
+	r := New("/admin")
+	authenticated := true
+	var rendered string
+	r.Route(map[string]func() core.Node{
+		"/": func() core.Node { return &core.ElementNode{Tag: "div"} },
+		"/admin": Guard(func() bool { return authenticated },
+			func() core.Node { rendered = "login"; return &core.ElementNode{Tag: "div"} },
+			func() core.Node { rendered = "admin"; return &core.ElementNode{Tag: "div"} },
+		),
+	}).Render()
+	if rendered != "admin" {
+		t.Fatalf("expected 'admin', got %q", rendered)
+	}
+}
+
+func TestLazyLoadsOnce(t *testing.T) {
+	loadCount := 0
+	lazy := Lazy(func() func() core.Node {
+		loadCount++
+		return func() core.Node { return &core.ElementNode{Tag: "div"} }
+	})
+
+	lazy()
+	if loadCount != 1 {
+		t.Fatalf("expected loadCount=1 after first call, got %d", loadCount)
+	}
+
+	lazy()
+	if loadCount != 1 {
+		t.Fatalf("expected loadCount=1 after second call (cached), got %d", loadCount)
+	}
+}
+
+func TestLazyWithRoute(t *testing.T) {
+	var loaded bool
+	r := New("/heavy")
+	r.Route(map[string]func() core.Node{
+		"/": func() core.Node { return &core.ElementNode{Tag: "div"} },
+		"/heavy": Lazy(func() func() core.Node {
+			loaded = true
+			return func() core.Node { return &core.ElementNode{Tag: "section"} }
+		}),
+	}).Render()
+	if !loaded {
+		t.Fatal("expected Lazy route to load when matched")
+	}
+}
+
 func TestParamSignalReactive(t *testing.T) {
 	r := New("/todos/1")
 	scope := r.Route(map[string]func() core.Node{
