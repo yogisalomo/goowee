@@ -8,14 +8,15 @@ import (
 )
 
 type DOMRenderer struct {
-	nextID      int
-	Bindings    *core.BindingRegistry
-	Scheduler   *core.Scheduler
-	Registry    *NodeRegistry
+	nextID         int
+	Bindings       *core.BindingRegistry
+	Scheduler      *core.Scheduler
+	Registry       *NodeRegistry
 	parentStack    []int
-	scopeSeq       int  // monotonic mount order; parents mount before children
-	hydrating      bool // initial render claims server-rendered nodes
-	hydrateDynamic bool // within a Dynamic subtree: re-apply values so client wins
+	scopeSeq       int    // monotonic mount order; parents mount before children
+	hydrating      bool   // initial render claims server-rendered nodes
+	hydrateDynamic bool   // within a Dynamic subtree: re-apply values so client wins
+	currentNS      string // XML namespace inherited by the subtree being rendered (SVG)
 }
 
 // SetHydrating puts the renderer into hydration mode for the next Render: it
@@ -117,8 +118,14 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 			return id
 		}
 
+		// Namespaced elements (SVG) inherit their namespace from an ancestor, so
+		// only the subtree root carries it explicitly.
+		ns := v.Namespace
+		if ns == "" {
+			ns = r.currentNS
+		}
 		*muts = append(*muts, core.Mutation{
-			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: v.Tag,
+			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: v.Tag, NS: ns,
 		})
 
 		for _, a := range v.Attrs {
@@ -139,6 +146,8 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 			r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
 		}
 		r.parentStack = append(r.parentStack, id)
+		prevNS := r.currentNS
+		r.currentNS = ns
 		for _, child := range v.Children {
 			childID := r.renderNode(child, muts)
 			if childID != 0 {
@@ -147,6 +156,7 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 				})
 			}
 		}
+		r.currentNS = prevNS
 		r.parentStack = r.parentStack[:len(r.parentStack)-1]
 		return id
 

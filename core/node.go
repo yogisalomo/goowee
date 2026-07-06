@@ -22,7 +22,15 @@ type ElementNode struct {
 	// are still claimed, but their attributes/properties/text are re-applied
 	// so the client value wins. See h.Dynamic and ADR-016.
 	Dynamic bool
+	// Namespace is the XML namespace URI for this element (e.g. SVG). Empty for
+	// ordinary HTML. Descendants inherit it, so only the subtree root (e.g. the
+	// <svg>) needs it set. The DOM backend creates namespaced elements with
+	// createElementNS. See h.Svg.
+	Namespace string
 }
+
+// SVGNamespace is the XML namespace URI for SVG elements.
+const SVGNamespace = "http://www.w3.org/2000/svg"
 
 func (e *ElementNode) nodeMarker() {}
 func (e *ElementNode) String() string {

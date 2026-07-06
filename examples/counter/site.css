@@ -68,8 +68,11 @@ a:hover { text-decoration: underline; }
   letter-spacing: -0.02em;
   margin-right: auto;
   font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
-.nav .brand::before { content: "▟ "; color: var(--accent); }
+.nav .brand .logo { display: block; }
 .nav a { color: var(--muted); }
 .nav a:hover { color: var(--ink); text-decoration: none; }
 

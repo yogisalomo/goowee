@@ -86,6 +86,8 @@ async function main() {
   await waitFor(`(${markerCount}) === 0 && ${heroCount} === '0'`, "landing hydration complete");
   check(await evalJS(`(document.body.innerText.match(/Reactive web UIs, written in Go\\./g)||[]).length`) === 1, "landing headline duplicated (hydration)");
   check(await evalJS(`document.querySelectorAll('.count').length`) === 1, "hero demo duplicated");
+  // Inline SVG (h.Svg) must carry the SVG namespace end-to-end, root and descendants.
+  check(await evalJS(`(()=>{const s=document.querySelector('.logo');const ns='http://www.w3.org/2000/svg';return !!s && s.namespaceURI===ns && s.querySelector('rect')?.namespaceURI===ns;})()`), "inline SVG logo namespaced correctly");
 
   // --- Interactivity: the live hero demo is a real goowee component ---
   await clickText("button", "increment");

@@ -62,9 +62,14 @@ JS→Go round-trip; see ADR-016 alternatives).
 
 ## P2 — Feature completeness for real UIs
 
-**2.1 SVG / namespaced elements.** No `createElementNS` support — that alone
-rules out icons and charts, i.e. most real UIs. Add an SVG element set and
-namespace-aware creation in the renderer + bridge. **M**
+**2.1 SVG / namespaced elements.** ✅ **Done.** `h.Svg()` carries the SVG
+namespace; descendants inherit it (only the root is marked), the renderer emits
+it on `CreateElement`, and the bridge creates namespaced nodes with
+`createElementNS`. `h.SvgEl` + shape helpers (`Path`, `Circle`, `Rect`, `G`,
+`Line`, `Polyline`, `Polygon`, `Ellipse`). The site logo is now inline SVG
+(dogfood). Covered by a renderer unit test + an E2E `namespaceURI` check.
+*Limitation:* a re-rendering scope whose root is an SVG child (not the `<svg>`
+itself) won't inherit the namespace — render SVG as a unit for now.
 
 **2.2 Async data & error boundaries.** Real apps load data and fail. Provide an
 idiomatic async primitive (a "resource"/async signal with loading/error
