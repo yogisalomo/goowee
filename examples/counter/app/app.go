@@ -13,7 +13,8 @@ func App(r *router.Router) core.Node {
 	return core.Component("App", func() core.Node {
 		return appLayout(r,
 			r.Route(map[string]func() core.Node{
-				"/":            homePage,
+				"/":            func() core.Node { return landingPage(r) },
+				"/tutorial":    func() core.Node { return tutorialIndex(r) },
 				"/counter":     counterPage,
 				"/about":       aboutPage,
 				"/form":        formPage,
@@ -30,26 +31,33 @@ func appLayout(r *router.Router, children ...core.Node) core.Node {
 	return Div(Class("app"),
 		appHeader(r),
 		Main(Nodes(children)...),
+		footer(),
+	)
+}
+
+// logo is a small inline SVG mark (a terminal prompt) — also exercises the
+// framework's namespaced-element support (h.Svg → createElementNS).
+func logo() core.Node {
+	return Svg(Class("logo"), Attr("width", "20"), Attr("height", "20"),
+		Attr("viewBox", "0 0 20 20"), Attr("fill", "none"), Attr("aria-hidden", "true"),
+		Rect(Attr("x", "1"), Attr("y", "1"), Attr("width", "18"), Attr("height", "18"),
+			Attr("rx", "5"), Attr("fill", "#00add8")),
+		Path(Attr("d", "M6 7l3 3-3 3"), Attr("stroke", "#fff"), Attr("stroke-width", "1.8"),
+			Attr("stroke-linecap", "round"), Attr("stroke-linejoin", "round")),
+		Line(Attr("x1", "11"), Attr("y1", "13.5"), Attr("x2", "14.5"), Attr("y2", "13.5"),
+			Attr("stroke", "#fff"), Attr("stroke-width", "1.8"), Attr("stroke-linecap", "round")),
 	)
 }
 
 func appHeader(r *router.Router) core.Node {
 	return Nav(Class("nav"),
-		r.Link("/", "Home"),
-		Text(" | "),
-		r.Link("/counter", "Counter"),
-		Text(" | "),
-		r.Link("/about", "About"),
-		Text(" | "),
-		r.Link("/form", "Form"),
-		Text(" | "),
-		r.Link("/todos", "Todos"),
-		Text(" | "),
-		r.Link("/stopwatch", "Stopwatch"),
-		Text(" | "),
-		r.Link("/dashboard", "Dashboard"),
-		Text(" | "),
-		r.Link("/greet/alice", "Greet"),
+		A(Class("brand"), Href("/"),
+			OnClickE(func(core.EventData) { r.Navigate("/") }, PreventDefault()),
+			logo(), Text("goowee")),
+		A(Href("/tutorial"),
+			OnClickE(func(core.EventData) { r.Navigate("/tutorial") }, PreventDefault()),
+			Text("Tutorial")),
+		A(Href(repoURL), Target("_blank"), Rel("noopener"), Text("GitHub")),
 	)
 }
 
@@ -285,9 +293,14 @@ func stopwatchPage() core.Node {
 					case <-stop:
 						return
 					case <-ticker.C:
-						if running.Get() {
-							setElapsed(elapsed.Get() + 1)
-						}
+						// The ticker runs off the render loop, so hand the state
+						// change to the scheduler rather than touching signals
+						// here (see core.Schedule / ADR-015).
+						core.Schedule(func() {
+							if running.Get() {
+								setElapsed(elapsed.Get() + 1)
+							}
+						})
 					}
 				}
 			}()

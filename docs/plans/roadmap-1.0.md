@@ -38,29 +38,38 @@ is exported and importable, which makes every field a de-facto public contract. 
 
 ## P1 — Correctness footguns (silent breakage in real apps)
 
-**1.1 Concurrency model.** Signals have no locking; they are correct *only*
-because Go WASM is single-threaded today. A timer/goroutine/fetch that calls
-`Set` concurrently with a render is a data race waiting to happen (and will
-break if Go WASM ever gets threads). Define the rule ("signals are read/written
-on the render loop only") and provide a safe cross-goroutine update path — e.g.
-route external updates through a scheduler channel/`Post(fn)` that runs on the
-frame loop. Document it prominently; the stopwatch `OnMount` timer is the
-canonical example. **M**
+**1.1 Concurrency model.** ✅ **Done.** `core.Schedule(fn)` runs off-loop
+updates (timers, network, channels) on the render loop via the scheduler's
+mutex-guarded `Post` inbox, drained at flush; the client registers its
+scheduler in `bridge.Init`. The rule — *touch signals only on the render loop;
+from a goroutine, wrap the update in `core.Schedule`* — is documented (ADR-015)
+and demonstrated by the stopwatch ticker. Covered by a `-race` test and the E2E
+(the stopwatch advances via a goroutine). *Still a documented rule, not
+type-enforced (ADR-015 consequences).*
 
-**1.2 Hydration mismatch recovery.** Hydration trusts SSR/DOM id parity and, on
-a miss, creates a bare node and logs — it does not recover. Any non-deterministic
-server output (dates, locale, timezone, auth-dependent content) will corrupt the
-hydrated tree. Add per-subtree render-and-replace on mismatch, a
-`suppressHydration`-style escape hatch for intentionally dynamic nodes, and
-guidance for rendering deterministic markup. **M–L**
+**1.2 Hydration mismatch recovery.** ✅ **Mostly done** (ADR-016). The escape
+hatch shipped: `h.Dynamic()` marks a non-deterministic subtree so hydration
+claims the server nodes but re-applies the client's values (client wins), while
+deterministic content keeps the boot optimization. Structural mismatches (wrong
+tag / missing node) now log a clear `console.error` and best-effort recover
+instead of silently corrupting. The hydration contract (deterministic markup)
+and the placeholder-plus-`OnMount` pattern for client-only values are
+documented. *Remaining:* fully **automatic** per-subtree render-and-replace on
+structural mismatch — deferred (needs renderer DOM access via a build tag or a
+JS→Go round-trip; see ADR-016 alternatives).
 
 ---
 
 ## P2 — Feature completeness for real UIs
 
-**2.1 SVG / namespaced elements.** No `createElementNS` support — that alone
-rules out icons and charts, i.e. most real UIs. Add an SVG element set and
-namespace-aware creation in the renderer + bridge. **M**
+**2.1 SVG / namespaced elements.** ✅ **Done.** `h.Svg()` carries the SVG
+namespace; descendants inherit it (only the root is marked), the renderer emits
+it on `CreateElement`, and the bridge creates namespaced nodes with
+`createElementNS`. `h.SvgEl` + shape helpers (`Path`, `Circle`, `Rect`, `G`,
+`Line`, `Polyline`, `Polygon`, `Ellipse`). The site logo is now inline SVG
+(dogfood). Covered by a renderer unit test + an E2E `namespaceURI` check.
+*Limitation:* a re-rendering scope whose root is an SVG child (not the `<svg>`
+itself) won't inherit the namespace — render SVG as a unit for now.
 
 **2.2 Async data & error boundaries.** Real apps load data and fail. Provide an
 idiomatic async primitive (a "resource"/async signal with loading/error

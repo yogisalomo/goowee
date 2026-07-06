@@ -212,7 +212,8 @@ hydration. The marker doubles as a separator that prevents text-node merging.
 
 ## ADR-010: Signals are single-threaded (no locking)
 
-**Status:** Accepted (2026-07-05) — **with a known gap; see roadmap P1.1**
+**Status:** Accepted (2026-07-05). The cross-goroutine gap noted below is
+addressed by **ADR-015** (`core.Schedule`).
 
 **Context.** Go WASM runs on a single OS thread; goroutines are cooperatively
 scheduled.
@@ -223,11 +224,10 @@ contract is that signals are touched on the render loop.
 **Alternatives.** Mutex/atomic-protected signals. Rejected as unnecessary
 overhead and complexity given single-threaded WASM.
 
-**Consequences.** Correct today. But mutating a signal from a goroutine (timer,
-fetch) concurrently with a render is unsafe and unguarded — a real footgun.
-Roadmap P1.1 will add a safe cross-goroutine update path (route through the
-scheduler) and document the rule. Revisit locking only if Go WASM gains real
-threads.
+**Consequences.** Correct today. Mutating a signal from a goroutine (timer,
+fetch) concurrently with a render is unsafe and unguarded — a real footgun,
+now resolved by the `core.Schedule` path in ADR-015. Revisit locking only if
+Go WASM gains real threads.
 
 ---
 
@@ -311,3 +311,75 @@ Rejected: harder to review and to keep bisectable.
 
 **Consequences.** Clean history, each PR independently verified. `main` stays
 releasable.
+
+---
+
+## ADR-015: Off-loop state updates go through `core.Schedule`
+
+**Status:** Accepted (2026-07-06)
+
+**Context.** Signals aren't thread-safe (ADR-010). Code that runs *off* the
+render loop — a timer goroutine, a network/fetch callback, a channel receiver —
+must not call `Set` directly, or it races the renderer (the mutation queue,
+subscriber lists, and dirty set are unguarded).
+
+**Decision.** Provide `core.Schedule(fn func())`: it queues `fn` (via the
+scheduler's mutex-guarded `Post`) to run on the render loop at the next frame,
+where it may `Get`/`Set` signals safely. The client registers its scheduler
+once at startup via `bridge.Init` → `core.SetActiveScheduler`; `Schedule` is a
+no-op when none is registered (SSR, tests). The rule: **touch signals only on
+the render loop; from a goroutine, wrap the update in `core.Schedule`.** The
+stopwatch example's ticker is the canonical use.
+
+**Alternatives.** (a) Make `Set` itself defer when off-loop — but `Set` can't
+tell where it's called from and is used during renders. (b) A goroutine-local
+"am I on the loop" flag — fragile. (c) Full mutex-locked signals — rejected in
+ADR-010. (d) Pass the scheduler explicitly to every effect — breaks the
+run-once ergonomics. A single client-side "active scheduler" + `Schedule` is
+the pragmatic fit; it doesn't reintroduce the SSR global-state problem
+(ADR-007) because SSR has no scheduler and never registers one.
+
+**Consequences.** Off-loop updates are batched onto the next frame (a tick of
+extra latency, which is fine). Forgetting `Schedule` and calling `Set` from a
+goroutine is still possible — it's a documented rule, not enforced by the type
+system. Only one active scheduler per client process (the norm).
+
+---
+
+## ADR-016: Hydration trusts SSR/DOM parity; mismatches are opt-in (`h.Dynamic`), not auto-recovered
+
+**Status:** Accepted (2026-07-06)
+
+**Context.** Hydration claims server-rendered nodes by id parity (ADR-008) and
+skips the create/attr/text mutations the SSR already applied (the boot
+optimization). That is only correct when the server and client render the
+**same tree with the same values**. Non-deterministic output — `time.Now`,
+locale, timezone, per-request/auth content — makes the client silently display
+the stale server value; structural divergence corrupts the tree.
+
+**Decision.** The hydration contract is: **render deterministic markup.** For
+the two failure modes:
+
+- **Value differences** (same structure, different text/attrs): opt in with
+  `h.Dynamic()` on the subtree. Hydration still *claims* those nodes (no
+  re-creation, no duplication) but *re-applies* their attributes/properties/
+  text so the client value wins. This is opt-in so deterministic content keeps
+  the boot optimization (most nodes emit one claim and nothing else).
+- **Structural divergence** (wrong tag / missing node): the JS side logs a
+  clear `console.error` naming the node and best-effort creates a bare node so
+  the app keeps running. It is *not* automatically repaired.
+
+**Alternatives.** (a) Re-apply every node's values on hydration (robust but
+taxes every deterministic node — the common case — for a rare one). (b)
+Automatic per-subtree render-and-replace on any mismatch: the client would have
+to detect the mismatch (only JS sees the DOM) and re-render the offending
+subtree in normal mode — needing either a JS→Go round-trip or giving the
+renderer live DOM access behind a build tag. Both are sizable; deferred. The
+opt-in `Dynamic` hatch + loud logging covers the practical cases now.
+
+**Consequences.** Non-deterministic *values* have a clean fix (`Dynamic`).
+Non-deterministic *structure* degrades loudly rather than silently, and is
+documented as a bug to fix with deterministic markup. Full automatic structural
+recovery remains a future item (roadmap). The common client-only-value pattern
+— render a placeholder on the server, set a signal in `OnMount` — also works
+without `Dynamic`, since `OnMount` runs only on the client after hydration.

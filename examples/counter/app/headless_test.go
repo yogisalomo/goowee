@@ -488,33 +488,44 @@ func (d *fakeDOM) navLink(label string) int {
 	return 0
 }
 
+// navLinkContaining finds the <a> whose text contains sub (for composite link
+// text like the tutorial steps).
+func (d *fakeDOM) navLinkContaining(sub string) int {
+	for _, id := range d.findAll(func(n *fnode) bool { return n.tag == "a" }) {
+		if strings.Contains(d.text(id), sub) {
+			return id
+		}
+	}
+	return 0
+}
+
 func TestAppNavigationHeadless(t *testing.T) {
 	r := router.New("/")
 	h := mount(t, App(r))
 
-	if !strings.Contains(h.dom.text(0), "Welcome to Goowee") {
-		t.Fatalf("expected home page initially; tree = %q", h.dom.text(0))
+	// Landing page renders, and its hero demo is a live goowee component.
+	if !strings.Contains(h.dom.text(0), "Reactive web UIs, written in Go.") {
+		t.Fatalf("expected landing page initially; tree = %q", h.dom.text(0))
+	}
+	incr := h.dom.buttonWithText("increment")
+	if incr == 0 {
+		t.Fatalf("expected live hero demo; tree = %q", h.dom.text(0))
 	}
 
-	h.click(h.dom.navLink("Counter"))
+	// Header link → tutorial index → an example page.
+	h.click(h.dom.navLink("Tutorial"))
+	if !strings.Contains(h.dom.text(0), "Learn goowee by example") {
+		t.Fatalf("expected tutorial index after nav; tree = %q", h.dom.text(0))
+	}
+	h.click(h.dom.navLinkContaining("Counter"))
 	if h.dom.buttonWithText("Count: 0") == 0 {
-		t.Fatalf("expected counter page after nav; tree = %q", h.dom.text(0))
+		t.Fatalf("expected counter page from tutorial; tree = %q", h.dom.text(0))
 	}
 
-	h.click(h.dom.navLink("About"))
-	if !strings.Contains(h.dom.text(0), "minimal Go WASM") {
-		t.Fatalf("expected about page after nav; tree = %q", h.dom.text(0))
-	}
-
-	// Route through the stopwatch (mounts its ticker) then leave it (unmounts,
-	// running cleanup). Start is never pressed, so no concurrent signal writes.
-	h.click(h.dom.navLink("Stopwatch"))
-	if !strings.Contains(h.dom.text(0), "Stopwatch") {
-		t.Fatalf("expected stopwatch page after nav; tree = %q", h.dom.text(0))
-	}
-	h.click(h.dom.navLink("Counter"))
-	if h.dom.buttonWithText("Count: 0") == 0 {
-		t.Fatalf("expected counter page after leaving stopwatch; tree = %q", h.dom.text(0))
+	// Back to the landing via the brand link.
+	h.click(h.dom.navLink("goowee"))
+	if !strings.Contains(h.dom.text(0), "Reactive web UIs, written in Go.") {
+		t.Fatalf("expected to return to landing; tree = %q", h.dom.text(0))
 	}
 }
 

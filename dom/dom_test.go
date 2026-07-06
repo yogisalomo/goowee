@@ -1070,6 +1070,16 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 			if p, ok := d.nodes[m.NodeID]; ok {
 				ins := m.ChildID
 				ref := m.RefID
+
+				// Simulate DOM insertBefore: move existing node (remove then
+				// re-insert), or just insert a new one.
+				for i := len(p.Children) - 1; i >= 0; i-- {
+					if p.Children[i] == ins {
+						p.Children = append(p.Children[:i], p.Children[i+1:]...)
+						break
+					}
+				}
+
 				idx := len(p.Children)
 				for i, cid := range p.Children {
 					if cid == ref {
@@ -1142,11 +1152,10 @@ func TestFakeDOMKeyedProperty(t *testing.T) {
 		fd := newFakeDOM()
 		fd.nodes[parentID] = &fakeNode{ID: parentID, Tag: "div"}
 
-		oldSeen := map[int]bool{}
 		for _, n := range oldNodes {
 			if el, ok := n.(*core.ElementNode); ok {
 				fd.nodes[el.ID] = &fakeNode{ID: el.ID, Tag: el.Tag, ParentID: parentID}
-				oldSeen[el.ID] = true
+				fd.nodes[parentID].Children = append(fd.nodes[parentID].Children, el.ID)
 			}
 		}
 
@@ -1551,5 +1560,34 @@ func TestParentReRenderCancelsDirtyChild(t *testing.T) {
 
 	if childRenders != 1 {
 		t.Fatalf("child re-rendered after parent removed it: childRenders=%d, want 1", childRenders)
+	}
+}
+
+func TestSVGNamespacePropagation(t *testing.T) {
+	// <section><svg><g><path/></g></svg><div/></section>: the svg and its
+	// descendants carry the SVG namespace on CreateElement; the div does not.
+	tree := &core.ElementNode{Tag: "section", Children: []core.Node{
+		&core.ElementNode{Tag: "svg", Namespace: core.SVGNamespace, Children: []core.Node{
+			&core.ElementNode{Tag: "g", Children: []core.Node{
+				&core.ElementNode{Tag: "path"},
+			}},
+		}},
+		&core.ElementNode{Tag: "div"},
+	}}
+
+	muts, _ := New().Render(tree)
+	ns := map[string]string{}
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement {
+			ns[m.Value.(string)] = m.NS
+		}
+	}
+	for _, tag := range []string{"svg", "g", "path"} {
+		if ns[tag] != core.SVGNamespace {
+			t.Errorf("<%s> should carry SVG namespace, got %q", tag, ns[tag])
+		}
+	}
+	if ns["section"] != "" || ns["div"] != "" {
+		t.Errorf("HTML elements must not be namespaced: section=%q div=%q", ns["section"], ns["div"])
 	}
 }
