@@ -108,6 +108,8 @@ window.applyMutations = function applyMutations(json) {
                     delete preexistingNodes[mut.nodeId];
                 } else if (mut.value === "#text") {
                     el = document.createTextNode("");
+                } else if (mut.ns) {
+                    el = document.createElementNS(mut.ns, mut.value); // SVG etc.
                 } else {
                     el = document.createElement(mut.value);
                 }

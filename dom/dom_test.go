@@ -1553,3 +1553,32 @@ func TestParentReRenderCancelsDirtyChild(t *testing.T) {
 		t.Fatalf("child re-rendered after parent removed it: childRenders=%d, want 1", childRenders)
 	}
 }
+
+func TestSVGNamespacePropagation(t *testing.T) {
+	// <section><svg><g><path/></g></svg><div/></section>: the svg and its
+	// descendants carry the SVG namespace on CreateElement; the div does not.
+	tree := &core.ElementNode{Tag: "section", Children: []core.Node{
+		&core.ElementNode{Tag: "svg", Namespace: core.SVGNamespace, Children: []core.Node{
+			&core.ElementNode{Tag: "g", Children: []core.Node{
+				&core.ElementNode{Tag: "path"},
+			}},
+		}},
+		&core.ElementNode{Tag: "div"},
+	}}
+
+	muts, _ := New().Render(tree)
+	ns := map[string]string{}
+	for _, m := range muts {
+		if m.Type == core.MutCreateElement {
+			ns[m.Value.(string)] = m.NS
+		}
+	}
+	for _, tag := range []string{"svg", "g", "path"} {
+		if ns[tag] != core.SVGNamespace {
+			t.Errorf("<%s> should carry SVG namespace, got %q", tag, ns[tag])
+		}
+	}
+	if ns["section"] != "" || ns["div"] != "" {
+		t.Errorf("HTML elements must not be namespaced: section=%q div=%q", ns["section"], ns["div"])
+	}
+}

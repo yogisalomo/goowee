@@ -123,6 +123,10 @@ properties too (`Value`, `Checked`, `Disabled`, …). Text is a child node:
 Reactive variants of attributes/properties use an `-S` suffix — `Class` is
 static, `ClassS(sig)` binds a signal (see ADR-004).
 
+Inline SVG works too: `h.Svg(...)` roots a namespaced subtree (its descendants
+inherit the namespace) with shape helpers like `Path`, `Circle`, `Rect`, `G`,
+and `Attr("viewBox", …)` for arbitrary attributes.
+
 ### State
 
 `hooks.UseState` returns a signal and a setter:

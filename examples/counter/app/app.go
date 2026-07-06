@@ -35,11 +35,25 @@ func appLayout(r *router.Router, children ...core.Node) core.Node {
 	)
 }
 
+// logo is a small inline SVG mark (a terminal prompt) — also exercises the
+// framework's namespaced-element support (h.Svg → createElementNS).
+func logo() core.Node {
+	return Svg(Class("logo"), Attr("width", "20"), Attr("height", "20"),
+		Attr("viewBox", "0 0 20 20"), Attr("fill", "none"), Attr("aria-hidden", "true"),
+		Rect(Attr("x", "1"), Attr("y", "1"), Attr("width", "18"), Attr("height", "18"),
+			Attr("rx", "5"), Attr("fill", "#00add8")),
+		Path(Attr("d", "M6 7l3 3-3 3"), Attr("stroke", "#fff"), Attr("stroke-width", "1.8"),
+			Attr("stroke-linecap", "round"), Attr("stroke-linejoin", "round")),
+		Line(Attr("x1", "11"), Attr("y1", "13.5"), Attr("x2", "14.5"), Attr("y2", "13.5"),
+			Attr("stroke", "#fff"), Attr("stroke-width", "1.8"), Attr("stroke-linecap", "round")),
+	)
+}
+
 func appHeader(r *router.Router) core.Node {
 	return Nav(Class("nav"),
 		A(Class("brand"), Href("/"),
 			OnClickE(func(core.EventData) { r.Navigate("/") }, PreventDefault()),
-			Text("goowee")),
+			logo(), Text("goowee")),
 		A(Href("/tutorial"),
 			OnClickE(func(core.EventData) { r.Navigate("/tutorial") }, PreventDefault()),
 			Text("Tutorial")),

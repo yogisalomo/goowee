@@ -180,6 +180,7 @@ type Mutation struct {
 	Value   any          `json:"value,omitempty"`
 	ChildID int          `json:"childId,omitempty"`
 	RefID   int          `json:"refId,omitempty"`
+	NS      string       `json:"ns,omitempty"` // XML namespace for CreateElement (SVG)
 }
 
 type MutationType int
