@@ -22,6 +22,16 @@ type keyItem struct{ k any }
 
 func (k keyItem) Apply(el *core.ElementNode) { el.Key = k.k }
 
+// Dynamic marks an element's subtree as non-deterministic between server and
+// client (e.g. dates, locale, per-request content). Hydration then re-applies
+// its attributes/properties/text so the client value wins, instead of trusting
+// the server-rendered value. Use it sparingly — see ADR-016.
+func Dynamic() core.Item { return dynamicItem{} }
+
+type dynamicItem struct{}
+
+func (dynamicItem) Apply(el *core.ElementNode) { el.Dynamic = true }
+
 func If(cond bool, item core.Item) core.Item {
 	if cond {
 		return item

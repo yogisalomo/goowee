@@ -217,6 +217,12 @@ detects the server-rendered DOM and **hydrates** — claiming the existing nodes
 and wiring up handlers/bindings instead of rebuilding. `cmd/ssr-server` is a
 working example.
 
+Hydration trusts that the server and client render the **same markup**. For
+content that legitimately differs — dates, locale, per-request data — wrap the
+subtree in `h.Dynamic()` so the client's value is re-applied over the server's,
+or render a placeholder and fill it in from `OnMount` (which runs only on the
+client). A structural mismatch logs a clear console error. See ADR-016.
+
 ## Project layout
 
 ```
