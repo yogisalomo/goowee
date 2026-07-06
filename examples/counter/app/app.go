@@ -118,9 +118,11 @@ func formPage() core.Node {
 		email, setEmail := hooks.UseState("")
 		agreed, setAgreed := hooks.UseState(false)
 		entries, setEntries := hooks.UseState([]entry{})
+		nameRef := Ref() // imperative focus (h.Ref → ref.Focus)
 
 		return Div(
 			H2(Text("Form Demo")),
+			Button(Type("button"), OnClick(func() { nameRef.Focus() }), Text("Focus name")),
 			Form(
 				OnSubmit(func(vals map[string]string) {
 					en := entry{
@@ -135,7 +137,7 @@ func formPage() core.Node {
 					setAgreed(false)
 				}),
 				label("Name", Input(
-					Type("text"), Name("name"), BindValue(name),
+					Type("text"), Name("name"), RefTo(nameRef), BindValue(name),
 				)),
 				label("Email", Input(
 					Type("email"), Name("email"), BindValue(email),

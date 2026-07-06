@@ -127,6 +127,11 @@ Inline SVG works too: `h.Svg(...)` roots a namespaced subtree (its descendants
 inherit the namespace) with shape helpers like `Path`, `Circle`, `Rect`, `G`,
 and `Attr("viewBox", …)` for arbitrary attributes.
 
+For imperative DOM access, attach a ref: `ref := h.Ref()`, `h.RefTo(ref)` on the
+element, then `ref.Focus()` / `Blur()` / `Click()` / `ScrollIntoView()` from a
+handler or effect. Render outside the current subtree — modals, tooltips — with
+`h.Portal("#modal-root", …)` (client-side; see ADR-017 for both).
+
 ### State
 
 `hooks.UseState` returns a signal and a setter:

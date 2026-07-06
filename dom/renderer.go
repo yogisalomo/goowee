@@ -78,6 +78,9 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 		}
 		id := r.allocID()
 		v.ID = id
+		if v.Ref != nil {
+			v.Ref.ID = id
+		}
 		if r.hydrating {
 			// Claim the server-rendered element; its attributes, properties,
 			// and children are already in the DOM, so normally only reactivity
@@ -231,6 +234,13 @@ func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
 				})
 			}
 		}
+		return 0
+
+	case *core.PortalNode:
+		if v == nil {
+			return 0
+		}
+		r.renderPortal(v, muts)
 		return 0
 
 	case *core.ComponentNode:
@@ -569,8 +579,37 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 			return 0
 		}
 		return r.renderNode(newScope, muts)
+
+	case *core.PortalNode:
+		// The target is a selector, not a node we can reconcile against, so
+		// tear down the old portal content and render the new (ADR-017). Keep
+		// portal state in signals outside the portal.
+		for _, c := range old.Children {
+			r.emitRemoveTree(c, muts)
+		}
+		if np, ok := newNode.(*core.PortalNode); ok {
+			r.renderPortal(np, muts)
+		}
+		return 0
 	}
 	return 0
+}
+
+// renderPortal renders a portal's children into their target container. The
+// content is client-side: rendered fresh (never claimed) even during
+// hydration, since the server does not render portals.
+func (r *DOMRenderer) renderPortal(p *core.PortalNode, muts *[]core.Mutation) {
+	prevHydrating, prevNS := r.hydrating, r.currentNS
+	r.hydrating, r.currentNS = false, ""
+	for _, child := range p.Children {
+		childID := r.renderNode(child, muts)
+		if childID != 0 {
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: p.Target,
+			})
+		}
+	}
+	r.hydrating, r.currentNS = prevHydrating, prevNS
 }
 
 func (r *DOMRenderer) diffChildren(parentID int, old, new []core.Node, muts *[]core.Mutation) {
@@ -854,6 +893,10 @@ func (r *DOMRenderer) disposeReactive(n core.Node) {
 			r.disposeReactive(c)
 		}
 	case *core.FragmentNode:
+		for _, c := range v.Children {
+			r.disposeReactive(c)
+		}
+	case *core.PortalNode:
 		for _, c := range v.Children {
 			r.disposeReactive(c)
 		}

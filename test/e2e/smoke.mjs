@@ -113,6 +113,14 @@ async function main() {
   await waitFor(`/Hello, bob!/.test(document.body.innerText)`, "greet bob (reactive param)");
   check(!(await evalJS(`/Hello, alice!/.test(document.body.innerText)`)), "stale 'alice' after param change");
 
+  // --- Refs (h.Ref → ref.Focus): imperative DOM command reaches the node ---
+  await clickText("a", "goowee");           // brand → landing
+  await clickText("a", "Tutorial");
+  await clickLinkContaining("Form");
+  await waitFor(`!!document.querySelector('input[name="name"]')`, "form page");
+  await clickText("button", "Focus name");
+  await waitFor(`document.activeElement && document.activeElement.name === 'name'`, "ref.Focus focused the name input");
+
   // --- Off-loop updates (core.Schedule): the stopwatch ticks from a goroutine ---
   const disp = `(()=>{const p=[...document.querySelectorAll('p')].find(p=>/^\\d\\d:\\d\\d\\.\\d$/.test(p.textContent.trim()));return p?p.textContent.trim():'';})()`;
   await clickText("a", "goowee");           // brand → landing

@@ -16,6 +16,30 @@ func Fragment(children ...core.Node) *core.FragmentNode {
 	return &core.FragmentNode{Children: children}
 }
 
+// Ref creates a handle to an element's DOM node. Attach it with RefTo and call
+// ref.Focus()/Blur()/Click()/ScrollIntoView() from handlers or effects.
+func Ref() *core.Ref { return &core.Ref{} }
+
+// RefTo attaches ref to an element (nil ref is a no-op).
+func RefTo(ref *core.Ref) core.Item {
+	if ref == nil {
+		return nil
+	}
+	return refItem{ref}
+}
+
+type refItem struct{ ref *core.Ref }
+
+func (r refItem) Apply(el *core.ElementNode) { el.Ref = r.ref }
+
+// Portal renders children into a different DOM container (a modal or tooltip
+// outside the current subtree). target is a CSS selector, e.g. "#modal-root".
+// Portals are client-side and their content is rebuilt on re-render — see
+// core.PortalNode / ADR-017.
+func Portal(target string, children ...core.Node) *core.PortalNode {
+	return &core.PortalNode{Target: target, Children: children}
+}
+
 func Key(k any) core.Item { return keyItem{k} }
 
 type keyItem struct{ k any }

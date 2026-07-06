@@ -460,3 +460,28 @@ func TestSchedulerPostRunsOnFlushSetsSignals(t *testing.T) {
 		t.Fatalf("after flush want value=1 fired=1, got value=%d fired=%d", sig.Get(), fired)
 	}
 }
+
+func TestRefInvokeEnqueuesMutation(t *testing.T) {
+	s := NewScheduler()
+	SetActiveScheduler(s)
+	defer SetActiveScheduler(nil)
+
+	(&Ref{ID: 7}).Focus()
+	out := s.Flush()
+	if len(out) != 1 || out[0].Type != MutInvoke || out[0].NodeID != 7 || out[0].Key != "focus" {
+		t.Fatalf("Focus should enqueue MutInvoke{7,focus}, got %+v", out)
+	}
+}
+
+func TestRefNoopWhenUnusable(t *testing.T) {
+	s := NewScheduler()
+	SetActiveScheduler(s)
+	defer SetActiveScheduler(nil)
+
+	(&Ref{}).Focus() // zero id → no-op (element not rendered yet)
+	if s.Len() != 0 {
+		t.Fatal("Focus on an unrendered ref (ID 0) must not enqueue")
+	}
+	SetActiveScheduler(nil)
+	(&Ref{ID: 4}).Focus() // no active scheduler → no panic
+}

@@ -85,9 +85,14 @@ restores the selection instead of jumping to the end (programmatic updates
 still apply). *Remaining:* explicit selection preservation across keyed
 reorders (the active-element check covers the common case).
 
-**2.4 Refs / DOM escape hatch & portals.** A way to get at a real DOM node
-(measure, focus, integrate a non-goowee widget) and render into a different
-container (modals/tooltips). **M**
+**2.4 Refs / DOM escape hatch & portals.** ✅ **Mostly done** (ADR-017).
+`h.Ref`/`h.RefTo` give imperative command handles — `ref.Focus()`, `Blur()`,
+`Click()`, `ScrollIntoView()` via a `MutInvoke` command to the bridge (the form
+example's "Focus name" button dogfoods it, E2E-checked). `h.Portal(target, …)`
+renders into another container (client-side, rendered fresh under hydration).
+*Remaining:* ref **reads** (measure/`getBoundingClientRect`) need a value
+channel back to Go; portals rebuild children on re-render (no id-keyed
+reconciliation) — both deferred, documented in ADR-017.
 
 ---
 

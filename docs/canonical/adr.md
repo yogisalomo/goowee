@@ -383,3 +383,40 @@ documented as a bug to fix with deterministic markup. Full automatic structural
 recovery remains a future item (roadmap). The common client-only-value pattern
 — render a placeholder on the server, set a signal in `OnMount` — also works
 without `Dynamic`, since `OnMount` runs only on the client after hydration.
+
+---
+
+## ADR-017: Refs are imperative command handles; portals are client-side and rebuild
+
+**Status:** Accepted (2026-07-06)
+
+**Context.** Real UIs need to reach the DOM imperatively (focus a field, scroll
+into view) and render outside the current subtree (modals, tooltips). Go never
+holds the DOM node — it lives in the JS `nodeMap` — so Go can't call methods on
+it directly.
+
+**Decision.**
+- **Refs** (`h.Ref` / `h.RefTo`) carry the node id, set at render. `ref.Focus()`,
+  `Blur()`, `Click()`, `ScrollIntoView()` enqueue a `MutInvoke{id, method}`
+  through the active scheduler; the bridge calls `node[method]()`. It's a
+  one-way command channel — good for post-render actions (handlers, effects),
+  applied on the next frame. **Reads (measuring) are not supported**: they'd
+  need a value channel back to Go, deferred until there's a real use.
+- **Portals** (`h.Portal(target, …)`) render children into a container matched
+  by CSS selector via `MutPortalAppend`. They are **client-side only** — SSR
+  doesn't render them, and their content is rendered *fresh* (created, never
+  claimed) even during hydration, so it never trips the hydration-mismatch path
+  (ADR-016). Because the target is a selector, not a node the diff can key
+  against, portal children are **torn down and rebuilt on every re-render**;
+  hold portal state in signals outside the portal.
+
+**Alternatives.** For refs: exposing the raw `js.Value` to Go — impossible in
+native/SSR builds and couples the renderer to `syscall/js`; a synchronous
+`ref.Measure()` — needs a blocking round-trip. For portals: resolving the
+target to a node id once and reconciling its children — worth doing later, but
+the selector-based rebuild is simple and correct for v0.
+
+**Consequences.** Refs cover the common imperative needs (focus/scroll/click)
+without a DOM dependency in the renderer; measuring is a known gap. Portals work
+for modals/tooltips but lose child state across re-renders — a documented
+limitation, revisitable with id-keyed portal reconciliation.
