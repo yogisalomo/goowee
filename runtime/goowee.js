@@ -89,6 +89,7 @@ function dispatchToGo(type, e) {
             if (r && r.handled) {
                 if (r.preventDefault) e.preventDefault();
                 if (r.stopPropagation) e.stopPropagation();
+                if (r.selectOnFocus && type === "focus") el.select();
                 return;
             }
         }
@@ -127,7 +128,22 @@ window.applyMutations = function applyMutations(json) {
                 break;
             case 3: // SetProperty
                 el = nodeMap[mut.nodeId];
-                if (el) el[mut.key] = mut.value;
+                if (el) {
+                    // Setting .value resets the caret to the end. For a focused
+                    // text field, preserve the selection so typing doesn't jump
+                    // (and programmatic updates still apply — we don't skip the
+                    // write, we restore the caret after it).
+                    if (mut.key === "value" && el === document.activeElement &&
+                        typeof el.selectionStart === "number") {
+                        if (el.value !== mut.value) {
+                            const s = el.selectionStart, end = el.selectionEnd;
+                            el.value = mut.value;
+                            try { el.setSelectionRange(s, end); } catch (_) {}
+                        }
+                    } else {
+                        el[mut.key] = mut.value;
+                    }
+                }
                 break;
             case 4: { // AppendChild
                 const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];

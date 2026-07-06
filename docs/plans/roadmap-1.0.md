@@ -76,9 +76,14 @@ idiomatic async primitive (a "resource"/async signal with loading/error
 states) and error boundaries (recover + fallback UI) so a panic in one subtree
 doesn't blank the page. **L**
 
-**2.3 Forms, inputs, focus.** Audit and complete controlled-input coverage
-(value/checked/select/textarea), form submission ergonomics, and focus/
-selection preservation across keyed reorders and scope re-renders. **M**
+**2.3 Forms, inputs, focus.** ✅ **Mostly done.** `BindSelect` (change-based
+`<select>`) and `BindValueLazy` (commit on change) join `BindValue`/
+`BindChecked`; form/clipboard/focus events (`OnReset`, `OnInvalid`, `OnPaste`,
+`OnCut`, `OnCopy`, `OnFocusIn`, `OnFocusOut`) and a `SelectOnFocus()` handler
+option; and **caret preservation** — a `value` write to the focused text field
+restores the selection instead of jumping to the end (programmatic updates
+still apply). *Remaining:* explicit selection preservation across keyed
+reorders (the active-element check covers the common case).
 
 **2.4 Refs / DOM escape hatch & portals.** A way to get at a real DOM node
 (measure, focus, integrate a non-goowee widget) and render into a different

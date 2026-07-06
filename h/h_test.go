@@ -595,6 +595,126 @@ func TestForRendersKeyedChildren(t *testing.T) {
 	}
 }
 
+func TestBindSelect(t *testing.T) {
+	sig := core.NewSignal("b")
+	item := BindSelect(sig)
+	el := El("select",
+		Option(Value("a"), Text("A")),
+		Option(Value("b"), Text("B")),
+		item,
+	)
+	if len(el.Binds) != 1 || el.Binds[0].Name != "value" {
+		t.Fatalf("expected value bind, got %v", el.Binds)
+	}
+	if len(el.Handlers) != 1 || el.Handlers[0].Event != "change" {
+		t.Fatalf("expected change handler, got %v", el.Handlers)
+	}
+}
+
+func TestBindValueLazy(t *testing.T) {
+	sig := core.NewSignal("")
+	item := BindValueLazy(sig)
+	el := El("input", item)
+	if len(el.Handlers) != 1 || el.Handlers[0].Event != "change" {
+		t.Fatalf("expected change handler for lazy bind, got %v", el.Handlers)
+	}
+}
+
+func TestOnReset(t *testing.T) {
+	var called bool
+	item := OnReset(func() { called = true })
+	el := El("form", item)
+	el.Handlers[0].Fn(core.EventData{})
+	if !called {
+		t.Fatal("expected reset handler to be called")
+	}
+}
+
+func TestOnInvalid(t *testing.T) {
+	var called bool
+	item := OnInvalid(func() { called = true })
+	el := El("input", item)
+	el.Handlers[0].Fn(core.EventData{})
+	if !called {
+		t.Fatal("expected invalid handler to be called")
+	}
+}
+
+func TestOnPaste(t *testing.T) {
+	var val string
+	item := OnPaste(func(value string) { val = value })
+	el := El("input", item)
+	el.Handlers[0].Fn(core.EventData{Data: map[string]any{"value": "pasted"}})
+	if val != "pasted" {
+		t.Fatalf("expected 'pasted', got %q", val)
+	}
+}
+
+func TestOnCut(t *testing.T) {
+	var val string
+	item := OnCut(func(value string) { val = value })
+	el := El("input", item)
+	el.Handlers[0].Fn(core.EventData{Data: map[string]any{"value": "cut"}})
+	if val != "cut" {
+		t.Fatalf("expected 'cut', got %q", val)
+	}
+}
+
+func TestOnCopy(t *testing.T) {
+	var val string
+	item := OnCopy(func(value string) { val = value })
+	el := El("input", item)
+	el.Handlers[0].Fn(core.EventData{Data: map[string]any{"value": "copied"}})
+	if val != "copied" {
+		t.Fatalf("expected 'copied', got %q", val)
+	}
+}
+
+func TestOnFocusIn(t *testing.T) {
+	var called bool
+	item := OnFocusIn(func() { called = true })
+	el := El("input", item)
+	el.Handlers[0].Fn(core.EventData{})
+	if !called {
+		t.Fatal("expected focusin handler to be called")
+	}
+}
+
+func TestOnFocusOut(t *testing.T) {
+	var called bool
+	item := OnFocusOut(func() { called = true })
+	el := El("input", item)
+	el.Handlers[0].Fn(core.EventData{})
+	if !called {
+		t.Fatal("expected focusout handler to be called")
+	}
+}
+
+func TestSelectOnFocusOption(t *testing.T) {
+	item := OnFocus(func() {}, SelectOnFocus())
+	el := El("input", item)
+	if len(el.Handlers) != 1 {
+		t.Fatal("expected 1 handler")
+	}
+	if !el.Handlers[0].Options.SelectOnFocus {
+		t.Fatal("expected SelectOnFocus to be set on handler options")
+	}
+}
+
+func TestSelectOnFocusWithInput(t *testing.T) {
+	// Integration: OnInput already works; verify SelectOnFocus applies to a
+	// focus handler on an input element.
+	el := Input(
+		OnFocus(func() {}, SelectOnFocus()),
+	)
+	if len(el.Handlers) != 1 || el.Handlers[0].Event != "focus" {
+		t.Fatalf("expected focus handler, got %v", el.Handlers)
+	}
+	if !el.Handlers[0].Options.SelectOnFocus {
+		t.Fatal("expected SelectOnFocus option on focus handler")
+	}
+}
+
 func TestForNilAndEmptyLists(t *testing.T) {
 	items := core.NewSignal([]string{})
 	fn := For(items, func(s string) string { return s }, func(s string) core.Node {

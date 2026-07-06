@@ -19,6 +19,7 @@ func Init(sched *core.Scheduler, registry *dom.NodeRegistry) {
 			"handled":         handled,
 			"preventDefault":  opts.PreventDefault,
 			"stopPropagation": opts.StopPropagation,
+			"selectOnFocus":   opts.SelectOnFocus,
 		}
 	}))
 
