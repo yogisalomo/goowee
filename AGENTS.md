@@ -113,6 +113,9 @@ import (
 - SVG: `Svg(...)` roots a namespaced subtree; shapes `Path`, `Circle`, `Rect`, `G`,
   `Line`, `Polyline`, `Polygon`, `Ellipse`; arbitrary attrs via `Attr("viewBox", …)`.
 - Refs/portals: `Ref()`, `RefTo(ref)`, `Portal(target, …)`.
+- Error boundary: `ErrorBoundary(func(err any) core.Node { … }, child)` — renders
+  the fallback if rendering `child` panics (a mount-time failure), so it doesn't
+  blank the page.
 
 **Events** (`h`)
 - Simple: `OnClick(func())`, `OnInput(func(string))`, `OnChange(func(string))`,

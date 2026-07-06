@@ -77,9 +77,14 @@ itself) won't inherit the namespace — render SVG as a unit for now.
 applied on the render loop via `core.Schedule` (with a generation guard so a
 stale fetch can't overwrite a newer one). Fetches on mount and on dep change;
 client-side (server renders the loading state). The `/async` tutorial page
-dogfoods it; unit tests (`-race`) + E2E. _Error boundaries:_ ⏳ **next** —
-recover a render panic in a subtree and show fallback UI so it doesn't blank
-the page.
+dogfoods it; unit tests (`-race`) + E2E. _Error boundaries:_ ✅ **Done**
+(ADR-018). `h.ErrorBoundary(fallback, child)` catches a render-time panic in
+the subtree and shows `fallback(err)` (rolling back renderer state so recovery
+is clean); update-time panics are **contained** by a `recover` in
+`reRenderScope` (the subtree keeps its previous state, logged) so a panicking
+update never blanks the page. `/error` tutorial page dogfoods it; unit tests +
+E2E. *Gap:* update-time panics are contained but don't switch to the fallback
+UI (ADR-018).
 
 **2.3 Forms, inputs, focus.** ✅ **Mostly done.** `BindSelect` (change-based
 `<select>`) and `BindValueLazy` (commit on change) join `BindValue`/

@@ -94,6 +94,18 @@ func activeContext() *RenderContext {
 
 func PushComponent() *ComponentFrame { return activeContext().push() }
 func PopComponent()                  { activeContext().pop() }
+
+// SaveFrameStack returns the current component-stack depth; RestoreFrameStack
+// truncates back to a saved depth. Error recovery uses these so a panic
+// mid-render — which skips the matching PopComponent — doesn't leave the stack
+// unbalanced for later renders.
+func SaveFrameStack() int { return len(activeContext().stack) }
+func RestoreFrameStack(depth int) {
+	c := activeContext()
+	if depth >= 0 && depth <= len(c.stack) {
+		c.stack = c.stack[:depth]
+	}
+}
 func CurrentComponent() *ComponentFrame {
 	return activeContext().currentFrame()
 }
