@@ -169,7 +169,8 @@ func tutorialIndex(r *router.Router) core.Node {
 				link("03", "/todos", "Todos", "keyed lists and virtualization"),
 				link("04", "/dashboard", "Dashboard", "computed values and selection"),
 				link("05", "/stopwatch", "Stopwatch", "OnMount and an off-loop timer"),
-				link("06", "/greet/alice", "Greeting", "URL params, read reactively"),
+				link("06", "/async", "Async", "UseResource — load data in a goroutine"),
+				link("07", "/greet/alice", "Greeting", "URL params, read reactively"),
 			),
 		)
 	})

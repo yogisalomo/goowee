@@ -26,7 +26,7 @@ func main() {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Route known paths through SSR
 		switch r.URL.Path {
-		case "/", "/tutorial", "/counter", "/about", "/form", "/todos", "/stopwatch", "/dashboard":
+		case "/", "/tutorial", "/counter", "/about", "/form", "/todos", "/stopwatch", "/dashboard", "/async":
 			rtr := router.New(r.URL.Path)
 			renderer := ssr.New()
 			body := renderer.Render(app.App(rtr))
