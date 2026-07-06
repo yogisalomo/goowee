@@ -165,8 +165,8 @@ type ErrorBoundaryNode struct {
 	Prev     Node // what is currently rendered (Child's tree, or the fallback)
 }
 
-func (e *ErrorBoundaryNode) nodeMarker()     {}
-func (e *ErrorBoundaryNode) String() string  { return "ErrorBoundary" }
+func (e *ErrorBoundaryNode) nodeMarker()    {}
+func (e *ErrorBoundaryNode) String() string { return "ErrorBoundary" }
 func (e *ErrorBoundaryNode) Apply(parent *ElementNode) {
 	if e == nil {
 		return
