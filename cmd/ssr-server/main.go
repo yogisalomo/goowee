@@ -26,6 +26,10 @@ func main() {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Route known paths through SSR
 		switch r.URL.Path {
+		// "/error" (its demo panics during render) and "/ai" (its <textarea>
+		// content would be corrupted by SSR text-hydration markers — a raw-text
+		// element can't hold comment markers) are intentionally omitted: they're
+		// client-only, served via the index.html fallback and rendered fresh.
 		case "/", "/tutorial", "/counter", "/about", "/form", "/todos", "/stopwatch", "/dashboard", "/async":
 			rtr := router.New(r.URL.Path)
 			renderer := ssr.New()

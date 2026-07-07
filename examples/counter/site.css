@@ -227,7 +227,40 @@ pre, code { font-family: var(--mono); }
 /* generic content pages (tutorial examples) keep readable defaults */
 .page { max-width: 760px; margin: 0 auto; padding: 48px 24px; }
 .page h2 { margin-top: 0; }
-.backlink { font-family: var(--mono); font-size: 13px; }
+
+/* ---- tutorial lessons ---- */
+.lesson { max-width: 820px; }
+.backlink { display: inline-block; margin-bottom: 18px; font-family: var(--mono); font-size: 13px; color: var(--accent-ink); }
+.lesson h1 { font-size: clamp(1.8rem, 4vw, 2.4rem); }
+.lesson h3 { margin: 32px 0 6px; }
+.lesson > .lead { max-width: 60ch; }
+
+.demo-card { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin: 10px 0 28px; background: #fff; }
+.demo-card-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--bg-soft); border-bottom: 1px solid var(--line); }
+.demo-card-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+.demo-card-tag { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--accent-ink); }
+.demo-card-tag::before { content: "\25cf "; }
+.demo-card-body { padding: 22px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.demo-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+/* presentable interactive elements inside a demo */
+.demo-card-body button { font-family: var(--mono); font-size: 14px; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
+.demo-card-body button:hover { border-color: var(--accent); color: var(--accent-ink); }
+.demo-card-body input[type="text"], .demo-card-body input[type="email"] { font-family: var(--sans); font-size: 15px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 220px; }
+.demo-card-body form { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; width: 100%; }
+.demo-card-body label { font-size: 0.95rem; color: var(--muted); }
+.demo-card-body ul { margin: 2px 0 0; padding-left: 18px; }
+.demo-card-body li { padding: 2px 0; }
+.demo-card-body .greeting { color: var(--accent-ink); font-weight: 600; }
+.demo-card-body .hidden { color: var(--muted); }
+.demo-card-body .preview { font-family: var(--mono); font-size: 14px; color: var(--ink); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.demo-card-body a { color: var(--accent-ink); font-family: var(--mono); font-size: 14px; }
+
+.notes { color: var(--muted); line-height: 1.7; }
+.notes li { margin: 4px 0; }
+
+/* AI-guidance copy box (dark, select-all on focus) */
+.copybox { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; padding: 16px; border: 1px solid var(--panel-line); border-radius: 10px; background: var(--panel); color: var(--panel-ink); resize: vertical; }
 
 @media (max-width: 820px) {
   .hero { grid-template-columns: 1fr; gap: 32px; padding-top: 48px; }
