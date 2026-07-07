@@ -1,4 +1,4 @@
-.PHONY: wasm ssr-server test bench size e2e serve serve-ssr clean cpwasm cpjs pages
+.PHONY: wasm ssr-server test bench size e2e boot serve serve-ssr clean cpwasm cpjs pages
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -55,3 +55,8 @@ clean:
 
 e2e:
 	./test/e2e/run.sh
+
+# Boot-latency / TTI measurement (roadmap 3.2). Prints a median phase split;
+# set GOOWEE_TTI_BUDGET_MS to gate. See docs/plans/boot-latency-measurement.md.
+boot:
+	./test/e2e/boot.sh

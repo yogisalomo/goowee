@@ -112,9 +112,13 @@ reconciliation) — both deferred, documented in ADR-017.
 (the reflect-free core helps), document gzip/brotli serving, and explore
 route-level code splitting/lazy loading. **L**
 
-**3.2 Boot latency.** WASM boot is the cost SSR-first is meant to hide (now that
-hydration works). Measure TTI, document streaming instantiation, and consider a
-"interactive-when-ready" story for large apps. **M**
+**3.2 Boot latency.** 🟡 **Measurement landed.** `make boot` records a
+median TTI phase split (download+compile / go boot+render / hydrate) in headless
+Chromium — see `docs/plans/boot-latency-measurement.md`. Baseline finding:
+download+compile of the ~4 MB binary dominates TTI, and the binary is served
+*uncompressed* — gzip alone is a 3.7× download cut (folds into 3.1). *Remaining:*
+an FCP mark to credit SSR's first-paint benefit, a real-network/throttled
+baseline, and CI budget wiring (3.5). **M**
 
 **3.3 Keyed-diff minimal moves.** The keyed reconciler re-inserts every row on a
 list change (no longest-increasing-subsequence), so large lists do O(n) DOM

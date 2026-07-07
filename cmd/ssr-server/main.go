@@ -49,11 +49,7 @@ func main() {
 </head>
 <body>
     <div id="root">%s</div>
-    <script>
-        const go = new Go();
-        WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
-            .then(result => go.run(result.instance));
-    </script>
+    <script>goowee.boot();</script>
 </body>
 </html>`, body)
 			return
