@@ -15,14 +15,15 @@ func App(r *router.Router) core.Node {
 			r.Route(map[string]func() core.Node{
 				"/":            func() core.Node { return landingPage(r) },
 				"/tutorial":    func() core.Node { return tutorialIndex(r) },
-				"/counter":     counterPage,
+				"/counter":     func() core.Node { return counterPage(r) },
 				"/about":       aboutPage,
-				"/form":        formPage,
-				"/todos":       todosPage,
-				"/stopwatch":   stopwatchPage,
-				"/dashboard":   dashboardPage,
-				"/async":       asyncPage,
-				"/error":       errorPage,
+				"/form":        func() core.Node { return formPage(r) },
+				"/todos":       func() core.Node { return todosPage(r) },
+				"/stopwatch":   func() core.Node { return stopwatchPage(r) },
+				"/dashboard":   func() core.Node { return dashboardPage(r) },
+				"/async":       func() core.Node { return asyncPage(r) },
+				"/error":       func() core.Node { return errorPage(r) },
+				"/ai":          func() core.Node { return aiGuidePage(r) },
 				"/greet/:name": func() core.Node { return greetPage(r) },
 			}),
 		)
@@ -68,15 +69,21 @@ func appHeader(r *router.Router) core.Node {
 // ParamSignal, so navigating between names updates the text in place.
 func greetPage(r *router.Router) core.Node {
 	return core.Component("GreetPage", func() core.Node {
-		return Div(
-			H2(Text("Greeting")),
-			P(Textf("Hello, %s!", r.ParamSignal("name"))),
-			Nav(Class("nav"),
+		demo := Div(
+			P(Class("preview"), Textf("Hello, %s!", r.ParamSignal("name"))),
+			Div(Class("demo-row"),
 				r.Link("/greet/alice", "Alice"),
-				Text(" | "),
 				r.Link("/greet/bob", "Bob"),
-				Text(" | "),
 				r.Link("/greet/carol", "Carol"),
+			),
+		)
+		return lessonLayout(r, "URL params",
+			"The route /greet/:name captures a param. This one component is preserved across name changes and reads the param reactively, so switching names updates the text in place — no remount.",
+			demo, "greet.go", greetCode,
+			howItWorks(
+				"Register a param route: r.Route(map[string]…{ \"/greet/:name\": … }).",
+				"r.ParamSignal(\"name\") is a derived signal; binding it (via Textf) updates the text when only the param changes.",
+				"Use r.Param(\"name\") instead for a one-shot read inside an event handler.",
 			),
 		)
 	})
@@ -86,23 +93,26 @@ func homePage() core.Node {
 	return H1(Text("Welcome to Goowee"))
 }
 
-func counterPage() core.Node {
+func counterPage(r *router.Router) core.Node {
 	return core.Component("CounterPage", func() core.Node {
 		count, setCount := hooks.UseState(0)
 		show, setShow := hooks.UseState(true)
 
-		return Div(
-			Button(
-				OnClick(func() { setCount(count.Get() + 1) }),
-				Textf("Count: %d", count),
-			),
-			Button(
-				OnClick(func() { setShow(!show.Get()) }),
-				Text("Toggle"),
-			),
+		demo := Div(Class("demo-row"),
+			Button(OnClick(func() { setCount(count.Get() + 1) }), Textf("Count: %d", count)),
+			Button(OnClick(func() { setShow(!show.Get()) }), Text("Toggle")),
 			ShowElse(show,
 				func() core.Node { return P(Class("greeting"), Text("Hello!")) },
 				func() core.Node { return P(Class("hidden"), Text("(hidden)")) },
+			),
+		)
+		return lessonLayout(r, "Counter",
+			"State is a signal. Reading it inside Textf binds that text to the signal, so clicking updates only the number — nothing else re-renders.",
+			demo, "counter.go", counterCode,
+			howItWorks(
+				"hooks.UseState(0) returns a signal and a setter; read with count.Get(), write with setCount(v).",
+				"Textf(\"Count: %d\", count) binds the signal — the setter updates just that text node, not the component.",
+				"ShowElse swaps between two views based on a boolean signal.",
 			),
 		)
 	})
@@ -114,7 +124,7 @@ type entry struct {
 	agreed      bool
 }
 
-func formPage() core.Node {
+func formPage(r *router.Router) core.Node {
 	return core.Component("FormPage", func() core.Node {
 		name, setName := hooks.UseState("")
 		email, setEmail := hooks.UseState("")
@@ -122,9 +132,8 @@ func formPage() core.Node {
 		entries, setEntries := hooks.UseState([]entry{})
 		nameRef := Ref() // imperative focus (h.Ref → ref.Focus)
 
-		return Div(
-			H2(Text("Form Demo")),
-			Button(Type("button"), OnClick(func() { nameRef.Focus() }), Text("Focus name")),
+		demo := Div(
+			Button(Class("btn"), Type("button"), OnClick(func() { nameRef.Focus() }), Text("Focus name")),
 			Form(
 				OnSubmit(func(vals map[string]string) {
 					en := entry{
@@ -138,22 +147,15 @@ func formPage() core.Node {
 					setEmail("")
 					setAgreed(false)
 				}),
-				label("Name", Input(
-					Type("text"), Name("name"), RefTo(nameRef), BindValue(name),
-				)),
-				label("Email", Input(
-					Type("email"), Name("email"), BindValue(email),
-				)),
+				label("Name", Input(Type("text"), Name("name"), RefTo(nameRef), BindValue(name))),
+				label("Email", Input(Type("email"), Name("email"), BindValue(email))),
 				Label(
-					Input(
-						Type("checkbox"), Name("agreed"), BindChecked(agreed),
-					),
+					Input(Type("checkbox"), Name("agreed"), BindChecked(agreed)),
 					Text(" Subscribe to newsletter"),
 				),
 				Button(Text("Submit")),
 			),
-			H3(Text("Preview")),
-			P(Textf("Name: %s, Email: %s", name, email)),
+			P(Class("preview"), Textf("Preview — Name: %s, Email: %s", name, email)),
 			H3(Text("Submissions")),
 			For(entries, func(e entry) int { return e.id }, func(e entry) core.Node {
 				agreed := "no"
@@ -162,6 +164,16 @@ func formPage() core.Node {
 				}
 				return Li(Text(e.name + " — " + e.email + " (subscribed: " + agreed + ")"))
 			}),
+		)
+		return lessonLayout(r, "Forms & inputs",
+			"BindValue keeps an input and a signal in sync both ways. OnSubmit hands you the named field values, and a ref lets you focus a field imperatively.",
+			demo, "form.go", formCode,
+			howItWorks(
+				"BindValue(name) fills the input from the signal and updates the signal on every keystroke — two-way.",
+				"OnSubmit(func(vals map[string]string){…}) receives values keyed by each input's Name; preventDefault is handled for you.",
+				"ref := Ref(); attach with RefTo(ref); ref.Focus() from a handler focuses the node.",
+				"For(entries, key, render) renders the keyed, reactive list of submissions.",
+			),
 		)
 	})
 }
@@ -180,7 +192,7 @@ type todo struct {
 	completed bool
 }
 
-func todosPage() core.Node {
+func todosPage(r *router.Router) core.Node {
 	return core.Component("TodosPage", func() core.Node {
 		initial := make([]todo, 100)
 		for i := range initial {
@@ -243,8 +255,7 @@ func todosPage() core.Node {
 			)
 		}, VirtualListHeight(300))
 
-		return Div(
-			H2(Text("Todo List")),
+		demo := Div(
 			Form(
 				OnSubmit(func(vals map[string]string) {
 					text := vals["todo"]
@@ -255,22 +266,27 @@ func todosPage() core.Node {
 					setNextID(id + 1)
 					setTodos(append([]todo{{id: id, text: text}}, todos.Get()...))
 				}),
-				Input(
-					Type("text"), Name("todo"), Placeholder("What needs to be done?"),
-				),
+				Input(Type("text"), Name("todo"), Placeholder("What needs to be done?")),
 				Button(Text("Add")),
 			),
-			P(TextS(doneCount)),
+			P(Class("preview"), TextS(doneCount)),
 			todoList,
+		)
+		return lessonLayout(r, "Keyed lists & virtualization",
+			"This list holds 100 items but only renders the rows on screen. Each row is keyed, so toggling or removing one touches just that row.",
+			demo, "todos.go", todosCode,
+			howItWorks(
+				"VirtualList(sig, rowHeight, render, VirtualListHeight(h)) renders only the visible window of a large list.",
+				"Each row updates its slice immutably (copy, then setTodos) so the signal notices the change.",
+				"doneCount is a Computed over todos — it recomputes only when the list changes.",
+			),
 		)
 	})
 }
 
-func errorPage() core.Node {
+func errorPage(r *router.Router) core.Node {
 	return core.Component("ErrorPage", func() core.Node {
-		return Div(Class("page"),
-			H2(Text("Error boundary")),
-			P(Style("color:var(--muted)"), Text("The box below panics on purpose. The boundary catches it and shows a fallback — the rest of the page keeps working.")),
+		demo := Div(
 			ErrorBoundary(
 				func(err any) core.Node {
 					return P(Style("color:#c0392b;font-family:var(--mono)"), Textf("Recovered: %v", err))
@@ -278,6 +294,15 @@ func errorPage() core.Node {
 				brokenBox(),
 			),
 			P(Text("This line still renders below the boundary.")),
+		)
+		return lessonLayout(r, "Error boundaries",
+			"The box below panics on purpose. The boundary catches the failure and renders a fallback, so the rest of the page keeps working instead of going blank.",
+			demo, "error.go", errorCode,
+			howItWorks(
+				"h.ErrorBoundary(fallback, child) renders fallback(err) if rendering child panics.",
+				"It's for render-time failures (e.g. bad data at mount); update-time panics are contained (the subtree keeps its previous state) and logged.",
+				"Everything outside the boundary renders normally — the failure is scoped.",
+			),
 		)
 	})
 }
@@ -288,7 +313,7 @@ func brokenBox() core.Node {
 	})
 }
 
-func asyncPage() core.Node {
+func asyncPage(r *router.Router) core.Node {
 	return core.Component("AsyncPage", func() core.Node {
 		// A goroutine does the "loading" off the render loop; UseResource applies
 		// the result back safely via core.Schedule. Server renders the loading
@@ -297,19 +322,26 @@ func asyncPage() core.Node {
 			time.Sleep(500 * time.Millisecond)
 			return "Loaded at " + time.Now().Format("15:04:05.000"), nil
 		})
-		return Div(Class("page"),
-			H2(Text("Async data")),
-			P(Style("color:var(--muted)"), Text("A goroutine loads off the render loop; the view binds loading/data signals.")),
+		demo := Div(
 			ShowElse(res.Loading,
 				func() core.Node { return P(Text("Loading…")) },
-				func() core.Node { return P(TextS(res.Data)) },
+				func() core.Node { return P(Class("preview"), TextS(res.Data)) },
 			),
-			Button(Type("button"), OnClick(func() { res.Refetch() }), Text("Reload")),
+			Button(Class("btn"), Type("button"), OnClick(func() { res.Refetch() }), Text("Reload")),
+		)
+		return lessonLayout(r, "Async data",
+			"Real work runs in a goroutine — off the render loop — and UseResource applies the result back safely. The view just binds the loading and data signals.",
+			demo, "async.go", asyncCode,
+			howItWorks(
+				"hooks.UseResource(deps, fetch) runs fetch in a goroutine; its result lands on the render loop via core.Schedule.",
+				"It exposes Data/Loading/Err signals and a Refetch() method; a generation guard drops stale results.",
+				"Fetching is client-side, so SSR renders the loading state and the client fills it in after hydration.",
+			),
 		)
 	})
 }
 
-func stopwatchPage() core.Node {
+func stopwatchPage(r *router.Router) core.Node {
 	return core.Component("StopwatchPage", func() core.Node {
 		elapsed, setElapsed := hooks.UseState(0)
 		running, setRunning := hooks.UseState(false)
@@ -354,22 +386,26 @@ func stopwatchPage() core.Node {
 			return func() { close(stop) }
 		})
 
-		return Div(
-			H2(Text("Stopwatch")),
-			P(Style("font-size:2rem;font-family:monospace;"), TextS(display)),
-			Button(
-				OnClick(func() { setRunning(!running.Get()) }),
-				TextS(runLabel),
+		demo := Div(
+			P(Style("font-size:2rem;font-family:var(--mono);margin:0 0 12px"), TextS(display)),
+			Div(Class("demo-row"),
+				Button(OnClick(func() { setRunning(!running.Get()) }), TextS(runLabel)),
+				Button(OnClick(func() { setElapsed(0); setRunning(false) }), Text("Reset")),
 			),
-			Button(
-				OnClick(func() { setElapsed(0); setRunning(false) }),
-				Text("Reset"),
+		)
+		return lessonLayout(r, "Lifecycle & off-loop timers",
+			"OnMount starts a ticker goroutine when the component mounts and stops it on unmount. Because the ticker runs off the render loop, it updates state through core.Schedule.",
+			demo, "stopwatch.go", stopwatchCode,
+			howItWorks(
+				"hooks.OnMount(fn) runs once on mount (client only) and returns a cleanup that runs on unmount — no leaked goroutines.",
+				"The ticker is off the render loop, so it wraps the update in core.Schedule(func(){…}) instead of calling the setter directly.",
+				"display is a Computed that formats elapsed tenths as mm:ss.d.",
 			),
 		)
 	})
 }
 
-func dashboardPage() core.Node {
+func dashboardPage(r *router.Router) core.Node {
 	return core.Component("DashboardPage", func() core.Node {
 		data, setData := hooks.UseState([]dashboardRow{
 			{Label: "Alpha", Value: 42, Unit: "km"},
@@ -398,9 +434,8 @@ func dashboardPage() core.Node {
 			return fmt.Sprintf("Selected: %s = %d%s", row.Label, row.Value, row.Unit)
 		})
 
-		return Div(
-			H2(Text("Dashboard")),
-			P(TextS(totalStr)),
+		demo := Div(
+			P(Class("preview"), TextS(totalStr)),
 			Table(
 				Style("border-collapse:collapse;width:100%;max-width:500px;"),
 				Thead(
@@ -413,17 +448,23 @@ func dashboardPage() core.Node {
 				Tbody(Nodes(dashboardRows(data, selected, setSelected))...),
 			),
 			P(TextS(selectedText)),
-			Button(
-				OnClick(func() {
-					cur := data.Get()
-					next := make([]dashboardRow, len(cur))
-					copy(next, cur)
-					for i := range next {
-						next[i].Value = (next[i].Value*7 + 13) % 100
-					}
-					setData(next)
-				}),
-				Text("Randomize Values"),
+			Button(OnClick(func() {
+				cur := data.Get()
+				next := make([]dashboardRow, len(cur))
+				copy(next, cur)
+				for i := range next {
+					next[i].Value = (next[i].Value*7 + 13) % 100
+				}
+				setData(next)
+			}), Text("Randomize Values")),
+		)
+		return lessonLayout(r, "Computed values & selection",
+			"Two Computed values derive from signals: a running total, and a description of the selected row. Each recomputes only when its inputs change — click a row or randomize to see it.",
+			demo, "dashboard.go", dashboardCode,
+			howItWorks(
+				"core.Computed(deps, fn) is a read-only signal derived from others; it recomputes only when a listed dep changes.",
+				"selectedText depends on both selected and data, so it updates when either changes.",
+				"Clicking a row calls setSelected(i); Randomize replaces data immutably so dependents recompute.",
 			),
 		)
 	})

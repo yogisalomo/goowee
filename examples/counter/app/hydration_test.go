@@ -50,15 +50,21 @@ func domIDKinds(muts []core.Mutation) map[int]string {
 // invariant for every example page — elements and text alike. Rendered under
 // EnvServer on both sides so component effects don't run (ids don't depend on
 // env, and this keeps the stopwatch's ticker from spawning).
+// rp adapts a router-taking page to a no-arg page for tests (a fresh root
+// router; base is "" so output is identical to the untweaked pages).
+func rp(fn func(*router.Router) core.Node) func() core.Node {
+	return func() core.Node { return fn(router.New("/")) }
+}
+
 func TestSSRDOMIDParity(t *testing.T) {
 	pages := map[string]func() core.Node{
 		"home":      homePage,
-		"counter":   counterPage,
+		"counter":   rp(counterPage),
 		"about":     aboutPage,
-		"form":      formPage,
-		"todos":     todosPage,
-		"stopwatch": stopwatchPage,
-		"dashboard": dashboardPage,
+		"form":      rp(formPage),
+		"todos":     rp(todosPage),
+		"stopwatch": rp(stopwatchPage),
+		"dashboard": rp(dashboardPage),
 	}
 
 	for name, page := range pages {
@@ -126,9 +132,9 @@ func (d *fakeDOM) applyHydrating(muts []core.Mutation) (created int) {
 func TestHydrationReusesServerNodesNoDuplicates(t *testing.T) {
 	pages := map[string]func() core.Node{
 		"home":    homePage,
-		"counter": counterPage,
-		"form":    formPage,
-		"todos":   todosPage,
+		"counter": rp(counterPage),
+		"form":    rp(formPage),
+		"todos":   rp(todosPage),
 	}
 	for name, page := range pages {
 		t.Run(name, func(t *testing.T) {
@@ -199,7 +205,7 @@ func TestGreetParamRouteReactive(t *testing.T) {
 // nothing (the optimization: reuse, don't rebuild).
 func TestHydrateRenderEmitsOnlyClaims(t *testing.T) {
 	for name, page := range map[string]func() core.Node{
-		"home": homePage, "counter": counterPage, "form": formPage, "todos": todosPage,
+		"home": homePage, "counter": rp(counterPage), "form": rp(formPage), "todos": rp(todosPage),
 	} {
 		t.Run(name, func(t *testing.T) {
 			var serverMuts []core.Mutation
@@ -298,7 +304,7 @@ func TestHydrateDynamicReappliesValues(t *testing.T) {
 func TestHydrateStaysReactive(t *testing.T) {
 	var serverMuts []core.Mutation
 	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
-		serverMuts, _ = dom.New().Render(counterPage())
+		serverMuts, _ = dom.New().Render(counterPage(router.New("/")))
 	})
 	fd := newFakeDOM()
 	fd.apply(serverMuts)
@@ -306,7 +312,7 @@ func TestHydrateStaysReactive(t *testing.T) {
 	r := dom.New()
 	r.SetHydrating(true)
 	var clientMuts []core.Mutation
-	r.Render(counterPage()) // hydrate; sets client ids == server ids (parity)
+	r.Render(counterPage(router.New("/"))) // hydrate; sets client ids == server ids (parity)
 	// (clientMuts unused; claims don't change fd)
 	_ = clientMuts
 

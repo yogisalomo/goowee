@@ -208,6 +208,13 @@ more complex and fragile across whitespace/merging. Rejected.
 **Consequences.** A few extra comment bytes in SSR output, stripped at
 hydration. The marker doubles as a separator that prevents text-node merging.
 
+**Known limitation.** Raw-text elements (`<textarea>`, `<title>`, `<script>`,
+`<style>`) can't hold comment markers — HTML doesn't parse comments inside them,
+so a marker would show up as literal content. Text inside such elements must be
+rendered client-side (don't SSR it), e.g. the tutorial's AI-guidance `<textarea>`
+page is a client-only route. A proper fix (skip markers for raw-text parents and
+claim their text without one) is deferred.
+
 ---
 
 ## ADR-010: Signals are single-threaded (no locking)

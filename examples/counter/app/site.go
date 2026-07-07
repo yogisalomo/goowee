@@ -172,6 +172,7 @@ func tutorialIndex(r *router.Router) core.Node {
 				link("06", "/async", "Async", "UseResource — load data in a goroutine"),
 				link("07", "/error", "Error boundary", "recover a render panic, show a fallback"),
 				link("08", "/greet/alice", "Greeting", "URL params, read reactively"),
+				link("09", "/ai", "Coding with an AI agent", "drop-in rules for Claude Code, Cursor, …"),
 			),
 		)
 	})
