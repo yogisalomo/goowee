@@ -6,6 +6,73 @@ function getRoot() {
     return rootNode;
 }
 
+// Boot instrumentation (roadmap 3.2). All marks are one-shot and namespaced so
+// they never collide with app or browser marks, and SPA route changes don't
+// overwrite them. See docs/plans/boot-latency-measurement.md.
+const goowee = (window.goowee = window.goowee || {});
+function mark(name) {
+    try { performance.mark(name); } catch (_) {}
+}
+function markOnce(name) {
+    if (goowee["_" + name]) return;
+    goowee["_" + name] = true;
+    mark(name);
+}
+
+// boot loads and runs the WASM module, replacing the copy-pasted loader that
+// used to live in each HTML shell. `opts.wasm` overrides the module URL (default
+// "main.wasm", resolved against <base> like the other assets).
+goowee.boot = function boot(opts) {
+    opts = opts || {};
+    const wasmURL = opts.wasm || "main.wasm";
+    const go = new Go();
+    mark("goowee:fetch-start");
+    return WebAssembly.instantiateStreaming(fetch(wasmURL), go.importObject)
+        .then(function (result) {
+            mark("goowee:instantiated");
+            mark("goowee:run");
+            go.run(result.instance);
+        });
+};
+
+// bootTimings collects the marks and the wasm Resource Timing entry into a plain
+// object (read by value over CDP by test/e2e/boot.mjs). Durations are ms.
+goowee.bootTimings = function bootTimings() {
+    const at = function (name) {
+        const e = performance.getEntriesByName(name, "mark");
+        return e.length ? e[0].startTime : null;
+    };
+    const marks = {
+        fetchStart: at("goowee:fetch-start"),
+        instantiated: at("goowee:instantiated"),
+        run: at("goowee:run"),
+        firstListen: at("goowee:first-listen"),
+        hydrateStart: at("goowee:hydrate-start"),
+        hydrateEnd: at("goowee:hydrate-end"),
+        interactive: at("goowee:interactive"),
+    };
+    const res = performance.getEntriesByType("resource")
+        .find(function (r) { return r.name.split("?")[0].endsWith("main.wasm"); });
+    const sub = function (a, b) { return (a != null && b != null) ? a - b : null; };
+    return {
+        interactive: goowee._interactive === true,
+        marks: marks,
+        phases: {
+            downloadCompile: sub(marks.instantiated, marks.fetchStart),
+            goBoot: sub(marks.interactive, marks.run),
+            hydrate: sub(marks.hydrateEnd, marks.hydrateStart),
+            tti: marks.interactive, // from navigation start (timeOrigin)
+        },
+        wasm: res ? {
+            transferSize: res.transferSize,
+            encodedBodySize: res.encodedBodySize,
+            duration: res.duration,
+            startTime: res.startTime,
+            responseEnd: res.responseEnd,
+        } : null,
+    };
+};
+
 const preexistingNodes = {};
 let hydrated = false;
 
@@ -17,8 +84,9 @@ let hydrated = false;
 function hydrateOnce() {
     if (hydrated) return;
     hydrated = true;
+    mark("goowee:hydrate-start");
     const root = getRoot();
-    if (!root) return;
+    if (!root) { mark("goowee:hydrate-end"); return; }
 
     root.querySelectorAll("[data-node-id]").forEach(el => {
         preexistingNodes[parseInt(el.getAttribute("data-node-id"), 10)] = el;
@@ -40,6 +108,7 @@ function hydrateOnce() {
         }
         comment.remove();
     }
+    mark("goowee:hydrate-end");
 }
 
 const listening = {};
@@ -62,6 +131,8 @@ function queueEvent(type, e) {
 }
 
 window.goListen = function (type, capture) {
+    // First registration means Go has booted through bridge.Init (roadmap 3.2).
+    markOnce("goowee:first-listen");
     if (listening[type]) return;
     listening[type] = true;
     var handler = (type === "scroll" || type === "pointermove")
@@ -120,6 +191,11 @@ function dispatchToGo(type, e) {
 
 window.applyMutations = function applyMutations(json) {
     hydrateOnce();
+    // First flush = first paint of app-produced DOM = interactive (roadmap 3.2).
+    if (!goowee._interactive) {
+        goowee._interactive = true;
+        mark("goowee:interactive");
+    }
     const muts = JSON.parse(json);
     for (const mut of muts) {
         let el;

@@ -10,13 +10,9 @@
     <link rel="stylesheet" href="site.css">
     <script src="wasm_exec.js"></script>
     <script src="goowee.js"></script>
-    <script>
-        const go = new Go();
-        WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
-            .then((result) => go.run(result.instance));
-    </script>
 </head>
 <body>
     <div id="root"></div>
+    <script>goowee.boot();</script>
 </body>
 </html>
