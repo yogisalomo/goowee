@@ -43,10 +43,31 @@ function hydrateOnce() {
 }
 
 const listening = {};
+// Coalesce high-frequency events: only the latest event per type is kept,
+// and they flush on the next requestAnimationFrame.
+const pendingEvents = {};
+let rAFEventPending = false;
+function queueEvent(type, e) {
+    pendingEvents[type] = e;
+    if (!rAFEventPending) {
+        rAFEventPending = true;
+        requestAnimationFrame(function () {
+            rAFEventPending = false;
+            for (var t in pendingEvents) {
+                dispatchToGo(t, pendingEvents[t]);
+                delete pendingEvents[t];
+            }
+        });
+    }
+}
+
 window.goListen = function (type, capture) {
     if (listening[type]) return;
     listening[type] = true;
-    document.addEventListener(type, e => dispatchToGo(type, e), capture);
+    var handler = (type === "scroll" || type === "pointermove")
+        ? function (e) { queueEvent(type, e); }
+        : function (e) { dispatchToGo(type, e); };
+    document.addEventListener(type, handler, capture);
 };
 
 function buildPayload(type, e) {
