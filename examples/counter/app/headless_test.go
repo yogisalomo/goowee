@@ -281,6 +281,30 @@ func TestCounterPageHeadless(t *testing.T) {
 	}
 }
 
+// findAllText returns nodes of tag whose text contains substr — used to target
+// demo content and ignore lesson chrome (code panel, "how it works" list).
+func (d *fakeDOM) findAllText(tag, substr string) []int {
+	out := []int{}
+	for _, id := range d.findAll(func(n *fnode) bool { return n.tag == tag }) {
+		if strings.Contains(d.text(id), substr) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// findAllInLi returns nodes of tag whose direct parent is an <li> — e.g. the
+// todo-row spans, excluding decorative spans in the card/code-panel bars.
+func (d *fakeDOM) findAllInLi(tag string) []int {
+	out := []int{}
+	for _, id := range d.findAll(func(n *fnode) bool { return n.tag == tag }) {
+		if p, ok := d.nodes[d.nodes[id].parent]; ok && p.tag == "li" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 func TestFormPageHeadless(t *testing.T) {
 	h := mount(t, formPage(testRouter()))
 
@@ -303,7 +327,7 @@ func TestFormPageHeadless(t *testing.T) {
 	// Submit adds an entry to the list.
 	form := h.dom.find(func(n *fnode) bool { return n.tag == "form" })
 	h.submit(form, map[string]any{"name": "Ada", "email": "ada@x.io", "agreed": "on"})
-	lis := h.dom.findAll(func(n *fnode) bool { return n.tag == "li" })
+	lis := h.dom.findAllText("li", "subscribed:")
 	if len(lis) != 1 {
 		t.Fatalf("want 1 submission li, got %d", len(lis))
 	}
@@ -318,7 +342,7 @@ func TestFormPageHeadless(t *testing.T) {
 
 	// A second, distinct submission appends a keyed row (unique keys).
 	h.submit(form, map[string]any{"name": "Bob", "email": "bob@x.io", "agreed": "off"})
-	lis = h.dom.findAll(func(n *fnode) bool { return n.tag == "li" })
+	lis = h.dom.findAllText("li", "subscribed:")
 	if len(lis) != 2 {
 		t.Fatalf("want 2 submission lis, got %d", len(lis))
 	}
@@ -337,7 +361,7 @@ func TestTodosPageHeadless(t *testing.T) {
 	}
 
 	// VirtualList renders a window, not all 100 items.
-	spans := h.dom.findAll(func(n *fnode) bool { return n.tag == "span" })
+	spans := h.dom.findAllInLi("span")
 	if len(spans) == 0 {
 		t.Fatal("expected some visible todo items")
 	}
@@ -362,7 +386,7 @@ func TestTodosPageHeadless(t *testing.T) {
 	if !strings.Contains(h.dom.text(0), "completed") || !strings.Contains(h.dom.text(0), "/101") {
 		t.Fatalf("want /101 after add, tree = %q", h.dom.text(0))
 	}
-	spans = h.dom.findAll(func(n *fnode) bool { return n.tag == "span" })
+	spans = h.dom.findAllInLi("span")
 	if got := h.dom.text(spans[0]); got != "Brand new" {
 		t.Fatalf("new todo should be first; got %q", got)
 	}
@@ -373,7 +397,7 @@ func TestTodosPageHeadless(t *testing.T) {
 	if !strings.Contains(h.dom.text(0), "/100") {
 		t.Fatalf("want /100 after remove, tree = %q", h.dom.text(0))
 	}
-	spans = h.dom.findAll(func(n *fnode) bool { return n.tag == "span" })
+	spans = h.dom.findAllInLi("span")
 	if got := h.dom.text(spans[0]); got != "Item 1" {
 		t.Fatalf("after removing new todo, first should be Item 1; got %q", got)
 	}
@@ -462,8 +486,8 @@ func TestStopwatchPageHeadless(t *testing.T) {
 
 	h := mount(t, &core.ElementNode{Tag: "main", Children: []core.Node{scope}})
 
-	if !strings.Contains(h.dom.text(0), "Stopwatch") {
-		t.Fatalf("stopwatch heading missing; tree = %q", h.dom.text(0))
+	if !strings.Contains(h.dom.text(0), "off-loop timers") {
+		t.Fatalf("stopwatch lesson heading missing; tree = %q", h.dom.text(0))
 	}
 	disp := h.dom.find(func(n *fnode) bool {
 		s, ok := n.props["textContent"].(string)

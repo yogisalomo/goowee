@@ -53,11 +53,11 @@ func domIDKinds(muts []core.Mutation) map[int]string {
 func TestSSRDOMIDParity(t *testing.T) {
 	r := testRouter()
 	pages := map[string]func() core.Node{
-		"home":    homePage,
-		"counter": func() core.Node { return counterPage(r) },
-		"about":   aboutPage,
-		"form":    func() core.Node { return formPage(r) },
-		"todos":   func() core.Node { return todosPage(r) },
+		"home":      homePage,
+		"counter":   func() core.Node { return counterPage(r) },
+		"about":     aboutPage,
+		"form":      func() core.Node { return formPage(r) },
+		"todos":     func() core.Node { return todosPage(r) },
 		"stopwatch": func() core.Node { return stopwatchPage(r) },
 		"dashboard": func() core.Node { return dashboardPage(r) },
 	}
@@ -84,7 +84,7 @@ func TestSSRDOMIDParity(t *testing.T) {
 			for id, kind := range domMap {
 				if ssrMap[id] != kind {
 					t.Fatalf("id %d: dom=%q ssr=%q (parity broken -> hydration would reuse the wrong node)\nssr=%v\ndom=%v",
-					id, kind, ssrMap[id], sortedKinds(ssrMap), sortedKinds(domMap))
+						id, kind, ssrMap[id], sortedKinds(ssrMap), sortedKinds(domMap))
 				}
 			}
 		})

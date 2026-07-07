@@ -184,9 +184,10 @@ func aiGuidePage(r *router.Router) core.Node {
 			Textarea(Class("copybox"), ReadOnly(true), Rows(24),
 				OnFocus(func() {}, SelectOnFocus()),
 				Text(aiRules)),
-			P(Text("The complete guide — mental model, full API cheat sheet, copy-paste patterns, and anti-patterns — lives in "),
+			P(Text("The complete guide, mental model, full API cheat sheet, copy-paste patterns, and anti-patterns, lives in "),
 				A(Href(repoURL+"/blob/main/AGENTS.md"), Target("_blank"), Rel("noopener"), Text("AGENTS.md")),
 				Text(".")),
+			tutorialStepNav(r, "/ai"),
 		)
 	})
 }
