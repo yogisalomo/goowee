@@ -29,10 +29,17 @@ guide (signals, run-once components, scopes/`Show`/`For`, SSR + hydration), and
 an API reference for the public surface (`h`, `hooks`, `core` signals,
 `router`, `ssr`). The README should be the entry point, not a design dump. **M**
 
-**0.3 Public vs internal API boundary.** Decide what is public and freeze it
-for v0.x with a deprecation policy. Move genuinely-internal types behind
-`internal/` so they can't be imported. Today everything in `core`/`dom`/`ssr`
-is exported and importable, which makes every field a de-facto public contract. **M**
+**0.3 Public vs internal API boundary.** 🟡 **Mostly done.** The public API is
+now defined and the v0 stability/deprecation policy written (`docs/api-stability.md`):
+public packages are `h`/`hooks`/`router`/`ssr`/`bridge` plus a named subset of
+`core`. The **whole `dom` renderer moved to `internal/dom`** so external modules
+can't import it, and a single client entry point `bridge.Run(node)` replaced the
+old `dom.New()`/`renderer.Render`/`bridge.Init` dance that leaked
+`renderer.Scheduler`/`Registry` (dead `NoopBridge`/`Bridge` removed). *Remaining:*
+`core` still exports framework internals (scheduler, mutations, render context,
+node structs) alongside its public subset — hiding those needs a `core` split
+into public/internal halves (an L refactor, related to P4.1); for now the boundary
+is documented rather than compiler-enforced. **M**
 
 ---
 
