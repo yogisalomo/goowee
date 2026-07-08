@@ -1167,7 +1167,7 @@ func TestFakeDOMKeyedProperty(t *testing.T) {
 			if el, ok := n.(*core.ElementNode); ok {
 				id := el.ID
 				if id == 0 {
-					id = r.allocID()
+					id = r.AllocID()
 				}
 				fd2.nodes[id] = &fakeNode{ID: id, Tag: el.Tag, ParentID: parentID}
 				fd2.nodes[parentID].Children = append(fd2.nodes[parentID].Children, id)
