@@ -239,6 +239,14 @@ subtree in `h.Dynamic()` so the client's value is re-applied over the server's,
 or render a placeholder and fill it in from `OnMount` (which runs only on the
 client). A structural mismatch logs a clear console error. See ADR-016.
 
+### Serving & compression
+
+The WASM binary is the app's one large download and dominates time-to-interactive,
+so serve it **compressed**: gzip cuts the example binary ~3.7× (4.2 MB → 1.1 MB).
+GitHub Pages and most CDNs do this automatically; the `cmd/ssr-server` reference
+server gzips the wasm, JS/CSS, and SSR HTML out of the box. See
+[`docs/serving.md`](docs/serving.md).
+
 ## Project layout
 
 ```
