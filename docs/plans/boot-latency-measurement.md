@@ -144,10 +144,28 @@ grows.
 ### Recommended next actions, in value order
 
 1. **Enable gzip/brotli for `.wasm`** (3.1) — ~3.7× download cut, near-zero risk.
-   Measure again with `make boot` to confirm; the harness already reports
-   bytes-on-the-wire.
+   ✅ **Done.** The reference SSR server (`cmd/ssr-server`) now gzips the wasm
+   (4181 KB → 1138 KB, cached and compressed once), the JS/CSS, and the SSR HTML;
+   GitHub Pages already gzips via its CDN. Serving is documented in
+   `docs/serving.md`. Confirmed with the harness under throttling (below).
 2. **Add an FCP mark** so SSR's actual benefit is visible next to TTI.
 3. Only then evaluate **TinyGo** (3.1) against the *post-compression* download —
    the incremental win may be much smaller once the binary is already ~1 MB.
 4. Wire `make boot` into CI with a `GOOWEE_TTI_BUDGET_MS` gate (3.5) once a
    real-network baseline is chosen.
+
+### Confirming the compression win (throttled)
+
+Loopback has effectively infinite bandwidth, so it hides the download win — under
+`THROTTLE=off` the compressed and uncompressed TTI are indistinguishable. Run the
+harness under an emulated network to see it:
+
+```sh
+THROTTLE=4g make boot     # also: fast3g, slow3g
+```
+
+`boot.mjs` now applies the profile via CDP `Network.emulateNetworkConditions` and
+reports the wasm bytes-on-the-wire (which drop ~3.7× with gzip). A deterministic
+cross-check at a fixed 500 KB/s (curl `--limit-rate`) shows the download phase
+directly: **8.0 s uncompressed → 2.1 s gzip** for `main.wasm`. Since download
+dominates TTI, that is the bulk of the boot-time win on any real connection.

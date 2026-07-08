@@ -108,17 +108,19 @@ reconciliation) — both deferred, documented in ADR-017.
 
 ## P3 — Performance & footprint (adoption-deciding, not correctness)
 
-**3.1 Bundle size.** ~3.7 MB raw / ~1.0 MB gzip today. Evaluate TinyGo
-(the reflect-free core helps), document gzip/brotli serving, and explore
-route-level code splitting/lazy loading. **L**
+**3.1 Bundle size.** ~3.7 MB raw / ~1.0 MB gzip today. *gzip/brotli serving:*
+✅ **Done** — documented in `docs/serving.md`; the reference SSR server gzips the
+wasm (3.7×), JS/CSS, and SSR HTML, and GitHub Pages gzips via its CDN. *Remaining:*
+evaluate TinyGo (the reflect-free core helps) against the *post-compression*
+download, and explore route-level code splitting/lazy loading. **L**
 
 **3.2 Boot latency.** 🟡 **Measurement landed.** `make boot` records a
 median TTI phase split (download+compile / go boot+render / hydrate) in headless
 Chromium — see `docs/plans/boot-latency-measurement.md`. Baseline finding:
-download+compile of the ~4 MB binary dominates TTI, and the binary is served
-*uncompressed* — gzip alone is a 3.7× download cut (folds into 3.1). *Remaining:*
-an FCP mark to credit SSR's first-paint benefit, a real-network/throttled
-baseline, and CI budget wiring (3.5). **M**
+download+compile of the ~4 MB binary dominates TTI. The 3.7× gzip download cut it
+surfaced is now served (see 3.1 / `docs/serving.md`), and `make boot` supports
+`THROTTLE=4g|fast3g|slow3g` to measure it on an emulated network. *Remaining:* an
+FCP mark to credit SSR's first-paint benefit, and CI budget wiring (3.5). **M**
 
 **3.3 Keyed-diff minimal moves.** The keyed reconciler re-inserts every row on a
 list change (no longest-increasing-subsequence), so large lists do O(n) DOM
