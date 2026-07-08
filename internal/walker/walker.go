@@ -1,6 +1,9 @@
 package walker
 
-import "github.com/yogisalomo/goowee/core"
+import (
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/runtime"
+)
 
 // Walker assigns sequential IDs and traverses a core.Node tree, calling the
 // Visitor for each node. Both DOM and SSR renderers use the same walker,
@@ -78,10 +81,10 @@ func (w *Walker) Walk(n core.Node, v Visitor) int {
 			return 0
 		}
 		v.VisitComponentEnter(node)
-		frame := core.PushComponent()
+		frame := runtime.PushComponent()
 		inner := core.FlatTree(node.Render())
 		id := w.Walk(inner, v)
-		core.PopComponent()
+		runtime.PopComponent()
 		node.Prev = inner
 		node.Frame = frame
 		v.VisitComponentLeave(node, id)

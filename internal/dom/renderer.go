@@ -5,6 +5,7 @@ import (
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
+	"github.com/yogisalomo/goowee/internal/runtime"
 	"github.com/yogisalomo/goowee/internal/walker"
 )
 
@@ -15,7 +16,7 @@ type scopeState struct {
 
 type DOMRenderer struct {
 	walker.Walker
-	Bindings       *core.BindingRegistry
+	Bindings       *runtime.BindingRegistry
 	Scheduler      *core.Scheduler
 	Registry       *NodeRegistry
 	parentStack    []int
@@ -41,7 +42,7 @@ func New() *DOMRenderer {
 	return &DOMRenderer{
 		Walker:    *walker.New(),
 		Scheduler: sched,
-		Bindings:  core.NewBindingRegistry(sched),
+		Bindings:  runtime.NewBindingRegistry(sched),
 		Registry:  NewNodeRegistry(),
 	}
 }
@@ -49,7 +50,7 @@ func New() *DOMRenderer {
 func (r *DOMRenderer) Reset() {
 	r.Scheduler = core.NewScheduler()
 	r.Walker.Reset()
-	r.Bindings = core.NewBindingRegistry(r.Scheduler)
+	r.Bindings = runtime.NewBindingRegistry(r.Scheduler)
 	r.Registry = NewNodeRegistry()
 }
 
@@ -125,7 +126,7 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 		for _, b := range el.Binds {
 			r.Bindings.Bind(id, b)
 			if dynamic {
-				*r.muts = append(*r.muts, core.MutationForBind(id, b))
+				*r.muts = append(*r.muts, runtime.MutationForBind(id, b))
 			}
 		}
 		for _, hd := range el.Handlers {
@@ -156,7 +157,7 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 	}
 	for _, b := range el.Binds {
 		r.Bindings.Bind(id, b)
-		*r.muts = append(*r.muts, core.MutationForBind(id, b))
+		*r.muts = append(*r.muts, runtime.MutationForBind(id, b))
 	}
 	for _, hd := range el.Handlers {
 		r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
@@ -244,7 +245,7 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 		return 0
 	}
 	baseStack := len(r.parentStack)
-	frameDepth := core.SaveFrameStack()
+	frameDepth := runtime.SaveFrameStack()
 	savedNS, savedDyn := r.currentNS, r.hydrateDynamic
 
 	var childMuts []core.Mutation
@@ -258,7 +259,7 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 	r.muts = savedMuts
 	if rec != nil {
 		r.parentStack = r.parentStack[:baseStack]
-		core.RestoreFrameStack(frameDepth)
+		runtime.RestoreFrameStack(frameDepth)
 		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
 		log.Printf("goowee: error boundary caught panic, rendering fallback: %v", rec)
 		fb := core.FlatTree(ebn.Fallback(rec))
@@ -375,11 +376,11 @@ func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
 	// aborting the whole flush and blanking the page. Restore parentStack,
 	// which a mid-render panic would leave unbalanced.
 	baseStack := len(r.parentStack)
-	frameDepth := core.SaveFrameStack()
+	frameDepth := runtime.SaveFrameStack()
 	defer func() {
 		if rec := recover(); rec != nil {
 			r.parentStack = r.parentStack[:baseStack]
-			core.RestoreFrameStack(frameDepth)
+			runtime.RestoreFrameStack(frameDepth)
 			log.Printf("goowee: recovered panic during re-render (subtree kept its previous state): %v", rec)
 		}
 	}()
@@ -507,7 +508,7 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 		r.Bindings.Unbind(old.ID)
 		for _, b := range new.Binds {
 			r.Bindings.Bind(old.ID, b)
-			*muts = append(*muts, core.MutationForBind(old.ID, b))
+			*muts = append(*muts, runtime.MutationForBind(old.ID, b))
 		}
 
 		newEvents := map[string]bool{}
@@ -634,14 +635,14 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 // successful diff to the new child restores it.
 func (r *DOMRenderer) diffBoundary(old, nb *core.ErrorBoundaryNode, muts *[]core.Mutation) int {
 	baseStack := len(r.parentStack)
-	frameDepth := core.SaveFrameStack()
+	frameDepth := runtime.SaveFrameStack()
 	savedNS, savedDyn := r.currentNS, r.hydrateDynamic
 
 	var childMuts []core.Mutation
 	id, rec := r.tryDiffNode(old.Prev, nb.Child, &childMuts)
 	if rec != nil {
 		r.parentStack = r.parentStack[:baseStack]
-		core.RestoreFrameStack(frameDepth)
+		runtime.RestoreFrameStack(frameDepth)
 		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
 		log.Printf("goowee: error boundary recovered panic on update (subtree kept its previous state): %v", rec)
 		nb.Prev = old.Prev
@@ -934,7 +935,7 @@ func typeCompatible(a, b core.Node) bool {
 
 func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 	r.disposeReactive(n)
-	ids := core.CollectIDs(n)
+	ids := runtime.CollectIDs(n)
 	for _, id := range ids {
 		r.Bindings.Unbind(id)
 		r.Registry.Remove(id)

@@ -3,6 +3,7 @@ package ssr
 import (
 	"fmt"
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/runtime"
 	"github.com/yogisalomo/goowee/internal/walker"
 	"log"
 	"strings"
@@ -43,7 +44,7 @@ func (r *Renderer) Reset() {
 
 func (r *Renderer) Render(n core.Node) string {
 	var out string
-	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 		r.Reset()
 		var buf strings.Builder
 		v := &ssrVisitor{r: r, buf: &buf, path: ""}
@@ -56,7 +57,7 @@ func (r *Renderer) Render(n core.Node) string {
 func (r *Renderer) RenderWithMeta(n core.Node, path string, hooks []core.SignalAccessor) (string, HydrationMeta) {
 	var out string
 	var meta HydrationMeta
-	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 		r.Reset()
 		var buf strings.Builder
 		v := &ssrVisitor{r: r, buf: &buf, path: path, hooks: hooks}

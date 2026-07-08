@@ -1,6 +1,9 @@
 package hooks
 
-import "github.com/yogisalomo/goowee/core"
+import (
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/runtime"
+)
 
 // Watch runs fn whenever any dep changes. It does not run on mount (unlike
 // OnMount) and takes no cleanup (unlike UseEffect) — it is the plain "when
@@ -11,7 +14,7 @@ import "github.com/yogisalomo/goowee/core"
 //	    refetch(query.Get())
 //	})
 func Watch(deps []core.SignalAccessor, fn func()) {
-	if core.CurrentEnv() == core.EnvServer {
+	if runtime.CurrentEnv() == runtime.EnvServer {
 		return
 	}
 	unsubs := make([]func(), 0, len(deps))

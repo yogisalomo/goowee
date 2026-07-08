@@ -9,6 +9,7 @@ import (
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/dom"
+	"github.com/yogisalomo/goowee/internal/runtime"
 	"github.com/yogisalomo/goowee/router"
 	"github.com/yogisalomo/goowee/ssr"
 )
@@ -67,7 +68,7 @@ func TestSSRDOMIDParity(t *testing.T) {
 			html := ssr.New().Render(page())
 
 			var domMuts []core.Mutation
-			core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+			runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 				domMuts, _ = dom.New().Render(page())
 			})
 
@@ -135,7 +136,7 @@ func TestHydrationReusesServerNodesNoDuplicates(t *testing.T) {
 	for name, page := range pages {
 		t.Run(name, func(t *testing.T) {
 			var serverMuts []core.Mutation
-			core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+			runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 				serverMuts, _ = dom.New().Render(page())
 			})
 			fd := newFakeDOM()
@@ -144,7 +145,7 @@ func TestHydrationReusesServerNodesNoDuplicates(t *testing.T) {
 			textBefore := fd.text(0)
 
 			var clientMuts []core.Mutation
-			core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+			runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 				clientMuts, _ = dom.New().Render(page())
 			})
 			created := fd.applyHydrating(clientMuts)
@@ -206,7 +207,7 @@ func TestHydrateRenderEmitsOnlyClaims(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var serverMuts []core.Mutation
-			core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+			runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 				serverMuts, _ = dom.New().Render(page())
 			})
 			serverNodes := 0
@@ -223,7 +224,7 @@ func TestHydrateRenderEmitsOnlyClaims(t *testing.T) {
 			r := dom.New()
 			r.SetHydrating(true)
 			var clientMuts []core.Mutation
-			core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+			runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 				clientMuts, _ = r.Render(page())
 			})
 
@@ -262,7 +263,7 @@ func TestHydrateDynamicReappliesValues(t *testing.T) {
 			r.SetHydrating(true)
 		}
 		var muts []core.Mutation
-		core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+		runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 			muts, _ = r.Render(n)
 		})
 		return muts
@@ -301,7 +302,7 @@ func TestHydrateDynamicReappliesValues(t *testing.T) {
 func TestHydrateStaysReactive(t *testing.T) {
 	rt := testRouter()
 	var serverMuts []core.Mutation
-	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 		serverMuts, _ = dom.New().Render(counterPage(rt))
 	})
 	fd := newFakeDOM()

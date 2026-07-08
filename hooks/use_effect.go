@@ -1,6 +1,9 @@
 package hooks
 
-import "github.com/yogisalomo/goowee/core"
+import (
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/runtime"
+)
 
 type effectState struct {
 	Deps    []core.SignalAccessor
@@ -13,11 +16,11 @@ func UseEffect(deps []core.SignalAccessor, fn func() func()) {
 	// Effects are lifecycle side-effects; they must not run during a server
 	// render (no mount/unmount there, and RunFrameCleanup is never called
 	// server-side, so any goroutine/subscription would leak per request).
-	if core.CurrentEnv() == core.EnvServer {
+	if runtime.CurrentEnv() == runtime.EnvServer {
 		return
 	}
 
-	frame := core.CurrentComponent()
+	frame := runtime.CurrentComponent()
 	state := &effectState{Deps: deps, Fn: fn}
 	if frame != nil {
 		frame.Hooks = append(frame.Hooks, state)
