@@ -147,10 +147,7 @@ A goowee app compiles to WebAssembly. Minimal `main.go`:
 package main
 
 import (
-    "syscall/js"
-
     "github.com/yogisalomo/goowee/bridge"
-    "github.com/yogisalomo/goowee/dom"
     "github.com/yogisalomo/goowee/router"
     "yourmodule/app" // your App(r) component
 )
@@ -158,16 +155,10 @@ import (
 func main() {
     r := router.New(router.CurrentPath())
     r.BindHistory()
-
-    renderer := dom.New()
-    // If the page was server-rendered, claim that DOM instead of rebuilding it.
-    if js.Global().Get("document").Call("querySelector", "[data-node-id]").Truthy() {
-        renderer.SetHydrating(true)
-    }
-    muts, _ := renderer.Render(app.App(r))
-    renderer.Scheduler.Enqueue(muts...)
-    bridge.Init(renderer.Scheduler, renderer.Registry) // starts the frame loop
-    select {}                                          // keep the program alive
+    // bridge.Run mounts the app, hydrates the server-rendered DOM when present
+    // (claiming it instead of rebuilding), and drives the frame loop. It never
+    // returns, keeping the WASM module alive to service events.
+    bridge.Run(app.App(r))
 }
 ```
 

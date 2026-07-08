@@ -62,16 +62,13 @@ import (
 
     "github.com/yogisalomo/goowee/bridge"
     "github.com/yogisalomo/goowee/core"
-    "github.com/yogisalomo/goowee/dom"
     "github.com/yogisalomo/goowee/hooks"
 )
 
 func main() {
-    renderer := dom.New()
-    muts, _ := renderer.Render(App())
-    renderer.Scheduler.Enqueue(muts...)
-    bridge.Init(renderer.Scheduler, renderer.Registry)
-    select {}
+    // bridge.Run mounts the app, hydrates when the page was server-rendered,
+    // and drives the render loop. It never returns.
+    bridge.Run(App())
 }
 
 func App() core.Node {
@@ -251,7 +248,7 @@ server gzips the wasm, JS/CSS, and SSR HTML out of the box. See
 
 ```
 core/         Signals, scheduler, node types, bindings, render context
-dom/          DOM renderer, diff/reconciliation, hydration, event registry
+internal/dom/ DOM renderer, diff/reconciliation, hydration, event registry (internal)
 hooks/        UseState, UseEffect, OnMount, Watch, UseScope
 h/            Typed element/attr/event DSL, control flow, VirtualList
 router/       Client-side router (matching, params, history)

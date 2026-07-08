@@ -8,7 +8,7 @@ var (
 )
 
 // SetActiveScheduler registers the scheduler that Schedule targets. The client
-// runtime sets this once at startup (see bridge.Init). SSR and tests leave it
+// runtime sets this once at startup (see bridge.Run). SSR and tests leave it
 // unset, so Schedule is a no-op there.
 func SetActiveScheduler(s *Scheduler) {
 	activeSchedulerMu.Lock()

@@ -4,12 +4,35 @@ package bridge
 
 import (
 	"encoding/json"
-	"github.com/yogisalomo/goowee/core"
-	"github.com/yogisalomo/goowee/dom"
 	"syscall/js"
+
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/dom"
 )
 
-func Init(sched *core.Scheduler, registry *dom.NodeRegistry) {
+// Run mounts app into the page and drives the render loop. It is the single
+// entry point for a goowee client: create your root node (typically an
+// App(router) component) and hand it to Run from your program's main.
+//
+// If the page was server-rendered — its nodes carry data-node-id — Run hydrates
+// by claiming that DOM instead of rebuilding it. Run does not return; it blocks
+// forever so the WASM module stays alive to service events.
+func Run(app core.Node) {
+	renderer := dom.New()
+	// Hydrate when the document was server-rendered.
+	if js.Global().Get("document").Call("querySelector", "[data-node-id]").Truthy() {
+		renderer.SetHydrating(true)
+	}
+	muts, _ := renderer.Render(app)
+	renderer.Scheduler.Enqueue(muts...)
+	initBridge(renderer.Scheduler, renderer.Registry)
+	select {}
+}
+
+// initBridge wires the render loop to the JS runtime: it registers the event
+// dispatcher, announces the event types the app listens for, and drives one
+// requestAnimationFrame flush whenever work appears.
+func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry) {
 	// Route core.Schedule (off-loop goroutine updates) onto this scheduler.
 	core.SetActiveScheduler(sched)
 

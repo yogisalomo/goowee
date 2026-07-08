@@ -3,8 +3,8 @@ package ssr
 import (
 	"fmt"
 	"github.com/yogisalomo/goowee/core"
-	"github.com/yogisalomo/goowee/dom"
 	"github.com/yogisalomo/goowee/hooks"
+	"github.com/yogisalomo/goowee/internal/dom"
 	"strings"
 	"sync"
 	"sync/atomic"

@@ -1,28 +1,13 @@
+//go:build !(js && wasm)
+
 package bridge
 
-import (
-	"github.com/yogisalomo/goowee/core"
-	"github.com/yogisalomo/goowee/dom"
-)
+import "github.com/yogisalomo/goowee/core"
 
-type Bridge interface {
-	ApplyMutations(muts []core.Mutation)
-	RequestAnimationFrame(fn func())
-	StartScheduler()
+// Run is the client entry point and only functions in a js/wasm build; this
+// stub exists so the package compiles for host tooling (go vet, tests, the SSR
+// server) on non-wasm platforms. Rendering on the server goes through the ssr
+// package, not bridge.
+func Run(app core.Node) {
+	panic("bridge.Run is only available in a GOOS=js GOARCH=wasm build")
 }
-
-type NoopBridge struct {
-	dom *dom.NodeRegistry
-}
-
-func NewNoopBridge() *NoopBridge {
-	return &NoopBridge{dom: dom.NewNodeRegistry()}
-}
-
-func (b *NoopBridge) ApplyMutations(muts []core.Mutation) {}
-
-func (b *NoopBridge) RequestAnimationFrame(fn func()) {
-	fn()
-}
-
-func (b *NoopBridge) StartScheduler() {}
