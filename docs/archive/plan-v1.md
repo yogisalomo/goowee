@@ -17,18 +17,15 @@ The framework must support:
 
 ---
 
-> **Implementation status (updated 2026-07-05).** This document is the original
-> design plan. The framework has since been hardened per the review in
-> `docs/26-07-02-fable-review.md`; its core items (§1–§9) are implemented and
-> merged: Solid-style run-once components with reconciliation, token-based
-> signal subscriptions, request-safe SSR, dirty-scope render batching, keyed
-> reconciliation, working hydration (SSR DOM reuse), typed events, `Computed`,
-> deterministic routing + built-in history, plus benchmarks, CI, and a WASM
-> size budget. Where this plan and the code disagree, **the code and
-> `docs/component_tree.md` are the source of truth** — some sections below still
-> describe the original intent (notably React-style hook slots, which were
-> never built: the model is Solid-style, components run once). See
-> `docs/plans/ergonomics-improvements.md` for the typed `h` DSL.
+> **⚠️ Archival notice — read this first.**
+> This is the original design plan from the project's earliest days, kept for
+> historical reference. Some sections describe intent that was never built
+> (notably React-style hook slots in §2 — goowee's model has always been
+> Solid-style, components run once). **Do not use this document to learn the
+> framework.** Start with [`docs/guides/getting-started.md`](../guides/getting-started.md)
+> and [`docs/canonical/component_tree.md`](../canonical/component_tree.md) for
+> the current architecture; see [`docs/canonical/adr.md`](../canonical/adr.md)
+> for the design decisions behind it.
 
 ---
 
@@ -211,7 +208,7 @@ This type hierarchy enables both DOM and SSR renderers.
 
 Each component instance is tracked by a `ComponentFrame` in a lightweight tree. During render, `PushComponent()` pushes a `ComponentFrame` onto a global stack with a path like `"root/0/1"`. This path is used for hook isolation, unmount cleanup, and hydration matching.
 
-See [`docs/component_tree.md`](component_tree.md) for the full design.
+See [`docs/canonical/component_tree.md`](../canonical/component_tree.md) for the full design.
 
 ## Structural Re-rendering: UseScope
 
