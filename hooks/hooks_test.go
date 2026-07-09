@@ -2,12 +2,13 @@ package hooks
 
 import (
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/runtime"
 	"testing"
 )
 
 func TestUseState(t *testing.T) {
-	comp := core.PushComponent()
-	defer core.PopComponent()
+	comp := runtime.PushComponent()
+	defer runtime.PopComponent()
 
 	sig, setter := UseState(0)
 	if sig.Get() != 0 {
@@ -56,7 +57,7 @@ func TestUseEffectCleanup(t *testing.T) {
 }
 
 func TestUseStateMultiple(t *testing.T) {
-	core.PushComponent()
+	runtime.PushComponent()
 
 	s1, _ := UseState("a")
 	s2, _ := UseState(1)
@@ -65,7 +66,7 @@ func TestUseStateMultiple(t *testing.T) {
 	if s1.Get() != "a" || s2.Get() != 1 || s3.Get() != true {
 		t.Fatal("multiple UseState calls should isolate correctly")
 	}
-	core.PopComponent()
+	runtime.PopComponent()
 }
 
 func TestUseStateNoComponentContext(t *testing.T) {
@@ -80,13 +81,13 @@ func TestUseStateNoComponentContext(t *testing.T) {
 }
 
 func TestOnMountRunsOnceAndCleansUp(t *testing.T) {
-	frame := core.PushComponent()
+	frame := runtime.PushComponent()
 	var mounted, cleaned int
 	OnMount(func() func() {
 		mounted++
 		return func() { cleaned++ }
 	})
-	core.PopComponent()
+	runtime.PopComponent()
 
 	if mounted != 1 || cleaned != 0 {
 		t.Fatalf("after mount want mounted=1 cleaned=0, got %d/%d", mounted, cleaned)
@@ -98,19 +99,19 @@ func TestOnMountRunsOnceAndCleansUp(t *testing.T) {
 }
 
 func TestOnMountNilCleanup(t *testing.T) {
-	frame := core.PushComponent()
+	frame := runtime.PushComponent()
 	OnMount(func() func() { return nil })
-	core.PopComponent()
+	runtime.PopComponent()
 	RunFrameCleanup(frame) // must not panic on a nil cleanup
 }
 
 func TestUseEffectSkippedOnServer(t *testing.T) {
 	// Client render: the effect body runs.
 	var clientRan int
-	core.UseContext(core.NewRenderContext(core.EnvClient), func() {
-		core.PushComponent()
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvClient), func() {
+		runtime.PushComponent()
 		UseEffect(nil, func() func() { clientRan++; return nil })
-		core.PopComponent()
+		runtime.PopComponent()
 	})
 	if clientRan != 1 {
 		t.Fatalf("client effect should run once, got %d", clientRan)
@@ -118,10 +119,10 @@ func TestUseEffectSkippedOnServer(t *testing.T) {
 
 	// Server render: the effect body must not run.
 	var serverRan int
-	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
-		core.PushComponent()
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
+		runtime.PushComponent()
 		UseEffect(nil, func() func() { serverRan++; return nil })
-		core.PopComponent()
+		runtime.PopComponent()
 	})
 	if serverRan != 0 {
 		t.Fatalf("server effect should be skipped, got %d", serverRan)
@@ -130,10 +131,10 @@ func TestUseEffectSkippedOnServer(t *testing.T) {
 
 func TestOnMountSkippedOnServer(t *testing.T) {
 	var ran int
-	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
-		core.PushComponent()
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
+		runtime.PushComponent()
 		OnMount(func() func() { ran++; return nil })
-		core.PopComponent()
+		runtime.PopComponent()
 	})
 	if ran != 0 {
 		t.Fatalf("OnMount should not run on the server, got %d", ran)
@@ -143,9 +144,9 @@ func TestOnMountSkippedOnServer(t *testing.T) {
 func TestWatchFiresOnDepChangeNotMount(t *testing.T) {
 	sig := core.NewSignal(0)
 	runs := 0
-	frame := core.PushComponent()
+	frame := runtime.PushComponent()
 	Watch([]core.SignalAccessor{sig}, func() { runs++ })
-	core.PopComponent()
+	runtime.PopComponent()
 
 	if runs != 0 {
 		t.Fatalf("Watch must not run on mount, got %d", runs)
@@ -170,10 +171,10 @@ func TestWatchFiresOnDepChangeNotMount(t *testing.T) {
 func TestWatchSkippedOnServer(t *testing.T) {
 	sig := core.NewSignal(0)
 	runs := 0
-	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
-		core.PushComponent()
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
+		runtime.PushComponent()
 		Watch([]core.SignalAccessor{sig}, func() { runs++ })
-		core.PopComponent()
+		runtime.PopComponent()
 	})
 	sig.Set(1)
 	if runs != 0 {
