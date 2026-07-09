@@ -3,6 +3,8 @@ package ssr
 import (
 	"fmt"
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/runtime"
+	"github.com/yogisalomo/goowee/internal/walker"
 	"log"
 	"strings"
 )
@@ -18,13 +20,13 @@ type HydrationMeta struct {
 }
 
 type Renderer struct {
-	nextID int
-	Meta   HydrationMeta
+	walker.Walker
+	Meta HydrationMeta
 }
 
 func New() *Renderer {
 	return &Renderer{
-		nextID: 1,
+		Walker: *walker.New(),
 		Meta: HydrationMeta{
 			NodeMap: make(map[int]string),
 			Deps:    make(map[int][]SlotRef),
@@ -33,27 +35,20 @@ func New() *Renderer {
 }
 
 func (r *Renderer) Reset() {
-	r.nextID = 1
+	r.Walker.Reset()
 	r.Meta = HydrationMeta{
 		NodeMap: make(map[int]string),
 		Deps:    make(map[int][]SlotRef),
 	}
 }
 
-func (r *Renderer) allocID() int {
-	id := r.nextID
-	r.nextID++
-	return id
-}
-
 func (r *Renderer) Render(n core.Node) string {
 	var out string
-	// Server render context: per-request frame stack (no shared global) and
-	// EnvServer so component effects/OnMount don't run or leak goroutines.
-	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 		r.Reset()
 		var buf strings.Builder
-		r.renderNode(n, &buf, "")
+		v := &ssrVisitor{r: r, buf: &buf, path: ""}
+		r.Walker.Walk(n, v)
 		out = buf.String()
 	})
 	return out
@@ -62,188 +57,195 @@ func (r *Renderer) Render(n core.Node) string {
 func (r *Renderer) RenderWithMeta(n core.Node, path string, hooks []core.SignalAccessor) (string, HydrationMeta) {
 	var out string
 	var meta HydrationMeta
-	core.UseContext(core.NewRenderContext(core.EnvServer), func() {
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 		r.Reset()
 		var buf strings.Builder
-		r.renderNodeWithMeta(n, &buf, path, hooks, 0)
+		v := &ssrVisitor{r: r, buf: &buf, path: path, hooks: hooks}
+		r.Walker.Walk(n, v)
 		out = buf.String()
 		meta = r.Meta
 	})
 	return out, meta
 }
 
-func (r *Renderer) renderNode(n core.Node, buf *strings.Builder, path string) {
-	r.renderNodeWithMeta(n, buf, path, nil, 0)
+// ssrVisitor implements walker.Visitor for the SSR renderer.
+type ssrVisitor struct {
+	r       *Renderer
+	buf     *strings.Builder
+	path    string
+	hooks   []core.SignalAccessor
+	hookIdx int
+	silent  bool // when true, VisitElement/VisitText don't write to buffer
 }
 
-func escapeAttr(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "\"", "&quot;")
-	return s
-}
+var _ walker.Visitor = (*ssrVisitor)(nil)
 
-var propToAttr = map[string]string{
-	"value":    "value",
-	"checked":  "",
-	"disabled": "",
-	"selected": "",
-	"multiple": "",
-	"required": "",
-	"readOnly": "readonly",
-}
+func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(core.Node) int) {
+	if el == nil {
+		return
+	}
+	v.r.Meta.NodeMap[id] = v.path
 
-func (r *Renderer) renderNodeWithMeta(n core.Node, buf *strings.Builder, path string, hooks []core.SignalAccessor, hookIdx int) {
-	switch v := n.(type) {
-	case *core.ElementNode:
-		if v == nil {
-			return
+	if v.silent {
+		for _, child := range el.Children {
+			walkChild(child)
 		}
-		id := r.allocID()
-		r.Meta.NodeMap[id] = path
+		return
+	}
 
-		buf.WriteString("<")
-		buf.WriteString(v.Tag)
-		fmt.Fprintf(buf, ` data-node-id="%d"`, id)
+	v.buf.WriteString("<")
+	v.buf.WriteString(el.Tag)
+	fmt.Fprintf(v.buf, ` data-node-id="%d"`, id)
 
-		for _, a := range v.Attrs {
-			if a.Name == "" || !isValidAttrName(a.Name) {
-				log.Printf("goowee: skipping invalid attribute name %q", a.Name)
-				continue
+	for _, a := range el.Attrs {
+		if a.Name == "" || !isValidAttrName(a.Name) {
+			log.Printf("goowee: skipping invalid attribute name %q", a.Name)
+			continue
+		}
+		fmt.Fprintf(v.buf, ` %s="%s"`, a.Name, escapeAttr(a.Value))
+	}
+
+	for _, p := range el.Props {
+		attrName, ok := propToAttr[p.Name]
+		if !ok {
+			continue
+		}
+		switch p.Value.(type) {
+		case bool:
+			if p.Value.(bool) {
+				if attrName == "" {
+					fmt.Fprintf(v.buf, ` %s`, p.Name)
+				} else {
+					fmt.Fprintf(v.buf, ` %s`, attrName)
+				}
 			}
-			fmt.Fprintf(buf, ` %s="%s"`, a.Name, escapeAttr(a.Value))
+		case string:
+			val := p.Value.(string)
+			if attrName == "" {
+				attrName = p.Name
+			}
+			fmt.Fprintf(v.buf, ` %s="%s"`, attrName, escapeAttr(val))
+		default:
+			if attrName == "" {
+				attrName = p.Name
+			}
+			fmt.Fprintf(v.buf, ` %s="%v"`, attrName, escapeAttr(fmt.Sprintf("%v", p.Value)))
 		}
+	}
 
-		for _, p := range v.Props {
-			attrName, ok := propToAttr[p.Name]
+	for _, b := range el.Binds {
+		val := fmt.Sprintf("%v", b.Signal.Value())
+		v.r.Meta.Deps[id] = append(v.r.Meta.Deps[id], SlotRef{
+			ComponentPath: v.path,
+			HookIndex:     v.hookIdx + len(v.r.Meta.Deps[id]),
+		})
+		if b.Target == core.BindToAttr {
+			fmt.Fprintf(v.buf, ` %s="%s"`, b.Name, escapeAttr(val))
+		} else {
+			attrName, ok := propToAttr[b.Name]
 			if !ok {
 				continue
 			}
-			switch p.Value.(type) {
+			switch b.Signal.Value().(type) {
 			case bool:
-				if p.Value.(bool) {
+				if b.Signal.Value().(bool) {
 					if attrName == "" {
-						fmt.Fprintf(buf, ` %s`, p.Name)
+						fmt.Fprintf(v.buf, ` %s`, b.Name)
 					} else {
-						fmt.Fprintf(buf, ` %s`, attrName)
+						fmt.Fprintf(v.buf, ` %s`, attrName)
 					}
 				}
-			case string:
-				val := p.Value.(string)
-				if attrName == "" {
-					attrName = p.Name
-				}
-				fmt.Fprintf(buf, ` %s="%s"`, attrName, escapeAttr(val))
 			default:
 				if attrName == "" {
-					attrName = p.Name
+					attrName = b.Name
 				}
-				fmt.Fprintf(buf, ` %s="%v"`, attrName, escapeAttr(fmt.Sprintf("%v", p.Value)))
+				fmt.Fprintf(v.buf, ` %s="%s"`, attrName, escapeAttr(val))
 			}
 		}
+	}
 
-		for _, b := range v.Binds {
-			val := fmt.Sprintf("%v", b.Signal.Value())
-			r.Meta.Deps[id] = append(r.Meta.Deps[id], SlotRef{
-				ComponentPath: path,
-				HookIndex:     hookIdx + len(r.Meta.Deps[id]),
-			})
-			if b.Target == core.BindToAttr {
-				fmt.Fprintf(buf, ` %s="%s"`, b.Name, escapeAttr(val))
-			} else {
-				attrName, ok := propToAttr[b.Name]
-				if !ok {
-					continue
-				}
-				switch b.Signal.Value().(type) {
-				case bool:
-					if b.Signal.Value().(bool) {
-						if attrName == "" {
-							fmt.Fprintf(buf, ` %s`, b.Name)
-						} else {
-							fmt.Fprintf(buf, ` %s`, attrName)
-						}
-					}
-				default:
-					if attrName == "" {
-						attrName = b.Name
-					}
-					fmt.Fprintf(buf, ` %s="%s"`, attrName, escapeAttr(val))
-				}
-			}
-		}
+	v.buf.WriteString(">")
 
-		buf.WriteString(">")
+	if core.VoidElements[el.Tag] {
+		return
+	}
 
-		if core.VoidElements[v.Tag] {
-			return
-		}
+	oldPath := v.path
+	for i, child := range el.Children {
+		v.path = oldPath + "/" + itoa(i)
+		walkChild(child)
+	}
+	v.path = oldPath
 
-		for i, child := range v.Children {
-			r.renderNodeWithMeta(child, buf, path+"/"+itoa(i), hooks, hookIdx)
-		}
+	v.buf.WriteString("</")
+	v.buf.WriteString(el.Tag)
+	v.buf.WriteString(">")
+}
 
-		buf.WriteString("</")
-		buf.WriteString(v.Tag)
-		buf.WriteString(">")
-
-	case *core.TextNode:
-		if v == nil {
-			return
-		}
-		id := r.allocID()
-		r.Meta.NodeMap[id] = path
-		// Emit an addressable marker before the text so the client can claim
-		// this exact text node during hydration (text nodes can't carry
-		// attributes). It also keeps adjacent text nodes from merging into one
-		// on parse, which would break the SSR/DOM node correspondence.
-		fmt.Fprintf(buf, "<!--g%d-->", id)
-		switch val := v.Value.(type) {
-		case string:
-			buf.WriteString(escapeHTML(val))
-		case core.SignalAccessor:
-			r.Meta.Deps[id] = append(r.Meta.Deps[id], SlotRef{
-				ComponentPath: path,
-				HookIndex:     hookIdx,
-			})
-			buf.WriteString(escapeHTML(fmt.Sprintf("%v", val.Value())))
-		}
-
-	case *core.FragmentNode:
-		if v == nil {
-			return
-		}
-		for _, child := range v.Children {
-			r.renderNodeWithMeta(child, buf, path+"/frag", hooks, hookIdx)
-		}
-
-	case *core.ComponentNode:
-		if v == nil {
-			return
-		}
-		core.PushComponent()
-		inner := v.Render()
-		r.renderNodeWithMeta(inner, buf, path, hooks, hookIdx)
-		core.PopComponent()
-
-	case *core.ScopeNode:
-		if v == nil {
-			return
-		}
-		inner := v.Render()
-		r.renderNodeWithMeta(inner, buf, path, hooks, hookIdx)
-
-	case *core.ErrorBoundaryNode:
-		if v == nil {
-			return
-		}
-		// Transparent on the server: render the child so ids match the client's
-		// happy path. The boundary catches *client* render panics; server-side
-		// rendering is expected not to panic (recover at the HTTP layer if it can).
-		r.renderNodeWithMeta(v.Child, buf, path, hooks, hookIdx)
+func (v *ssrVisitor) VisitText(id int, tn *core.TextNode) {
+	if tn == nil {
+		return
+	}
+	v.r.Meta.NodeMap[id] = v.path
+	if v.silent {
+		return
+	}
+	fmt.Fprintf(v.buf, "<!--g%d-->", id)
+	switch val := tn.Value.(type) {
+	case string:
+		v.buf.WriteString(escapeHTML(val))
+	case core.SignalAccessor:
+		v.r.Meta.Deps[id] = append(v.r.Meta.Deps[id], SlotRef{
+			ComponentPath: v.path,
+			HookIndex:     v.hookIdx,
+		})
+		v.buf.WriteString(escapeHTML(fmt.Sprintf("%v", val.Value())))
 	}
 }
+
+func (v *ssrVisitor) VisitFragment(fn *core.FragmentNode, walkChild func(core.Node) int) {
+	if fn == nil {
+		return
+	}
+	oldPath := v.path
+	for _, child := range fn.Children {
+		v.path = oldPath + "/frag"
+		walkChild(child)
+	}
+	v.path = oldPath
+}
+
+func (v *ssrVisitor) VisitPortal(pn *core.PortalNode, walkChild func(core.Node) int) {
+	if pn == nil {
+		return
+	}
+	// Portals are client-side: walk children for ID parity but suppress HTML
+	// output so the server-rendered markup stays in the main tree.
+	oldSilent := v.silent
+	v.silent = true
+	for _, child := range pn.Children {
+		walkChild(child)
+	}
+	v.silent = oldSilent
+}
+
+func (v *ssrVisitor) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner func() int) int {
+	if ebn == nil {
+		return 0
+	}
+	// Transparent on the server: render the child so IDs match the client's
+	// happy path. The boundary catches *client* render panics; server-side
+	// rendering is expected not to panic (recover at the HTTP layer).
+	return walkInner()
+}
+
+func (v *ssrVisitor) VisitComponentEnter(cn *core.ComponentNode) {}
+
+func (v *ssrVisitor) VisitComponentLeave(cn *core.ComponentNode, innerID int) {}
+
+func (v *ssrVisitor) VisitScopeEnter(sn *core.ScopeNode) {}
+
+func (v *ssrVisitor) VisitScopeLeave(sn *core.ScopeNode, innerID int) {}
 
 func isValidAttrName(name string) bool {
 	if name == "" {
@@ -258,6 +260,24 @@ func isValidAttrName(name string) bool {
 		}
 	}
 	return true
+}
+
+var propToAttr = map[string]string{
+	"value":    "value",
+	"checked":  "",
+	"disabled": "",
+	"selected": "",
+	"multiple": "",
+	"required": "",
+	"readOnly": "readonly",
+}
+
+func escapeAttr(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
 }
 
 func escapeHTML(s string) string {

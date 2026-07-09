@@ -38,4 +38,4 @@ jobs:
           fi
 
       - name: Benchmarks (smoke)
-        run: go test -run '^$' -bench . -benchtime=10x ./core/ ./dom/
+        run: go test -run '^$' -bench . -benchtime=10x ./core/ ./internal/dom/

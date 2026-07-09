@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/runtime"
 )
 
 // waitLoaded drains the scheduler (applying the goroutine's posted result) and
@@ -27,8 +28,8 @@ func TestUseResourceSuccess(t *testing.T) {
 	sched := core.NewScheduler()
 	core.SetActiveScheduler(sched)
 	defer core.SetActiveScheduler(nil)
-	core.PushComponent()
-	defer core.PopComponent()
+	runtime.PushComponent()
+	defer runtime.PopComponent()
 
 	res := UseResource(nil, func() (string, error) { return "hello", nil })
 	if !res.Loading.Get() {
@@ -47,8 +48,8 @@ func TestUseResourceError(t *testing.T) {
 	sched := core.NewScheduler()
 	core.SetActiveScheduler(sched)
 	defer core.SetActiveScheduler(nil)
-	core.PushComponent()
-	defer core.PopComponent()
+	runtime.PushComponent()
+	defer runtime.PopComponent()
 
 	res := UseResource(nil, func() (int, error) { return 0, errors.New("boom") })
 	waitLoaded(t, sched, res.Loading)
@@ -61,8 +62,8 @@ func TestUseResourceRefetch(t *testing.T) {
 	sched := core.NewScheduler()
 	core.SetActiveScheduler(sched)
 	defer core.SetActiveScheduler(nil)
-	core.PushComponent()
-	defer core.PopComponent()
+	runtime.PushComponent()
+	defer runtime.PopComponent()
 
 	var n int64
 	res := UseResource(nil, func() (int64, error) { return atomic.AddInt64(&n, 1), nil })

@@ -45,14 +45,22 @@ package main
 
 import (
     "github.com/yogisalomo/goowee/bridge"
-    "github.com/yogisalomo/goowee/router"
-    "myapp/app"
+    "github.com/yogisalomo/goowee/core"
+    "github.com/yogisalomo/goowee/hooks"
 )
 
 func main() {
-    r := router.New(router.CurrentPath())
-    r.BindHistory()
-    bridge.Run(app.App(r))
+    bridge.Run(App())
+}
+
+func App() core.Node {
+    return core.Component("App", func() core.Node {
+        count, setCount := hooks.UseState(0)
+        return Div(Class("counter"),
+            P(Textf("Count: %d", count)),
+            Button(OnClick(func() { setCount(count.Get() + 1) }), Text("Click me")),
+        )
+    })
 }
 ```
 
@@ -85,6 +93,14 @@ cd web && python3 -m http.server 8080
 | [Getting Started](docs/guides/getting-started.md) | Project scaffold, first component, WASM build, adding routing and SSR |
 | [Concepts](docs/guides/concepts.md) | Signals, run-once components, Show/For, effects, SSR, routing, refs, bindings |
 | [API Reference](docs/api/reference.md) | Complete public surface for core, h, hooks, router, ssr, dom, bridge |
+
+### Serving & compression
+
+The WASM binary is the app's one large download and dominates time-to-interactive,
+so serve it **compressed**: gzip cuts the example binary ~3.7× (4.2 MB → 1.1 MB).
+GitHub Pages and most CDNs do this automatically; the `cmd/ssr-server` reference
+server gzips the wasm, JS/CSS, and SSR HTML out of the box. See
+[`docs/guides/serving.md`](docs/guides/serving.md).
 
 ## Project layout
 

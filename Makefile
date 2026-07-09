@@ -24,7 +24,7 @@ test:
 	go test ./...
 
 bench:
-	go test -run '^$$' -bench . ./core/ ./dom/
+	go test -run '^$$' -bench . ./core/ ./internal/dom/
 
 size: wasm
 	@bytes=$$(wc -c < $(WASM_OUT) | tr -d ' '); \

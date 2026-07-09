@@ -2,6 +2,8 @@
 # Build the WASM app + SSR server, serve it, and run the boot-latency / TTI
 # measurement against it (roadmap 3.2). Requires Go, Node (>=21), and a
 # Chromium/Chrome (CHROME env overrides the path).
+# Set THROTTLE=4g|fast3g|slow3g to emulate a real network and see the
+# compression/download win (loopback is too fast to show it).
 # See docs/plans/boot-latency-measurement.md.
 set -euo pipefail
 cd "$(dirname "$0")/../.."

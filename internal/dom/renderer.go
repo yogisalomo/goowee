@@ -5,18 +5,27 @@ import (
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
+	"github.com/yogisalomo/goowee/internal/runtime"
+	"github.com/yogisalomo/goowee/internal/walker"
 )
 
+type scopeState struct {
+	seq      int
+	parentID int
+}
+
 type DOMRenderer struct {
-	nextID         int
-	Bindings       *core.BindingRegistry
+	walker.Walker
+	Bindings       *runtime.BindingRegistry
 	Scheduler      *core.Scheduler
 	Registry       *NodeRegistry
 	parentStack    []int
 	scopeSeq       int    // monotonic mount order; parents mount before children
+	scopeStack     []scopeState
 	hydrating      bool   // initial render claims server-rendered nodes
 	hydrateDynamic bool   // within a Dynamic subtree: re-apply values so client wins
 	currentNS      string // XML namespace inherited by the subtree being rendered (SVG)
+	muts           *[]core.Mutation
 }
 
 // SetHydrating puts the renderer into hydration mode for the next Render: it
@@ -31,34 +40,38 @@ func (r *DOMRenderer) SetHydrating(h bool) { r.hydrating = h }
 func New() *DOMRenderer {
 	sched := core.NewScheduler()
 	return &DOMRenderer{
-		nextID:    1,
+		Walker:    *walker.New(),
 		Scheduler: sched,
-		Bindings:  core.NewBindingRegistry(sched),
+		Bindings:  runtime.NewBindingRegistry(sched),
 		Registry:  NewNodeRegistry(),
 	}
 }
 
 func (r *DOMRenderer) Reset() {
 	r.Scheduler = core.NewScheduler()
-	r.nextID = 1
-	r.Bindings = core.NewBindingRegistry(r.Scheduler)
+	r.Walker.Reset()
+	r.Bindings = runtime.NewBindingRegistry(r.Scheduler)
 	r.Registry = NewNodeRegistry()
 }
 
-func (r *DOMRenderer) allocID() int {
-	id := r.nextID
-	r.nextID++
-	return id
-}
+var _ walker.Visitor = (*DOMRenderer)(nil)
 
 func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 	// Hydration is a property of this one initial render; re-renders are normal.
 	hydrating := r.hydrating
 	defer func() { r.hydrating = false }()
 
+	r.parentStack = nil
+	r.scopeSeq = 0
+	r.scopeStack = nil
+	r.currentNS = ""
+	r.hydrateDynamic = false
+
 	var muts []core.Mutation
+	r.muts = &muts
 	n = core.FlatTree(n)
-	rootID := r.renderNode(n, &muts)
+	rootID := r.Walker.Walk(n, r)
+	r.muts = nil
 	if rootID != 0 && !hydrating {
 		// When hydrating, the root is already attached to #root by the server.
 		muts = append(muts, core.Mutation{
@@ -70,242 +83,231 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 	return muts, rootID
 }
 
+// renderNode delegatesto the shared walker for fresh subtree renders.
+// For scope re-renders (where Prev != nil) it handles the diff inline
+// since that path is DOM-specific and bypasses the walker.
 func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
-	switch v := n.(type) {
-	case *core.ElementNode:
-		if v == nil {
-			return 0
-		}
-		id := r.allocID()
-		v.ID = id
-		if v.Ref != nil {
-			v.Ref.ID = id
-		}
-		if r.hydrating {
-			// Claim the server-rendered element; its attributes, properties,
-			// and children are already in the DOM, so normally only reactivity
-			// (handlers, binding subscriptions) needs wiring up.
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutHydrate, NodeID: id, Key: "tag", Value: v.Tag,
-			})
-			// Dynamic subtrees may differ from the server output, so re-apply
-			// the client's values onto the claimed nodes (client wins).
-			dynamic := r.hydrateDynamic || v.Dynamic
-			if dynamic {
-				for _, a := range v.Attrs {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutSetAttribute, NodeID: id, Key: a.Name, Value: a.Value,
-					})
-				}
-				for _, p := range v.Props {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutSetProperty, NodeID: id, Key: p.Name, Value: p.Value,
-					})
-				}
-			}
-			for _, b := range v.Binds {
-				r.Bindings.Bind(id, b)
-				if dynamic {
-					*muts = append(*muts, core.MutationForBind(id, b))
-				}
-			}
-			for _, hd := range v.Handlers {
-				r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
-			}
-			prevDynamic := r.hydrateDynamic
-			r.hydrateDynamic = dynamic
-			for _, child := range v.Children {
-				r.renderNode(child, muts) // claimed; already attached
-			}
-			r.hydrateDynamic = prevDynamic
-			return id
-		}
+	if sn, ok := n.(*core.ScopeNode); ok && sn.Prev != nil {
+		newTree := core.FlatTree(sn.Render())
+		var diffMuts []core.Mutation
+		r.diffNode(sn.Prev, newTree, &diffMuts)
+		r.Scheduler.Enqueue(diffMuts...)
+		sn.Prev = newTree
+		return rootIDFromTree(newTree)
+	}
+	savedMuts := r.muts
+	r.muts = muts
+	id := r.Walker.Walk(n, r)
+	r.muts = savedMuts
+	return id
+}
 
-		// Namespaced elements (SVG) inherit their namespace from an ancestor, so
-		// only the subtree root carries it explicitly.
-		ns := v.Namespace
-		if ns == "" {
-			ns = r.currentNS
-		}
-		*muts = append(*muts, core.Mutation{
-			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: v.Tag, NS: ns,
+// ---------------------------------------------------------------------------
+// walker.Visitor implementation
+// ---------------------------------------------------------------------------
+
+func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(core.Node) int) {
+	if el == nil {
+		return
+	}
+	if r.hydrating {
+		*r.muts = append(*r.muts, core.Mutation{
+			Type: core.MutHydrate, NodeID: id, Key: "tag", Value: el.Tag,
 		})
-
-		for _, a := range v.Attrs {
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutSetAttribute, NodeID: id, Key: a.Name, Value: a.Value,
-			})
+		dynamic := r.hydrateDynamic || el.Dynamic
+		if dynamic {
+			for _, a := range el.Attrs {
+				*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetAttribute, NodeID: id, Key: a.Name, Value: a.Value})
+			}
+			for _, p := range el.Props {
+				*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: p.Name, Value: p.Value})
+			}
 		}
-		for _, p := range v.Props {
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutSetProperty, NodeID: id, Key: p.Name, Value: p.Value,
-			})
-		}
-		for _, b := range v.Binds {
+		for _, b := range el.Binds {
 			r.Bindings.Bind(id, b)
-			*muts = append(*muts, core.MutationForBind(id, b))
+			if dynamic {
+				*r.muts = append(*r.muts, runtime.MutationForBind(id, b))
+			}
 		}
-		for _, hd := range v.Handlers {
+		for _, hd := range el.Handlers {
 			r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
 		}
-		r.parentStack = append(r.parentStack, id)
-		prevNS := r.currentNS
-		r.currentNS = ns
-		for _, child := range v.Children {
-			childID := r.renderNode(child, muts)
-			if childID != 0 {
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutAppendChild, NodeID: id, ChildID: childID,
-				})
-			}
+		prevDynamic := r.hydrateDynamic
+		r.hydrateDynamic = dynamic
+		for _, child := range el.Children {
+			walkChild(child)
 		}
-		r.currentNS = prevNS
-		r.parentStack = r.parentStack[:len(r.parentStack)-1]
-		return id
-
-	case *core.TextNode:
-		if v == nil {
-			return 0
-		}
-		id := r.allocID()
-		v.ID = id
-		if r.hydrating {
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutHydrate, NodeID: id, Key: "tag", Value: "#text",
-			})
-			// SSR already wrote the text; wire a signal binding if any, and in a
-			// Dynamic subtree re-apply the client's text so it wins over SSR.
-			if sig, ok := v.Value.(core.SignalAccessor); ok {
-				r.Bindings.Bind(id, core.Bind{
-					Target: core.BindToProp, Name: "textContent", Signal: sig,
-				})
-				if r.hydrateDynamic {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: sig.Value(),
-					})
-				}
-			} else if r.hydrateDynamic {
-				if s, ok := v.Value.(string); ok {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: s,
-					})
-				}
-			}
-			return id
-		}
-		*muts = append(*muts, core.Mutation{
-			Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: "#text",
-		})
-		switch val := v.Value.(type) {
-		case string:
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: val,
-			})
-		case core.SignalAccessor:
-			r.Bindings.Bind(id, core.Bind{
-				Target: core.BindToProp, Name: "textContent", Signal: val,
-			})
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutSetProperty, NodeID: id, Key: "textContent",
-				Value: val.Value(),
-			})
-		}
-		return id
-
-	case *core.FragmentNode:
-		if v == nil {
-			return 0
-		}
-		// A fragment has no DOM node of its own; attach each child to the
-		// nearest enclosing element (top of parentStack). This is how a
-		// multi-root list (e.g. For) mounts under its real parent instead of
-		// being orphaned.
-		parentID := 0
-		if len(r.parentStack) > 0 {
-			parentID = r.parentStack[len(r.parentStack)-1]
-		}
-		// parentID 0 is the root container, a valid target for a top-level
-		// fragment.
-		for _, child := range v.Children {
-			cid := r.renderNode(child, muts)
-			if cid != 0 && !r.hydrating { // hydration: already attached by SSR
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutAppendChild, NodeID: parentID, ChildID: cid,
-				})
-			}
-		}
-		return 0
-
-	case *core.PortalNode:
-		if v == nil {
-			return 0
-		}
-		r.renderPortal(v, muts)
-		return 0
-
-	case *core.ErrorBoundaryNode:
-		if v == nil {
-			return 0
-		}
-		return r.renderBoundary(v, muts)
-
-	case *core.ComponentNode:
-		if v == nil {
-			return 0
-		}
-		// Mount: run setup once. The frame stays on the stack while the
-		// output renders so nested components/scopes register against it.
-		frame := core.PushComponent()
-		inner := core.FlatTree(v.Render())
-		id := r.renderNode(inner, muts)
-		core.PopComponent()
-		frame.RootNodeIDs = []int{id}
-		v.Frame = frame
-		v.Prev = inner
-		return id
-
-	case *core.ScopeNode:
-		if v == nil {
-			return 0
-		}
-		if v.Prev != nil {
-			// Re-render triggered while inside another render pass (rare):
-			// diff in place. Component reconciliation in diffNode disposes
-			// only the components that were actually removed.
-			newTree := core.FlatTree(v.Render())
-			var diffMuts []core.Mutation
-			r.diffNode(v.Prev, newTree, &diffMuts)
-			r.Scheduler.Enqueue(diffMuts...)
-			v.Prev = newTree
-			return rootIDFromTree(newTree)
-		}
-
-		// Assign seq and capture the parent BEFORE rendering children, so a
-		// parent scope gets a smaller seq than the child scopes it mounts.
-		// Flush processes lower seq first (parent-before-child), which lets a
-		// parent re-render cancel a dirty child it removes.
-		r.scopeSeq++
-		seq := r.scopeSeq
-		scopeParentID := 0
-		if len(r.parentStack) > 0 {
-			scopeParentID = r.parentStack[len(r.parentStack)-1]
-		}
-		flat := core.FlatTree(v.Render())
-		id := r.renderNode(flat, muts)
-		v.Prev = flat
-		v.Unsubs = make([]func(), len(v.Deps))
-		for i, dep := range v.Deps {
-			v.Unsubs[i] = dep.Subscribe(func() {
-				// Defer the re-render to the next flush so N writes in one
-				// frame coalesce into a single re-render + diff.
-				r.Scheduler.MarkDirty(v, seq, func() {
-					r.reRenderScope(v, scopeParentID)
-				})
-			})
-		}
-		return id
+		r.hydrateDynamic = prevDynamic
+		return
 	}
-	return 0
+
+	ns := el.Namespace
+	if ns == "" {
+		ns = r.currentNS
+	}
+	*r.muts = append(*r.muts, core.Mutation{
+		Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: el.Tag, NS: ns,
+	})
+
+	for _, a := range el.Attrs {
+		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetAttribute, NodeID: id, Key: a.Name, Value: a.Value})
+	}
+	for _, p := range el.Props {
+		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: p.Name, Value: p.Value})
+	}
+	for _, b := range el.Binds {
+		r.Bindings.Bind(id, b)
+		*r.muts = append(*r.muts, runtime.MutationForBind(id, b))
+	}
+	for _, hd := range el.Handlers {
+		r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
+	}
+	r.parentStack = append(r.parentStack, id)
+	prevNS := r.currentNS
+	r.currentNS = ns
+	for _, child := range el.Children {
+		childID := walkChild(child)
+		if childID != 0 {
+			*r.muts = append(*r.muts, core.Mutation{Type: core.MutAppendChild, NodeID: id, ChildID: childID})
+		}
+	}
+	r.currentNS = prevNS
+	r.parentStack = r.parentStack[:len(r.parentStack)-1]
+}
+
+func (r *DOMRenderer) VisitText(id int, tn *core.TextNode) {
+	if tn == nil {
+		return
+	}
+	if r.hydrating {
+		*r.muts = append(*r.muts, core.Mutation{
+			Type: core.MutHydrate, NodeID: id, Key: "tag", Value: "#text",
+		})
+		if sig, ok := tn.Value.(core.SignalAccessor); ok {
+			r.Bindings.Bind(id, core.Bind{Target: core.BindToProp, Name: "textContent", Signal: sig})
+			if r.hydrateDynamic {
+				*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: sig.Value()})
+			}
+		} else if r.hydrateDynamic {
+			if s, ok := tn.Value.(string); ok {
+				*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: s})
+			}
+		}
+		return
+	}
+	*r.muts = append(*r.muts, core.Mutation{
+		Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: "#text",
+	})
+	switch val := tn.Value.(type) {
+	case string:
+		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: val})
+	case core.SignalAccessor:
+		r.Bindings.Bind(id, core.Bind{Target: core.BindToProp, Name: "textContent", Signal: val})
+		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: val.Value()})
+	}
+}
+
+func (r *DOMRenderer) VisitFragment(fn *core.FragmentNode, walkChild func(core.Node) int) {
+	if fn == nil {
+		return
+	}
+	parentID := 0
+	if len(r.parentStack) > 0 {
+		parentID = r.parentStack[len(r.parentStack)-1]
+	}
+	for _, child := range fn.Children {
+		cid := walkChild(child)
+		if cid != 0 && !r.hydrating {
+			*r.muts = append(*r.muts, core.Mutation{Type: core.MutAppendChild, NodeID: parentID, ChildID: cid})
+		}
+	}
+}
+
+func (r *DOMRenderer) VisitPortal(pn *core.PortalNode, walkChild func(core.Node) int) {
+	if pn == nil {
+		return
+	}
+	prevHydrating, prevNS := r.hydrating, r.currentNS
+	r.hydrating, r.currentNS = false, ""
+	for _, child := range pn.Children {
+		childID := walkChild(child)
+		if childID != 0 {
+			*r.muts = append(*r.muts, core.Mutation{
+				Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: pn.Target,
+			})
+		}
+	}
+	r.hydrating, r.currentNS = prevHydrating, prevNS
+}
+
+func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner func() int) int {
+	if ebn == nil {
+		return 0
+	}
+	baseStack := len(r.parentStack)
+	frameDepth := runtime.SaveFrameStack()
+	savedNS, savedDyn := r.currentNS, r.hydrateDynamic
+
+	var childMuts []core.Mutation
+	savedMuts := r.muts
+	r.muts = &childMuts
+	id, rec := func() (id int, rec any) {
+		defer func() { rec = recover() }()
+		id = walkInner()
+		return
+	}()
+	r.muts = savedMuts
+	if rec != nil {
+		r.parentStack = r.parentStack[:baseStack]
+		runtime.RestoreFrameStack(frameDepth)
+		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
+		log.Printf("goowee: error boundary caught panic, rendering fallback: %v", rec)
+		fb := core.FlatTree(ebn.Fallback(rec))
+		ebn.Prev = fb
+		return r.renderNode(fb, r.muts)
+	}
+	*r.muts = append(*r.muts, childMuts...)
+	ebn.Prev = ebn.Child
+	return id
+}
+
+func (r *DOMRenderer) VisitComponentEnter(cn *core.ComponentNode) {
+	// The walker handles PushComponent / PopComponent and Render.
+	// We just track the frame after the walk.
+}
+
+func (r *DOMRenderer) VisitComponentLeave(cn *core.ComponentNode, innerID int) {
+	if cn.Frame != nil {
+		cn.Frame.RootNodeIDs = []int{innerID}
+	}
+}
+
+func (r *DOMRenderer) VisitScopeEnter(sn *core.ScopeNode) {
+	r.scopeSeq++
+	seq := r.scopeSeq
+	parentID := 0
+	if len(r.parentStack) > 0 {
+		parentID = r.parentStack[len(r.parentStack)-1]
+	}
+	r.scopeStack = append(r.scopeStack, scopeState{seq: seq, parentID: parentID})
+}
+
+func (r *DOMRenderer) VisitScopeLeave(sn *core.ScopeNode, innerID int) {
+	if len(r.scopeStack) == 0 {
+		return
+	}
+	state := r.scopeStack[len(r.scopeStack)-1]
+	r.scopeStack = r.scopeStack[:len(r.scopeStack)-1]
+
+	sn.Unsubs = make([]func(), len(sn.Deps))
+	for i, dep := range sn.Deps {
+		dep := dep
+		sn.Unsubs[i] = dep.Subscribe(func() {
+			r.Scheduler.MarkDirty(sn, state.seq, func() {
+				r.reRenderScope(sn, state.parentID)
+			})
+		})
+	}
 }
 
 func nodeID(n core.Node) int {
@@ -374,11 +376,11 @@ func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
 	// aborting the whole flush and blanking the page. Restore parentStack,
 	// which a mid-render panic would leave unbalanced.
 	baseStack := len(r.parentStack)
-	frameDepth := core.SaveFrameStack()
+	frameDepth := runtime.SaveFrameStack()
 	defer func() {
 		if rec := recover(); rec != nil {
 			r.parentStack = r.parentStack[:baseStack]
-			core.RestoreFrameStack(frameDepth)
+			runtime.RestoreFrameStack(frameDepth)
 			log.Printf("goowee: recovered panic during re-render (subtree kept its previous state): %v", rec)
 		}
 	}()
@@ -506,7 +508,7 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 		r.Bindings.Unbind(old.ID)
 		for _, b := range new.Binds {
 			r.Bindings.Bind(old.ID, b)
-			*muts = append(*muts, core.MutationForBind(old.ID, b))
+			*muts = append(*muts, runtime.MutationForBind(old.ID, b))
 		}
 
 		newEvents := map[string]bool{}
@@ -626,32 +628,6 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 	return 0
 }
 
-// renderBoundary renders the boundary's child, catching a render-time panic and
-// rendering the fallback instead. The child renders into a private buffer so a
-// panic mid-render discards its partial mutations (never attached); renderer
-// state a partial render would clobber (parentStack, namespace, dynamic flag)
-// is rolled back before the fallback renders.
-func (r *DOMRenderer) renderBoundary(b *core.ErrorBoundaryNode, muts *[]core.Mutation) int {
-	baseStack := len(r.parentStack)
-	frameDepth := core.SaveFrameStack()
-	savedNS, savedDyn := r.currentNS, r.hydrateDynamic
-
-	var childMuts []core.Mutation
-	id, rec := r.tryRenderNode(b.Child, &childMuts)
-	if rec != nil {
-		r.parentStack = r.parentStack[:baseStack]
-		core.RestoreFrameStack(frameDepth)
-		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
-		log.Printf("goowee: error boundary caught panic, rendering fallback: %v", rec)
-		fb := core.FlatTree(b.Fallback(rec))
-		b.Prev = fb
-		return r.renderNode(fb, muts)
-	}
-	*muts = append(*muts, childMuts...)
-	b.Prev = b.Child
-	return id
-}
-
 // diffBoundary updates a boundary on re-render. It diffs the previously rendered
 // subtree against the new child (preserving child state); if that panics, it
 // keeps the previous DOM and logs (update-time panics are contained, not
@@ -659,14 +635,14 @@ func (r *DOMRenderer) renderBoundary(b *core.ErrorBoundaryNode, muts *[]core.Mut
 // successful diff to the new child restores it.
 func (r *DOMRenderer) diffBoundary(old, nb *core.ErrorBoundaryNode, muts *[]core.Mutation) int {
 	baseStack := len(r.parentStack)
-	frameDepth := core.SaveFrameStack()
+	frameDepth := runtime.SaveFrameStack()
 	savedNS, savedDyn := r.currentNS, r.hydrateDynamic
 
 	var childMuts []core.Mutation
 	id, rec := r.tryDiffNode(old.Prev, nb.Child, &childMuts)
 	if rec != nil {
 		r.parentStack = r.parentStack[:baseStack]
-		core.RestoreFrameStack(frameDepth)
+		runtime.RestoreFrameStack(frameDepth)
 		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
 		log.Printf("goowee: error boundary recovered panic on update (subtree kept its previous state): %v", rec)
 		nb.Prev = old.Prev
@@ -675,12 +651,6 @@ func (r *DOMRenderer) diffBoundary(old, nb *core.ErrorBoundaryNode, muts *[]core
 	*muts = append(*muts, childMuts...)
 	nb.Prev = nb.Child
 	return id
-}
-
-func (r *DOMRenderer) tryRenderNode(n core.Node, muts *[]core.Mutation) (id int, rec any) {
-	defer func() { rec = recover() }()
-	id = r.renderNode(n, muts)
-	return
 }
 
 func (r *DOMRenderer) tryDiffNode(old, new core.Node, muts *[]core.Mutation) (id int, rec any) {
@@ -965,7 +935,7 @@ func typeCompatible(a, b core.Node) bool {
 
 func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 	r.disposeReactive(n)
-	ids := core.CollectIDs(n)
+	ids := runtime.CollectIDs(n)
 	for _, id := range ids {
 		r.Bindings.Unbind(id)
 		r.Registry.Remove(id)

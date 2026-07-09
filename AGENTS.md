@@ -235,3 +235,16 @@ as `/todos/1` → `/todos/2` (bind `ParamSignal`, don't read `Param` once in set
 - ❌ Non-deterministic SSR output (`time.Now()`, random) without `h.Dynamic()` or the
   placeholder-plus-`OnMount` pattern.
 - ❌ Reaching into the DOM with `syscall/js` from app code. Use a `Ref` (`Focus`, etc.).
+
+---
+
+## Worktree pattern
+
+When asked to draft work in an isolated worktree, create it under `.opencode/worktrees/`:
+
+```sh
+git worktree add -b <branch-name> .opencode/worktrees/<name> <base-branch>
+```
+
+This keeps worktrees inside the repo (and gitignored via `.opencode/`), avoiding
+`/tmp` and keeping them discoverable. When done, `git worktree remove .opencode/worktrees/<name>` and delete the branch.

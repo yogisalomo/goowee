@@ -174,6 +174,18 @@ func (e *ErrorBoundaryNode) Apply(parent *ElementNode) {
 	parent.Children = append(parent.Children, e)
 }
 
+// ComponentFrame tracks a component's hook state, lifcycle disposers, and
+// position in the component tree. Created by PushComponent / destroyed by
+// PopComponent, which live in internal/runtime.
+type ComponentFrame struct {
+	Path        string
+	Parent      *ComponentFrame
+	Children    []*ComponentFrame
+	RootNodeIDs []int
+	Hooks       []any
+	Disposers   []func()
+}
+
 type ComponentNode struct {
 	Name   string
 	Key    any // used by keyed reconciliation (For); nil = unkeyed
@@ -257,44 +269,6 @@ func flattenChildren(children []Node) []Node {
 		}
 	}
 	return flat
-}
-
-func CollectIDs(n Node) []int {
-	var ids []int
-	switch v := n.(type) {
-	case *ElementNode:
-		if v.ID > 0 {
-			ids = append(ids, v.ID)
-		}
-		for _, child := range v.Children {
-			ids = append(ids, CollectIDs(child)...)
-		}
-	case *TextNode:
-		if v.ID > 0 {
-			ids = append(ids, v.ID)
-		}
-	case *FragmentNode:
-		for _, child := range v.Children {
-			ids = append(ids, CollectIDs(child)...)
-		}
-	case *PortalNode:
-		for _, child := range v.Children {
-			ids = append(ids, CollectIDs(child)...)
-		}
-	case *ErrorBoundaryNode:
-		if v.Prev != nil {
-			ids = append(ids, CollectIDs(v.Prev)...)
-		}
-	case *ComponentNode:
-		if v.Prev != nil {
-			ids = append(ids, CollectIDs(v.Prev)...)
-		}
-	case *ScopeNode:
-		if v.Prev != nil {
-			ids = append(ids, CollectIDs(v.Prev)...)
-		}
-	}
-	return ids
 }
 
 type EventData struct {

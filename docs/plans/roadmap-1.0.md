@@ -29,10 +29,17 @@ guide (signals, run-once components, scopes/`Show`/`For`, SSR + hydration), and
 an API reference for the public surface (`h`, `hooks`, `core` signals,
 `router`, `ssr`). The README should be the entry point, not a design dump. **M**
 
-**0.3 Public vs internal API boundary.** Decide what is public and freeze it
-for v0.x with a deprecation policy. Move genuinely-internal types behind
-`internal/` so they can't be imported. Today everything in `core`/`dom`/`ssr`
-is exported and importable, which makes every field a de-facto public contract. **M**
+**0.3 Public vs internal API boundary.** 🟡 **Mostly done.** The public API is
+now defined and the v0 stability/deprecation policy written (`docs/api-stability.md`):
+public packages are `h`/`hooks`/`router`/`ssr`/`bridge` plus a named subset of
+`core`. The **whole `dom` renderer moved to `internal/dom`** so external modules
+can't import it, and a single client entry point `bridge.Run(node)` replaced the
+old `dom.New()`/`renderer.Render`/`bridge.Init` dance that leaked
+`renderer.Scheduler`/`Registry` (dead `NoopBridge`/`Bridge` removed). *Remaining:*
+`core` still exports framework internals (scheduler, mutations, render context,
+node structs) alongside its public subset — hiding those needs a `core` split
+into public/internal halves (an L refactor, related to P4.1); for now the boundary
+is documented rather than compiler-enforced. **M**
 
 ---
 
@@ -108,17 +115,19 @@ reconciliation) — both deferred, documented in ADR-017.
 
 ## P3 — Performance & footprint (adoption-deciding, not correctness)
 
-**3.1 Bundle size.** ~3.7 MB raw / ~1.0 MB gzip today. Evaluate TinyGo
-(the reflect-free core helps), document gzip/brotli serving, and explore
-route-level code splitting/lazy loading. **L**
+**3.1 Bundle size.** ~3.7 MB raw / ~1.0 MB gzip today. *gzip/brotli serving:*
+✅ **Done** — documented in `docs/serving.md`; the reference SSR server gzips the
+wasm (3.7×), JS/CSS, and SSR HTML, and GitHub Pages gzips via its CDN. *Remaining:*
+evaluate TinyGo (the reflect-free core helps) against the *post-compression*
+download, and explore route-level code splitting/lazy loading. **L**
 
 **3.2 Boot latency.** 🟡 **Measurement landed.** `make boot` records a
 median TTI phase split (download+compile / go boot+render / hydrate) in headless
 Chromium — see `docs/plans/boot-latency-measurement.md`. Baseline finding:
-download+compile of the ~4 MB binary dominates TTI, and the binary is served
-*uncompressed* — gzip alone is a 3.7× download cut (folds into 3.1). *Remaining:*
-an FCP mark to credit SSR's first-paint benefit, a real-network/throttled
-baseline, and CI budget wiring (3.5). **M**
+download+compile of the ~4 MB binary dominates TTI. The 3.7× gzip download cut it
+surfaced is now served (see 3.1 / `docs/serving.md`), and `make boot` supports
+`THROTTLE=4g|fast3g|slow3g` to measure it on an emulated network. *Remaining:* an
+FCP mark to credit SSR's first-paint benefit, and CI budget wiring (3.5). **M**
 
 **3.3 Keyed-diff minimal moves.** The keyed reconciler re-inserts every row on a
 list change (no longest-increasing-subsequence), so large lists do O(n) DOM

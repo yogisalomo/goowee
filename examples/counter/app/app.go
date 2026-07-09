@@ -591,9 +591,7 @@ func gettingStartedPage(r *router.Router) core.Node {
 package main
 
 import (
-    "syscall/js"
     "github.com/yogisalomo/goowee/bridge"
-    "github.com/yogisalomo/goowee/dom"
     "github.com/yogisalomo/goowee/router"
     "myapp/app"
 )
@@ -601,15 +599,9 @@ import (
 func main() {
     r := router.New(router.CurrentPath())
     r.BindHistory()
-    renderer := dom.New()
-    if js.Global().Get("document").
-        Call("querySelector", "[data-node-id]").Truthy() {
-        renderer.SetHydrating(true)
-    }
-    muts, _ := renderer.Render(app.App(r))
-    renderer.Scheduler.Enqueue(muts...)
-    bridge.Init(renderer.Scheduler, renderer.Registry)
-    select {}
+    // bridge.Run mounts the app, hydrates if the page was
+    // server-rendered, and drives the render loop. It never returns.
+    bridge.Run(app.App(r))
 }`)),
 			H3(Text("Hello World")),
 			P(Text("A component is a function that returns a node tree:")),
