@@ -66,21 +66,15 @@ virtual DOM.
 package main
 
 import (
-    "syscall/js"
-
     "github.com/yogisalomo/goowee/bridge"
-    "github.com/yogisalomo/goowee/core"
-    "github.com/yogisalomo/goowee/dom"
-    "github.com/yogisalomo/goowee/hooks"
+    "github.com/yogisalomo/goowee/router"
     "myapp/app"
 )
 
 func main() {
-    renderer := dom.New()
-    muts, _ := renderer.Render(app.App())
-    renderer.Scheduler.Enqueue(muts...)
-    bridge.Init(renderer.Scheduler, renderer.Registry)
-    select {}
+    r := router.New(router.CurrentPath())
+    r.BindHistory()
+    bridge.Run(app.App(r))
 }
 ```
 
@@ -143,19 +137,12 @@ func homePage() core.Node {
 }
 ```
 
-Update your entry point to create a router:
+The entry point stays the same — just pass the router to your app component:
 
 ```go
 r := router.New(router.CurrentPath())
 r.BindHistory()
-renderer := dom.New()
-// If the page was server-rendered, hydrate instead of rebuilding.
-if js.Global().Get("document").Call("querySelector", "[data-node-id]").Truthy() {
-    renderer.SetHydrating(true)
-}
-muts, _ := renderer.Render(app.App(r))
-renderer.Scheduler.Enqueue(muts...)
-bridge.Init(renderer.Scheduler, renderer.Registry)
+bridge.Run(app.App(r))
 ```
 
 ## Adding SSR

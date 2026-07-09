@@ -36,7 +36,7 @@ go mod init myapp
 go get github.com/yogisalomo/goowee
 ```
 
-Create `main.go`:
+Create `cmd/app/main.go`:
 
 ```go
 //go:build js && wasm
@@ -44,36 +44,23 @@ Create `main.go`:
 package main
 
 import (
-    . "github.com/yogisalomo/goowee/h"
     "github.com/yogisalomo/goowee/bridge"
-    "github.com/yogisalomo/goowee/core"
-    "github.com/yogisalomo/goowee/dom"
-    "github.com/yogisalomo/goowee/hooks"
+    "github.com/yogisalomo/goowee/router"
+    "myapp/app"
 )
 
 func main() {
-    renderer := dom.New()
-    muts, _ := renderer.Render(App())
-    renderer.Scheduler.Enqueue(muts...)
-    bridge.Init(renderer.Scheduler, renderer.Registry)
-    select {}
-}
-
-func App() core.Node {
-    return core.Component("App", func() core.Node {
-        count, setCount := hooks.UseState(0)
-        return Div(Class("counter"),
-            P(Textf("Count: %d", count)),
-            Button(OnClick(func() { setCount(count.Get() + 1) }), Text("Click me")),
-        )
-    })
+    r := router.New(router.CurrentPath())
+    r.BindHistory()
+    bridge.Run(app.App(r))
 }
 ```
 
-Build, copy the runtime, and serve:
+The runnable reference app lives in `examples/counter` — `make serve` (client)
+or `make serve-ssr` (SSR + hydration). Build and serve with:
 
 ```bash
-GOOS=js GOARCH=wasm go build -o web/main.wasm .
+GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
 cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/
 cd web && python3 -m http.server 8080
@@ -91,9 +78,6 @@ cd web && python3 -m http.server 8080
 </script>
 ```
 
-The runnable reference app lives in `examples/counter` — `make serve` (client)
-or `make serve-ssr` (SSR + hydration).
-
 ## Guides
 
 | Guide | What you'll learn |
@@ -105,13 +89,13 @@ or `make serve-ssr` (SSR + hydration).
 ## Project layout
 
 ```
-core/         Signals, scheduler, node types, bindings, render context
-dom/          DOM renderer, diff/reconciliation, hydration, event registry
-hooks/        UseState, UseEffect, OnMount, Watch, UseScope
+core/         Public reactive API: signals, computed, scheduler, node types
+internal/     Private implementation: DOM renderer (internal/dom), runtime (internal/runtime)
+hooks/        UseState, UseEffect, OnMount, Watch, UseScope, UseResource
 h/            Typed element/attr/event DSL, control flow, VirtualList
-router/       Client-side router (matching, params, history)
+router/       Client-side router (matching, params, history, guards)
 ssr/          Server-side HTML renderer
-bridge/       WASM bridge (Go ↔ JS)
+bridge/       WASM entry point — bridge.Run(node) is all you need
 runtime/      JS runtime (goowee.js)
 examples/     Demo app (counter, form, todos, dashboard, routing, params)
 cmd/          SSR server binary

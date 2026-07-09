@@ -8,9 +8,8 @@ import (
     . "github.com/yogisalomo/goowee/h"       // dot-imported DSL
     "github.com/yogisalomo/goowee/hooks"
     "github.com/yogisalomo/goowee/router"
-    "github.com/yogisalomo/goowee/dom"        // client-side renderer
     "github.com/yogisalomo/goowee/ssr"        // server-side renderer
-    "github.com/yogisalomo/goowee/bridge"    // WASM interop
+    "github.com/yogisalomo/goowee/bridge"    // WASM entry point
 )
 ```
 
@@ -322,31 +321,14 @@ and hydrates instead of rebuilding.
 
 ---
 
-## `dom` — Client-side DOM renderer
-
-```go
-import "github.com/yogisalomo/goowee/dom"
-
-renderer := dom.New()
-muts, rootID := renderer.Render(node core.Node) // initial render
-renderer.Scheduler.Enqueue(muts...)              // apply mutations
-
-renderer.SetHydrating(true)                      // enable hydration mode
-```
-
-`dom.New()` returns a renderer that produces DOM mutations (create, set,
-remove, etc.) applied by the bridge. For hydration, set `SetHydrating(true)`
-before rendering.
-
----
-
-## `bridge` — WASM interop
+## `bridge` — WASM entry point
 
 ```go
 import "github.com/yogisalomo/goowee/bridge"
 
-bridge.Init(scheduler *core.Scheduler, registry *core.NodeRegistry)
+bridge.Run(app core.Node)
 ```
 
-Starts the frame loop that drains the scheduler's mutation queue and
-forwards events from JS to Go. Called once in `main()`.
+`Run` mounts `app` into the page, hydrates it if the HTML was server-rendered,
+and drives the render loop. It never returns (keeps the WASM module alive).
+Called once from `main()` — that's all you need for the client side.
