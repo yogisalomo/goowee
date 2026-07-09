@@ -2,8 +2,8 @@ package dom
 
 import (
 	"encoding/json"
+
 	"github.com/yogisalomo/goowee/core"
-	"log"
 )
 
 type HandlerEntry struct {
@@ -87,7 +87,11 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 	handled = true
 	defer func() {
 		if rec := recover(); rec != nil {
-			log.Printf("goowee: panic in %s handler for node %d: %v", event, nodeID, rec)
+			core.Log(core.LogRecoverEventHandler, "panic in event handler", map[string]any{
+				"event":  event,
+				"nodeId": nodeID,
+				"panic":  rec,
+			})
 		}
 	}()
 	entry.Fn(core.EventData{Type: event, Target: nodeID, Data: data})

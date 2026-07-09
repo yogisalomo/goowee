@@ -111,4 +111,10 @@ func init() {
 			f.Disposers = append(f.Disposers, fn)
 		}
 	}
+	core.CurrentComponentPath = func() string {
+		if f := CurrentComponent(); f != nil {
+			return f.Path
+		}
+		return ""
+	}
 }

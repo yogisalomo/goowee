@@ -40,6 +40,9 @@ func UseResource[T any](deps []core.SignalAccessor, fetch func() (T, error)) *Re
 		Err:     core.NewSignal[error](nil),
 		fetch:   fetch,
 	}
+	core.RegisterSignal(r.Data, "resource.data")
+	core.RegisterSignal(r.Loading, "resource.loading")
+	core.RegisterSignal(r.Err, "resource.err")
 	OnMount(func() func() {
 		r.load()
 		return nil

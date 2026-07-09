@@ -1,8 +1,6 @@
 package dom
 
 import (
-	"log"
-
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/internal/runtime"
@@ -261,7 +259,10 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 		r.parentStack = r.parentStack[:baseStack]
 		runtime.RestoreFrameStack(frameDepth)
 		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
-		log.Printf("goowee: error boundary caught panic, rendering fallback: %v", rec)
+		core.Log(core.LogRecoverErrorBoundary, "caught panic, rendering fallback", map[string]any{
+			"phase": "render",
+			"panic": rec,
+		})
 		fb := core.FlatTree(ebn.Fallback(rec))
 		ebn.Prev = fb
 		return r.renderNode(fb, r.muts)
@@ -381,7 +382,9 @@ func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
 		if rec := recover(); rec != nil {
 			r.parentStack = r.parentStack[:baseStack]
 			runtime.RestoreFrameStack(frameDepth)
-			log.Printf("goowee: recovered panic during re-render (subtree kept its previous state): %v", rec)
+			core.Log(core.LogRecoverReRender, "panic during scope re-render; subtree kept previous state", map[string]any{
+				"panic": rec,
+			})
 		}
 	}()
 
@@ -644,7 +647,10 @@ func (r *DOMRenderer) diffBoundary(old, nb *core.ErrorBoundaryNode, muts *[]core
 		r.parentStack = r.parentStack[:baseStack]
 		runtime.RestoreFrameStack(frameDepth)
 		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
-		log.Printf("goowee: error boundary recovered panic on update (subtree kept its previous state): %v", rec)
+		core.Log(core.LogRecoverErrorBoundary, "panic during boundary update; subtree kept previous state", map[string]any{
+			"phase": "update",
+			"panic": rec,
+		})
 		nb.Prev = old.Prev
 		return nodeID(old.Prev)
 	}
@@ -761,7 +767,9 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 	for i, n := range old {
 		if k, ok := keyOf(n); ok {
 			if _, dup := oldByKey[k]; dup {
-				log.Printf("goowee: duplicate key %v in keyed children; treating extra as unkeyed", k)
+				core.Log(core.LogWarn, "duplicate key in keyed children; treating extra as unkeyed", map[string]any{
+					"key": k,
+				})
 				continue
 			}
 			oldByKey[k] = i
@@ -780,7 +788,9 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 		if k, ok := keyOf(n); ok {
 			if oldIdx, ok := oldByKey[k]; ok {
 				if paired[oldIdx] {
-					log.Printf("goowee: duplicate key %v in keyed children; treating extra as unkeyed", k)
+					core.Log(core.LogWarn, "duplicate key in keyed children; treating extra as unkeyed", map[string]any{
+					"key": k,
+				})
 					continue
 				}
 				paired[oldIdx] = true
