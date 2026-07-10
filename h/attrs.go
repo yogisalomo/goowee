@@ -10,7 +10,8 @@ func ID(v string) core.Item              { return attrItem{"id", v} }
 func Href(v string) core.Item            { return attrItem{"href", v} }
 func Src(v string) core.Item             { return attrItem{"src", v} }
 func Alt(v string) core.Item             { return attrItem{"alt", v} }
-func Title(v string) core.Item           { return attrItem{"title", v} }
+func Tooltip(v string) core.Item         { return attrItem{"title", v} }
+func Content(v string) core.Item         { return attrItem{"content", v} }
 func Style(v string) core.Item           { return attrItem{"style", v} }
 func Placeholder(v string) core.Item     { return attrItem{"placeholder", v} }
 func Name(v string) core.Item            { return attrItem{"name", v} }

@@ -164,15 +164,18 @@ func main() {
 		case "/", "/tutorial", "/counter", "/about", "/form", "/todos", "/stopwatch", "/dashboard", "/async":
 			rtr := router.New(r.URL.Path)
 			renderer := ssr.New()
-			body := renderer.Render(app.App(rtr))
+			body, head := renderer.Render(app.App(rtr))
 
+			if head == "" {
+				head = `    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>goowee — reactive Go UIs in WebAssembly</title>
+    <link rel="stylesheet" href="site.css">`
+			}
 			html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>goowee — reactive Go UIs in WebAssembly</title>
-    <link rel="stylesheet" href="site.css">
+%s
     <script src="wasm_exec.js"></script>
     <script src="goowee.js"></script>
     <script src="counter.js"></script>
@@ -181,7 +184,7 @@ func main() {
     <div id="root">%s</div>
     <script>goowee.boot();</script>
 </body>
-</html>`, body)
+</html>`, head, body)
 			writeMaybeGzip(w, r, "text/html; charset=utf-8", []byte(html))
 			return
 		}

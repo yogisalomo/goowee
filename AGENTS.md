@@ -76,6 +76,12 @@ Bind a signal instead.
    handler/effect. `h.Portal("#modal-root", …)` renders outside the current subtree.
 10. **Prefer the typed helpers.** Use `h`'s element/attr/event constructors rather
     than building `core.ElementNode` literals by hand.
+11. **Head metadata → `Metadata` + `Page`.** Wrap `<title>`, `<meta>`, `<link>`,
+    `<script>` etc. in `Metadata(...)` anywhere in the tree; they're collected and
+    injected into `<head>` by both SSR and DOM renderers. For the full set of
+    SEO/social/structured-data tags, use `Page(PageMeta{...})` which expands a
+    single config into title, OG, Twitter Cards, JSON-LD, and LLM elements.
+    A single `Page(PageMeta{Title: "…"})` is enough for most pages.
 
 ---
 
@@ -116,6 +122,10 @@ import (
 - Error boundary: `ErrorBoundary(func(err any) core.Node { … }, child)` — renders
   the fallback if rendering `child` panics (a mount-time failure), so it doesn't
   blank the page.
+- Head metadata: `Metadata(Title("…"), Meta(…), Link(…), JSONLD(…), …)` —
+  wraps head elements; collected and injected into `<head>` by both renderers.
+  For a single-config expansion: `Page(PageMeta{Title: "…", Description: "…"})`
+  generates `<title>`, OG/Twitter tags, JSON-LD, and LLM meta automatically.
 
 **Events** (`h`)
 - Simple: `OnClick(func())`, `OnInput(func(string))`, `OnChange(func(string))`,

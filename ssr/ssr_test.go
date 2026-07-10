@@ -3,6 +3,7 @@ package ssr
 import (
 	"fmt"
 	"github.com/yogisalomo/goowee/core"
+	. "github.com/yogisalomo/goowee/h"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/internal/dom"
 	"strings"
@@ -20,7 +21,7 @@ func TestSSRRender(t *testing.T) {
 		},
 	}
 	r := New()
-	html := r.Render(n)
+	html, _ := r.Render(n)
 	if !strings.Contains(html, "data-node-id") {
 		t.Fatal("expected data-node-id")
 	}
@@ -67,7 +68,7 @@ func TestSSRFragment(t *testing.T) {
 		},
 	}
 	r := New()
-	html := r.Render(n)
+	html, _ := r.Render(n)
 	if !strings.Contains(html, "data-node-id") {
 		t.Fatal("expected data-node-id")
 	}
@@ -100,7 +101,7 @@ func TestSSRComponentNode(t *testing.T) {
 		}
 	})
 	r := New()
-	html := r.Render(comp)
+	html, _ := r.Render(comp)
 	if !strings.Contains(html, "data-node-id") {
 		t.Fatal("expected data-node-id")
 	}
@@ -119,7 +120,7 @@ func TestSSRScopeNode(t *testing.T) {
 		},
 	}
 	r := New()
-	html := r.Render(&comp)
+	html, _ := r.Render(&comp)
 	if !strings.Contains(html, "scoped") {
 		t.Fatal("expected class from scope")
 	}
@@ -141,7 +142,7 @@ func TestSSRIDMatchesDOM(t *testing.T) {
 	})
 
 	ssrR := New()
-	ssrHTML := ssrR.Render(comp)
+	ssrHTML, _ := ssrR.Render(comp)
 
 	domR := dom.New()
 	muts, domID := domR.Render(comp)
@@ -163,7 +164,7 @@ func TestSSRIDMatchesDOM(t *testing.T) {
 func TestSSREscapeHTML(t *testing.T) {
 	n := &core.TextNode{Value: "a < b & c > d"}
 	r := New()
-	html := r.Render(n)
+	html, _ := r.Render(n)
 	if !strings.Contains(html, "&lt;") || !strings.Contains(html, "&amp;") || !strings.Contains(html, "&gt;") {
 		t.Fatalf("expected escaped HTML, got %s", html)
 	}
@@ -175,7 +176,7 @@ func TestAttrEscaping(t *testing.T) {
 		Attrs: []core.Attr{{Name: "title", Value: `he said "hello"`}},
 	}
 	r := New()
-	html := r.Render(n)
+	html, _ := r.Render(n)
 	if !strings.Contains(html, "&quot;") {
 		t.Fatalf("expected escaped attribute value, got %s", html)
 	}
@@ -186,7 +187,7 @@ func TestVoidElements(t *testing.T) {
 		Tag: "br",
 	}
 	r := New()
-	html := r.Render(n)
+	html, _ := r.Render(n)
 	if strings.Contains(html, "</br>") {
 		t.Fatalf("expected no closing tag for void element, got %s", html)
 	}
@@ -198,7 +199,7 @@ func TestVoidElements(t *testing.T) {
 		Tag:   "input",
 		Attrs: []core.Attr{{Name: "type", Value: "text"}},
 	}
-	html2 := r.Render(input)
+	html2, _ := r.Render(input)
 	if strings.Contains(html2, "</input>") {
 		t.Fatalf("expected no closing tag for void input, got %s", html2)
 	}
@@ -212,7 +213,7 @@ func TestBoolPropsAsAttributes(t *testing.T) {
 		},
 	}
 	r := New()
-	html := r.Render(n)
+	html, _ := r.Render(n)
 	if !strings.Contains(html, " disabled") {
 		t.Fatalf("expected disabled attribute, got %s", html)
 	}
@@ -223,7 +224,7 @@ func TestBoolPropsAsAttributes(t *testing.T) {
 			{Name: "disabled", Value: false},
 		},
 	}
-	html2 := r.Render(n2)
+	html2, _ := r.Render(n2)
 	if strings.Contains(html2, "disabled") {
 		t.Fatalf("expected no disabled attribute when false, got %s", html2)
 	}
@@ -234,7 +235,7 @@ func TestBoolPropsAsAttributes(t *testing.T) {
 			{Name: "readOnly", Value: true},
 		},
 	}
-	html3 := r.Render(n3)
+	html3, _ := r.Render(n3)
 	if !strings.Contains(html3, " readonly") {
 		t.Fatalf("expected readonly attribute, got %s", html3)
 	}
@@ -249,7 +250,7 @@ func TestBindSerialization(t *testing.T) {
 		}},
 	}
 	r := New()
-	html := r.Render(n)
+	html, _ := r.Render(n)
 	if !strings.Contains(html, `title="hello"`) {
 		t.Fatalf("expected title attribute with resolved value, got %s", html)
 	}
@@ -279,7 +280,7 @@ func TestConcurrentServerRendersNoRace(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			got := New().Render(build(i))
+			got, _ := New().Render(build(i))
 			if want := fmt.Sprintf("n=%d</span>", i); !strings.Contains(got, want) {
 				errs <- fmt.Sprintf("render %d missing %q in %q", i, want, got)
 			}
@@ -304,11 +305,144 @@ func TestServerRenderSkipsEffects(t *testing.T) {
 		return &core.ElementNode{Tag: "div", Children: []core.Node{&core.TextNode{Value: "x"}}}
 	})
 
-	html := New().Render(comp)
+	html, _ := New().Render(comp)
 	if !strings.Contains(html, "x") {
 		t.Fatalf("expected rendered content, got %q", html)
 	}
 	if atomic.LoadInt32(&ran) != 0 {
 		t.Fatalf("OnMount ran during ssr.Render (ran=%d), should be skipped server-side", ran)
+	}
+}
+
+func TestSSRMetadata(t *testing.T) {
+	body, head := New().Render(
+		Div(
+			Metadata(
+				Title("Test Page"),
+				Meta(Name("description"), Content("A test page")),
+				Link(Rel("canonical"), Href("https://example.com")),
+			),
+			P(Text("hello")),
+		),
+	)
+	if !strings.Contains(head, `<title>Test Page</title>`) {
+		t.Fatalf("expected <title> in head, got %q", head)
+	}
+	if !strings.Contains(head, `<meta name="description" content="A test page"`) {
+		t.Fatalf("expected meta description in head, got %q", head)
+	}
+	if !strings.Contains(head, `<link rel="canonical" href="https://example.com"`) {
+		t.Fatalf("expected canonical link in head, got %q", head)
+	}
+	if !strings.Contains(body, `hello`) {
+		t.Fatalf("expected body content, got %q", body)
+	}
+	if strings.Contains(body, `<title>`) {
+		t.Fatal("head content must not leak into body")
+	}
+}
+
+func TestSSRMetadataLLM(t *testing.T) {
+	_, head := New().Render(
+		Div(
+			Metadata(
+				LLM("home page", "Welcome page of the Goowee framework", "go", "wasm", "ui"),
+				JSONLD(map[string]any{"@context": "https://schema.org", "@type": "WebPage"}),
+			),
+		),
+	)
+	if !strings.Contains(head, `<meta name="llm" content="purpose=home page;context=Welcome page of the Goowee framework;keywords=go;keywords=wasm;keywords=ui"`) {
+		t.Fatalf("expected llm meta in head, got %q", head)
+	}
+	if !strings.Contains(head, `<script type="application/ld+json">`) {
+		t.Fatalf("expected JSON-LD script in head, got %q", head)
+	}
+	if !strings.Contains(head, `{"@context":"https://schema.org","@type":"WebPage"}`) {
+		t.Fatalf("expected JSON-LD content in head, got %q", head)
+	}
+}
+
+func TestSSRMetadataPage(t *testing.T) {
+	_, head := New().Render(
+		Div(
+			Metadata(
+				Page(PageMeta{
+					Title:       "My Page",
+					Description: "A test page",
+					Canonical:   "https://example.com",
+					Author:      "Test Author",
+					Keywords:    []string{"go", "wasm", "ui"},
+					Image:       "https://example.com/og.png",
+					SiteName:    "Example",
+				}),
+			),
+		),
+	)
+	tests := []struct{ name, substr string }{
+		{"title", `<title>My Page</title>`},
+		{"charset", `<meta charset="utf-8"`},
+		{"viewport", `<meta name="viewport" content="width=device-width, initial-scale=1"`},
+		{"description", `<meta name="description" content="A test page"`},
+		{"canonical", `<link rel="canonical" href="https://example.com"`},
+		{"author", `<meta name="author" content="Test Author"`},
+		{"keywords", `<meta name="keywords" content="go, wasm, ui"`},
+		{"og:title", `<meta property="og:title" content="My Page"`},
+		{"og:description", `<meta property="og:description" content="A test page"`},
+		{"og:image", `<meta property="og:image" content="https://example.com/og.png"`},
+		{"og:locale", `<meta property="og:locale" content="en_US"`},
+		{"og:site_name", `<meta property="og:site_name" content="Example"`},
+		{"twitter:title", `<meta name="twitter:title" content="My Page"`},
+		{"twitter:description", `<meta name="twitter:description" content="A test page"`},
+		{"twitter:image", `<meta name="twitter:image" content="https://example.com/og.png"`},
+		{"twitter:card", `<meta name="twitter:card" content="summary_large_image"`},
+		{"JSON-LD", `<script type="application/ld+json">`},
+		{"LLM", `<meta name="llm" content="purpose=My Page;context=A test page;keywords=go;keywords=wasm;keywords=ui"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !strings.Contains(head, tt.substr) {
+				t.Errorf("expected %q in head, got %q", tt.substr, head)
+			}
+		})
+	}
+	// Body must not leak head content.
+	if strings.Contains(head, `<div`) {
+		t.Error("head must not contain body elements")
+	}
+}
+
+func TestSSRMetadataPageMinimal(t *testing.T) {
+	_, head := New().Render(
+		Div(
+			Metadata(Page(PageMeta{Title: "Minimal"})),
+		),
+	)
+	if !strings.Contains(head, `<title>Minimal</title>`) {
+		t.Fatalf("expected title, got %q", head)
+	}
+	if strings.Contains(head, `<meta name="description"`) {
+		t.Fatal("expected no description when empty")
+	}
+	if !strings.Contains(head, `<meta property="og:locale" content="en_US"`) {
+		t.Fatalf("expected og:locale default, got %q", head)
+	}
+	if !strings.Contains(head, `<meta name="llm"`) {
+		t.Fatalf("expected LLM meta, got %q", head)
+	}
+}
+
+func TestSSRMetadataMultiple(t *testing.T) {
+	// Multiple Metadata blocks accumulate.
+	_, head := New().Render(
+		Div(
+			Metadata(Title("Page")),
+			Metadata(Meta(Name("description"), Content("Desc"))),
+		),
+	)
+	if !strings.Contains(head, `<title>Page</title>`) {
+		t.Fatalf("expected title, got %q", head)
+	}
+	if !strings.Contains(head, `<meta name="description" content="Desc"`) {
+		t.Fatalf("expected meta, got %q", head)
 	}
 }

@@ -21,7 +21,8 @@ type HydrationMeta struct {
 
 type Renderer struct {
 	walker.Walker
-	Meta HydrationMeta
+	Meta    HydrationMeta
+	headBuf strings.Builder
 }
 
 func New() *Renderer {
@@ -42,16 +43,17 @@ func (r *Renderer) Reset() {
 	}
 }
 
-func (r *Renderer) Render(n core.Node) string {
-	var out string
+func (r *Renderer) Render(n core.Node) (body, head string) {
+	r.headBuf.Reset()
 	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 		r.Reset()
 		var buf strings.Builder
 		v := &ssrVisitor{r: r, buf: &buf, path: ""}
 		r.Walker.Walk(n, v)
-		out = buf.String()
+		body = buf.String()
+		head = r.headBuf.String()
 	})
-	return out
+	return
 }
 
 func (r *Renderer) RenderWithMeta(n core.Node, path string, hooks []core.SignalAccessor) (string, HydrationMeta) {
@@ -59,6 +61,7 @@ func (r *Renderer) RenderWithMeta(n core.Node, path string, hooks []core.SignalA
 	var meta HydrationMeta
 	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
 		r.Reset()
+		r.headBuf.Reset()
 		var buf strings.Builder
 		v := &ssrVisitor{r: r, buf: &buf, path: path, hooks: hooks}
 		r.Walker.Walk(n, v)
@@ -229,6 +232,56 @@ func (v *ssrVisitor) VisitPortal(pn *core.PortalNode, walkChild func(core.Node) 
 		walkChild(child)
 	}
 	v.silent = oldSilent
+}
+
+func (v *ssrVisitor) VisitMetadata(mn *core.MetadataNode, walkChild func(core.Node) int) {
+	if mn == nil {
+		return
+	}
+	// Walk children silently for ID parity with the client renderer.
+	oldSilent := v.silent
+	v.silent = true
+	for _, child := range mn.Children {
+		walkChild(child)
+	}
+	// Render head children into the head buffer.
+	oldBuf := v.buf
+	v.buf = &v.r.headBuf
+	v.silent = false
+	v.renderHeadChildren(mn.Children)
+	v.buf = oldBuf
+	v.silent = oldSilent
+}
+
+func (v *ssrVisitor) renderHeadChildren(children []core.Node) {
+	for _, child := range children {
+		switch n := child.(type) {
+		case *core.ElementNode:
+			v.renderHeadElement(n)
+		case *core.TextNode:
+			fmt.Fprintf(v.buf, "%s", escapeHTML(fmt.Sprintf("%v", n.Value)))
+		case *core.FragmentNode:
+			// Flatten: metadata inside fragments (e.g. conditional groups).
+			v.renderHeadChildren(n.Children)
+		}
+	}
+}
+
+func (v *ssrVisitor) renderHeadElement(el *core.ElementNode) {
+	v.buf.WriteString("<")
+	v.buf.WriteString(el.Tag)
+	for _, a := range el.Attrs {
+		fmt.Fprintf(v.buf, ` %s="%s"`, a.Name, escapeAttr(a.Value))
+	}
+	if core.VoidElements[el.Tag] {
+		v.buf.WriteString(">")
+		return
+	}
+	v.buf.WriteString(">")
+	v.renderHeadChildren(el.Children)
+	v.buf.WriteString("</")
+	v.buf.WriteString(el.Tag)
+	v.buf.WriteString(">")
 }
 
 func (v *ssrVisitor) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner func() int) int {

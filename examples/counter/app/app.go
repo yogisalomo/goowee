@@ -33,6 +33,16 @@ func App(r *router.Router) core.Node {
 
 func appLayout(r *router.Router, children ...core.Node) core.Node {
 	return Div(Class("app"),
+		Metadata(
+			Page(PageMeta{
+				Title:       "goowee — Reactive web UIs in Go",
+				Description: "goowee compiles to WebAssembly — signals drive fine-grained DOM updates, no virtual DOM, no build step.",
+				Keywords:    []string{"go", "wasm", "reactive", "web", "ui"},
+				Charset:     "utf-8",
+			}),
+			StyleEl(Text("body{margin:0;font-family:system-ui,sans-serif;background:#fafafa;color:#1a1a2e}")),
+			Link(Rel("icon"), Attr("href", "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><rect x='1' y='1' width='18' height='18' rx='5' fill='%2300add8'/></svg>")),
+		),
 		appHeader(r),
 		Main(Nodes(children)...),
 		footer(),

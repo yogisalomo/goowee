@@ -174,6 +174,25 @@ func (e *ErrorBoundaryNode) Apply(parent *ElementNode) {
 	parent.Children = append(parent.Children, e)
 }
 
+// MetadataNode collects children that should be injected into the document
+// <head> (title, meta, link, script, etc.). It renders nothing in the body:
+// SSR collects its children into a separate head HTML buffer; the DOM
+// renderer injects them into document.head via mutations. Use h.Metadata.
+type MetadataNode struct {
+	Children []Node
+}
+
+func (m *MetadataNode) nodeMarker() {}
+func (m *MetadataNode) String() string {
+	return fmt.Sprintf("Metadata(%d items)", len(m.Children))
+}
+func (m *MetadataNode) Apply(parent *ElementNode) {
+	if m == nil {
+		return
+	}
+	parent.Children = append(parent.Children, m)
+}
+
 // ComponentFrame tracks a component's hook state, lifcycle disposers, and
 // position in the component tree. Created by PushComponent / destroyed by
 // PopComponent, which live in internal/runtime.

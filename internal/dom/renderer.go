@@ -221,6 +221,24 @@ func (r *DOMRenderer) VisitFragment(fn *core.FragmentNode, walkChild func(core.N
 	}
 }
 
+func (r *DOMRenderer) VisitMetadata(mn *core.MetadataNode, walkChild func(core.Node) int) {
+	if mn == nil {
+		return
+	}
+	// Walk children normally and append them to <head>.
+	prevHydrating, prevNS := r.hydrating, r.currentNS
+	r.hydrating, r.currentNS = false, ""
+	for _, child := range mn.Children {
+		childID := walkChild(child)
+		if childID != 0 {
+			*r.muts = append(*r.muts, core.Mutation{
+				Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: "head",
+			})
+		}
+	}
+	r.hydrating, r.currentNS = prevHydrating, prevNS
+}
+
 func (r *DOMRenderer) VisitPortal(pn *core.PortalNode, walkChild func(core.Node) int) {
 	if pn == nil {
 		return
@@ -324,6 +342,8 @@ func nodeID(n core.Node) int {
 		return rootIDFromTree(v.Prev)
 	case *core.ScopeNode:
 		return rootIDFromTree(v.Prev)
+	case *core.MetadataNode:
+		return 0
 	}
 	return 0
 }
@@ -605,6 +625,23 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 			return 0
 		}
 		return r.renderNode(newScope, muts)
+
+	case *core.MetadataNode:
+		// Like portals: tear down old head content and render new.
+		for _, c := range old.Children {
+			r.emitRemoveTree(c, muts)
+		}
+		if nm, ok := newNode.(*core.MetadataNode); ok {
+			for _, child := range nm.Children {
+				childID := r.renderNode(child, muts)
+				if childID != 0 {
+					*muts = append(*muts, core.Mutation{
+						Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: "head",
+					})
+				}
+			}
+		}
+		return 0
 
 	case *core.PortalNode:
 		// The target is a selector, not a node we can reconcile against, so
@@ -967,6 +1004,10 @@ func (r *DOMRenderer) disposeReactive(n core.Node) {
 			r.disposeReactive(c)
 		}
 	case *core.FragmentNode:
+		for _, c := range v.Children {
+			r.disposeReactive(c)
+		}
+	case *core.MetadataNode:
 		for _, c := range v.Children {
 			r.disposeReactive(c)
 		}
