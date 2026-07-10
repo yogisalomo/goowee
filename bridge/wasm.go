@@ -7,6 +7,7 @@ import (
 	"syscall/js"
 
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/devtools"
 	"github.com/yogisalomo/goowee/internal/dom"
 )
 
@@ -18,6 +19,8 @@ import (
 // by claiming that DOM instead of rebuilding it. Run does not return; it blocks
 // forever so the WASM module stays alive to service events.
 func Run(app core.Node) {
+	initObservability()
+
 	renderer := dom.New()
 	// Hydrate when the document was server-rendered.
 	if js.Global().Get("document").Call("querySelector", "[data-node-id]").Truthy() {
@@ -25,8 +28,48 @@ func Run(app core.Node) {
 	}
 	muts, _ := renderer.Render(app)
 	renderer.Scheduler.Enqueue(muts...)
+	if devtools.Enabled() {
+		devtools.SetRoot(app)
+	}
 	initBridge(renderer.Scheduler, renderer.Registry)
 	select {}
+}
+
+func initObservability() {
+	initLogSink()
+	if js.Global().Get("goowee").Call("devEnabled").Bool() {
+		devtools.Enable()
+		initInspector()
+	}
+}
+
+func initLogSink() {
+	core.SetLogSink(func(e core.LogEntry) {
+		payload := map[string]any{
+			"kind":    string(e.Kind),
+			"message": e.Message,
+		}
+		for k, v := range e.Fields {
+			payload[k] = v
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return
+		}
+		js.Global().Get("goowee").Call("log", string(data))
+	})
+}
+
+func initInspector() {
+	js.Global().Get("goowee").Set("inspectGo", js.FuncOf(func(this js.Value, args []js.Value) any {
+		data, err := json.Marshal(devtools.Snapshot())
+		if err != nil {
+			return map[string]any{"error": err.Error()}
+		}
+		var snap map[string]any
+		_ = json.Unmarshal(data, &snap)
+		return snap
+	}))
 }
 
 // initBridge wires the render loop to the JS runtime: it registers the event

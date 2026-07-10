@@ -10,6 +10,49 @@ function getRoot() {
 // they never collide with app or browser marks, and SPA route changes don't
 // overwrite them. See docs/plans/boot-latency-measurement.md.
 const goowee = (window.goowee = window.goowee || {});
+
+// Dev-mode inspector (roadmap 4.2). Enable with ?goowee-dev or
+// localStorage.setItem("goowee-dev", "1"). Then call goowee.inspect() in the
+// console for the component/scope tree and signal graph.
+goowee.devEnabled = function devEnabled() {
+    if (goowee._dev !== undefined) return goowee._dev;
+    try {
+        goowee._dev =
+            /(?:\?|&)goowee-dev(?:=1)?(?:&|$)/.test(location.search) ||
+            localStorage.getItem("goowee-dev") === "1";
+    } catch (_) {
+        goowee._dev = false;
+    }
+    return goowee._dev;
+};
+
+goowee.log = function log(entryJSON) {
+    let entry;
+    try {
+        entry = typeof entryJSON === "string" ? JSON.parse(entryJSON) : entryJSON;
+    } catch (_) {
+        entry = { message: String(entryJSON) };
+    }
+    const kind = entry.kind || "goowee";
+    const msg = entry.message || kind;
+    const level = kind.startsWith("recover.") ? "error"
+        : kind === "signal.cycle" || kind === "warn" ? "warn"
+        : "log";
+    console[level]("[goowee]", msg, entry);
+};
+
+goowee.inspect = function inspect() {
+    if (typeof goowee.inspectGo !== "function") {
+        console.warn(
+            "[goowee] inspector unavailable — enable dev mode with ?goowee-dev or localStorage.setItem('goowee-dev','1') and reload."
+        );
+        return null;
+    }
+    const snap = goowee.inspectGo();
+    console.log("[goowee] inspector snapshot:", snap);
+    return snap;
+};
+
 function mark(name) {
     try { performance.mark(name); } catch (_) {}
 }

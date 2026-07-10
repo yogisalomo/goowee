@@ -25,6 +25,7 @@ These are the supported API. Import them freely.
 | `router`  | `Route`, params (`ParamSignal`), navigation, guards, sub-routes, base path. |
 | `ssr`     | Server-side rendering: `ssr.New().Render(node)`. |
 | `bridge`  | The client entry point: `bridge.Run(node)`. |
+| `devtools`| Optional dev-mode inspector: `devtools.Enable()`, `devtools.Snapshot()`. |
 | `core`    | **Only the subset listed below.** |
 
 ### The public subset of `core`

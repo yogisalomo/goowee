@@ -2,11 +2,11 @@ package ssr
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/runtime"
 	"github.com/yogisalomo/goowee/internal/walker"
-	"log"
-	"strings"
 )
 
 type SlotRef struct {
@@ -99,7 +99,9 @@ func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(c
 
 	for _, a := range el.Attrs {
 		if a.Name == "" || !isValidAttrName(a.Name) {
-			log.Printf("goowee: skipping invalid attribute name %q", a.Name)
+			core.Log(core.LogWarn, "skipping invalid attribute name", map[string]any{
+				"name": a.Name,
+			})
 			continue
 		}
 		fmt.Fprintf(v.buf, ` %s="%s"`, a.Name, escapeAttr(a.Value))

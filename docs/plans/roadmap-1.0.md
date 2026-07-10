@@ -151,9 +151,11 @@ construction* rather than via the golden test. Retires a whole class of future
 divergence. Big refactor of two now-stable renderers — low urgency, high
 long-term value. **L**
 
-**4.2 Observability / devtools.** Consistent recover boundaries with structured
-logging; a dev-mode inspector for the component/scope tree and signal graph.
-Turns "why didn't this update" from guesswork into a tool. **M–L**
+**4.2 Observability / devtools.** ✅ **Done.** Consistent recover boundaries
+emit structured `core.Log` entries (`recover.*`, `signal.cycle`, `warn` kinds);
+the WASM bridge forwards them to `goowee.log()` → `console`. Dev-mode inspector
+(`?goowee-dev` or `localStorage`) exposes `goowee.inspect()` for the
+component/scope tree and signal graph. See `docs/devtools.md`. **M–L**
 
 **4.3 Testing depth.** Run the browser E2E in CI (Chrome on the runner);
 cross-browser smoke; more property tests for the differ and scheduler; consider

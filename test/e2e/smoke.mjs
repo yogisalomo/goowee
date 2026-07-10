@@ -73,17 +73,18 @@ async function main() {
     throw new Error("timeout waiting for: " + label + (logs.length ? "\n" + logs.join("\n") : ""));
   };
   // click a link/button by exact trimmed text, or (…Containing) by substring
-  const clickText = (tag, t) => evalJS(`[...document.querySelectorAll('${tag}')].find(e=>e.textContent.trim()===${JSON.stringify(t)}).click()`);
-  const clickLinkContaining = (sub) => evalJS(`[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})).click()`);
-  const markerCount = `(()=>{let n=0;const w=document.createTreeWalker(document.getElementById('root'),NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^g\\d+$/.test(w.currentNode.data))n++;return n;})()`;
+  const clickText = (tag, t) => evalJS(`(()=>{const el=[...document.querySelectorAll('${tag}')].find(e=>e.textContent.trim()===${JSON.stringify(t)}); if(!el) throw new Error('no ${tag} with text '+${JSON.stringify(t)}); el.click();})()`);
+  const clickLinkContaining = (sub) => evalJS(`(()=>{const el=[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})); if(!el) throw new Error('no link containing '+${JSON.stringify(sub)}); el.click();})()`);
+  const markerCount = `(()=>{const root=document.getElementById('root'); if(!root) return -1; let n=0;const w=document.createTreeWalker(root,NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^g\\d+$/.test(w.currentNode.data))n++;return n;})()`;
   const heroCount = `(document.querySelector('.count')?.textContent.trim())`;
+  const hydrationReady = `(()=>{const m=${markerCount}; return m>=0&&m===0&&${heroCount}==='0'&&[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='increment');})()`;
 
   const fail = [];
   const check = (cond, msg) => { if (!cond) fail.push(msg); };
 
   // --- Hydration on the landing page ---
   // Wait for a real hydration signal: the first applyMutations removes markers.
-  await waitFor(`(${markerCount}) === 0 && ${heroCount} === '0'`, "landing hydration complete");
+  await waitFor(hydrationReady, "landing hydration complete");
   check(await evalJS(`(document.body.innerText.match(/Reactive web UIs, written in Go\\./g)||[]).length`) === 1, "landing headline duplicated (hydration)");
   check(await evalJS(`document.querySelectorAll('.count').length`) === 1, "hero demo duplicated");
   // Inline SVG (h.Svg) must carry the SVG namespace end-to-end, root and descendants.

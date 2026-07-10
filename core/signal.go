@@ -1,7 +1,5 @@
 package core
 
-import "log"
-
 type subscriber struct {
 	id int
 	fn func()
@@ -88,7 +86,9 @@ func (s *Signal[T]) Set(v T) {
 
 	for pass := 0; ; pass++ {
 		if pass >= maxNotifyPasses {
-			log.Printf("goowee: signal update cycle detected after %d passes; stopping notification", maxNotifyPasses)
+			Log(LogSignalCycle, "signal update cycle detected; stopping notification", map[string]any{
+				"passes": maxNotifyPasses,
+			})
 			return
 		}
 		s.dirty = false

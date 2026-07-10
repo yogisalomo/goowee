@@ -25,3 +25,6 @@ done
 
 echo "==> running smoke test"
 URL="http://localhost:$PORT" node test/e2e/smoke.mjs
+
+echo "==> running devtools e2e"
+URL="http://localhost:$PORT" node test/e2e/devtools.mjs

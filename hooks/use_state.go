@@ -10,6 +10,7 @@ func UseState[T any](initial T) (*core.Signal[T], func(T)) {
 	if frame := runtime.CurrentComponent(); frame != nil {
 		frame.Hooks = append(frame.Hooks, sig)
 	}
+	core.RegisterSignal(sig, "state")
 	return sig, func(v T) {
 		sig.Set(v)
 	}
