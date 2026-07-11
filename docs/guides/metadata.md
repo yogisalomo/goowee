@@ -147,10 +147,20 @@ Metadata(
 )
 ```
 
+> **Head children must be static elements.** `Metadata` children are rendered to
+> the head as plain HTML — `Title`, `Meta`, `Link`, `Script`, `StyleEl`, and
+> `Fragment`/`Page` groupings of those. Reactive head content (`Show`, `Switch`,
+> a component, or a signal-bound value) is **not** collected into the SSR head
+> and is not supported; keep head metadata static and per-route.
+
 ---
 
 ## SSR head injection
 
 The SSR renderer collects all `Metadata` children into a separate head buffer.
-`Render()` returns `(body, head)`. The ssr-server injects head content into
-the HTML `<template id="goowee-head">` — the JS runtime reads it on hydration.
+`Render()` returns `(body, head)`; the caller drops `head` into the document
+`<head>` (see `cmd/ssr-server`). On the client, hydration treats the
+server-rendered `<head>` as authoritative: the DOM renderer walks the `Metadata`
+children to keep node-id parity with SSR but **does not re-emit** them, so the
+head tags are not duplicated. A pure-client app (no SSR) creates and appends the
+head tags on first render as usual.

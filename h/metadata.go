@@ -56,7 +56,7 @@ func JSONLD(data any) *core.ElementNode {
 	return Script(Type("application/ld+json"), Text(string(b)))
 }
 
-// LLM declares LLF-related metadata: a machine-readable description of the
+// LLM declares LLM-related metadata: a machine-readable description of the
 // page's purpose, structure, and content for LLM consumption. Emits:
 //
 //	<meta name="llm" content="purpose=…;context=…;keywords=…">

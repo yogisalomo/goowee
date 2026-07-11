@@ -254,6 +254,9 @@ func (s *ScopeNode) String() string {
 var VoidElements = map[string]bool{
 	"br": true, "hr": true, "img": true, "input": true, "source": true,
 	"track": true, "wbr": true, "area": true, "col": true, "embed": true,
+	// Head void elements — rendered by h.Metadata; must self-close, not emit
+	// a stray </meta>/</link>/</base>.
+	"meta": true, "link": true, "base": true, "param": true,
 }
 
 // FlatTree collapses nested fragments into their parent's child list so the

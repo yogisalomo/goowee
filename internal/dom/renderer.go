@@ -225,7 +225,27 @@ func (r *DOMRenderer) VisitMetadata(mn *core.MetadataNode, walkChild func(core.N
 	if mn == nil {
 		return
 	}
-	// Walk children normally and append them to <head>.
+	if r.hydrating {
+		// The server already rendered these tags into <head> (ssr collects
+		// Metadata children into its head buffer). Walk the children so node-id
+		// allocation stays in parity with SSR — otherwise the body nodes after
+		// this Metadata would hydrate against the wrong server nodes — but
+		// discard the mutations. Re-creating and appending head nodes here would
+		// duplicate the server's tags (two <title>, duplicate <meta>, etc.),
+		// since the server-rendered head nodes carry no ids to claim. Head
+		// content is static (see ssr renderHeadChildren), so there are no live
+		// bindings/handlers to preserve.
+		saved := r.muts
+		var discard []core.Mutation
+		r.muts = &discard
+		for _, child := range mn.Children {
+			walkChild(child)
+		}
+		r.muts = saved
+		return
+	}
+	// Fresh render (pure-client app, or a re-render): create the head nodes and
+	// append them to <head>.
 	prevHydrating, prevNS := r.hydrating, r.currentNS
 	r.hydrating, r.currentNS = false, ""
 	for _, child := range mn.Children {

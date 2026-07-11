@@ -166,16 +166,21 @@ func main() {
 			renderer := ssr.New()
 			body, head := renderer.Render(app.App(rtr))
 
+			// head holds the page's Metadata (title/description/OG/…). site.css
+			// and the scripts are app-shell infrastructure, not page metadata, so
+			// they live in the shell unconditionally — keeping them out of the
+			// app's Metadata avoids double-emitting them on the pure-client route
+			// (which loads its own index.html shell).
 			if head == "" {
 				head = `    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>goowee — reactive Go UIs in WebAssembly</title>
-    <link rel="stylesheet" href="site.css">`
+    <title>goowee — reactive Go UIs in WebAssembly</title>`
 			}
 			html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
 %s
+    <link rel="stylesheet" href="site.css">
     <script src="wasm_exec.js"></script>
     <script src="goowee.js"></script>
     <script src="counter.js"></script>
