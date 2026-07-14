@@ -36,8 +36,8 @@ func appLayout(r *router.Router, children ...core.Node) core.Node {
 		Metadata(
 			Page(PageMeta{
 				Title:       "goowee — Reactive web UIs in Go",
-				Description: "goowee compiles to WebAssembly — signals drive fine-grained DOM updates, no virtual DOM, no build step.",
-				Keywords:    []string{"go", "wasm", "reactive", "web", "ui"},
+				Description: "goowee is a golang frontend framework that compiles to WebAssembly — signals drive fine-grained DOM updates, no virtual DOM, no build step.",
+				Keywords:    []string{"golang", "wasm", "reactive", "web", "ui", "framework", "frontend"},
 				Charset:     "utf-8",
 			}),
 			StyleEl(Text("body{margin:0;font-family:system-ui,sans-serif;background:#fafafa;color:#1a1a2e}")),
