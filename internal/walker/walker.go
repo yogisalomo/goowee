@@ -34,6 +34,7 @@ type Visitor interface {
 	VisitText(id int, tn *core.TextNode)
 	VisitFragment(fn *core.FragmentNode, walkChild func(core.Node) int)
 	VisitPortal(pn *core.PortalNode, walkChild func(core.Node) int)
+	VisitMetadata(mn *core.MetadataNode, walkChild func(core.Node) int)
 	VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner func() int) int
 	VisitComponentEnter(cn *core.ComponentNode)
 	VisitComponentLeave(cn *core.ComponentNode, innerID int)
@@ -106,6 +107,15 @@ func (w *Walker) Walk(n core.Node, v Visitor) int {
 			return 0
 		}
 		v.VisitPortal(node, func(child core.Node) int {
+			return w.Walk(child, v)
+		})
+		return 0
+
+	case *core.MetadataNode:
+		if node == nil {
+			return 0
+		}
+		v.VisitMetadata(node, func(child core.Node) int {
 			return w.Walk(child, v)
 		})
 		return 0

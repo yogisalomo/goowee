@@ -221,6 +221,44 @@ func (r *DOMRenderer) VisitFragment(fn *core.FragmentNode, walkChild func(core.N
 	}
 }
 
+func (r *DOMRenderer) VisitMetadata(mn *core.MetadataNode, walkChild func(core.Node) int) {
+	if mn == nil {
+		return
+	}
+	if r.hydrating {
+		// The server already rendered these tags into <head> (ssr collects
+		// Metadata children into its head buffer). Walk the children so node-id
+		// allocation stays in parity with SSR — otherwise the body nodes after
+		// this Metadata would hydrate against the wrong server nodes — but
+		// discard the mutations. Re-creating and appending head nodes here would
+		// duplicate the server's tags (two <title>, duplicate <meta>, etc.),
+		// since the server-rendered head nodes carry no ids to claim. Head
+		// content is static (see ssr renderHeadChildren), so there are no live
+		// bindings/handlers to preserve.
+		saved := r.muts
+		var discard []core.Mutation
+		r.muts = &discard
+		for _, child := range mn.Children {
+			walkChild(child)
+		}
+		r.muts = saved
+		return
+	}
+	// Fresh render (pure-client app, or a re-render): create the head nodes and
+	// append them to <head>.
+	prevHydrating, prevNS := r.hydrating, r.currentNS
+	r.hydrating, r.currentNS = false, ""
+	for _, child := range mn.Children {
+		childID := walkChild(child)
+		if childID != 0 {
+			*r.muts = append(*r.muts, core.Mutation{
+				Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: "head",
+			})
+		}
+	}
+	r.hydrating, r.currentNS = prevHydrating, prevNS
+}
+
 func (r *DOMRenderer) VisitPortal(pn *core.PortalNode, walkChild func(core.Node) int) {
 	if pn == nil {
 		return
@@ -324,6 +362,8 @@ func nodeID(n core.Node) int {
 		return rootIDFromTree(v.Prev)
 	case *core.ScopeNode:
 		return rootIDFromTree(v.Prev)
+	case *core.MetadataNode:
+		return 0
 	}
 	return 0
 }
@@ -605,6 +645,23 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 			return 0
 		}
 		return r.renderNode(newScope, muts)
+
+	case *core.MetadataNode:
+		// Like portals: tear down old head content and render new.
+		for _, c := range old.Children {
+			r.emitRemoveTree(c, muts)
+		}
+		if nm, ok := newNode.(*core.MetadataNode); ok {
+			for _, child := range nm.Children {
+				childID := r.renderNode(child, muts)
+				if childID != 0 {
+					*muts = append(*muts, core.Mutation{
+						Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: "head",
+					})
+				}
+			}
+		}
+		return 0
 
 	case *core.PortalNode:
 		// The target is a selector, not a node we can reconcile against, so
@@ -967,6 +1024,10 @@ func (r *DOMRenderer) disposeReactive(n core.Node) {
 			r.disposeReactive(c)
 		}
 	case *core.FragmentNode:
+		for _, c := range v.Children {
+			r.disposeReactive(c)
+		}
+	case *core.MetadataNode:
 		for _, c := range v.Children {
 			r.disposeReactive(c)
 		}

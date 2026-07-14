@@ -221,6 +221,12 @@ func TestVoidElements(t *testing.T) {
 	if !VoidElements["input"] {
 		t.Fatal("expected input to be void")
 	}
+	// Head void elements (rendered by h.Metadata) must self-close.
+	for _, tag := range []string{"meta", "link", "base"} {
+		if !VoidElements[tag] {
+			t.Fatalf("expected %s to be void", tag)
+		}
+	}
 	if VoidElements["div"] {
 		t.Fatal("expected div not to be void")
 	}

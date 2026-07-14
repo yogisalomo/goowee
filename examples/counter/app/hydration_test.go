@@ -65,7 +65,7 @@ func TestSSRDOMIDParity(t *testing.T) {
 
 	for name, page := range pages {
 		t.Run(name, func(t *testing.T) {
-			html := ssr.New().Render(page())
+			html, _ := ssr.New().Render(page())
 
 			var domMuts []core.Mutation
 			runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
@@ -166,7 +166,7 @@ func TestHydrationReusesServerNodesNoDuplicates(t *testing.T) {
 // SSR must emit a hydration marker for each text node, carrying the same id
 // the DOM walker will assign it.
 func TestSSRTextHydrationMarkers(t *testing.T) {
-	html := ssr.New().Render(homePage()) // H1 with a "Welcome to Goowee" text node
+	html, _ := ssr.New().Render(homePage()) // H1 with a "Welcome to Goowee" text node
 	markers := reTextID.FindAllStringSubmatch(html, -1)
 	if len(markers) == 0 {
 		t.Fatalf("expected text hydration markers in %q", html)

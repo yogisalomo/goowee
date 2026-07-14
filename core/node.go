@@ -174,6 +174,25 @@ func (e *ErrorBoundaryNode) Apply(parent *ElementNode) {
 	parent.Children = append(parent.Children, e)
 }
 
+// MetadataNode collects children that should be injected into the document
+// <head> (title, meta, link, script, etc.). It renders nothing in the body:
+// SSR collects its children into a separate head HTML buffer; the DOM
+// renderer injects them into document.head via mutations. Use h.Metadata.
+type MetadataNode struct {
+	Children []Node
+}
+
+func (m *MetadataNode) nodeMarker() {}
+func (m *MetadataNode) String() string {
+	return fmt.Sprintf("Metadata(%d items)", len(m.Children))
+}
+func (m *MetadataNode) Apply(parent *ElementNode) {
+	if m == nil {
+		return
+	}
+	parent.Children = append(parent.Children, m)
+}
+
 // ComponentFrame tracks a component's hook state, lifcycle disposers, and
 // position in the component tree. Created by PushComponent / destroyed by
 // PopComponent, which live in internal/runtime.
@@ -235,6 +254,9 @@ func (s *ScopeNode) String() string {
 var VoidElements = map[string]bool{
 	"br": true, "hr": true, "img": true, "input": true, "source": true,
 	"track": true, "wbr": true, "area": true, "col": true, "embed": true,
+	// Head void elements — rendered by h.Metadata; must self-close, not emit
+	// a stray </meta>/</link>/</base>.
+	"meta": true, "link": true, "base": true, "param": true,
 }
 
 // FlatTree collapses nested fragments into their parent's child list so the
