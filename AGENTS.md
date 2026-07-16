@@ -98,11 +98,13 @@ import (
 - `core.Computed(deps, compute) *Signal[T]`
 - `hooks.UseEffect(deps, func() func())`, `hooks.Watch(deps, func())`, `hooks.OnMount(func() func())`
 - `hooks.UseResource(deps, fetch) *Resource[T]` — async load (`Data`/`Loading`/`Err` + `Refetch`)
+- `hooks.UseComputed(deps, compute) *Signal[T]` — re-export of `core.Computed`
 - `core.Schedule(func())` — run an update on the render loop from off-loop code
 
 **Elements & content** (`h`, dot-imported)
 - Elements: `Div`, `Span`, `P`, `H1`–`H6`, `Button`, `Input`, `Form`, `Label`,
   `Ul`/`Li`, `Nav`, `Main`, `Footer`, `A`, `Img`, … and `El("tag", …)` for anything else.
+- Raw HTML: `Raw(html)` — inserts pre-rendered HTML verbatim (sanitize untrusted input!).
 - Text: `Text("static")`, `TextS(sig)`, `Textf("Count: %d", count)` (reactive args).
 - Attrs: `Class`, `ID`, `Href`, `Type`, `Name`, `Placeholder`, `Style`, `Attr(name, val)`,
   ARIA (`AriaLabel`, `AriaHidden(true)`, `AriaCurrent("page")`, …). Reactive: add `S`
@@ -110,6 +112,7 @@ import (
 - Props: `Value`, `Checked`, `Disabled`, `Required`, … and reactive `ValueS`, `DisabledS`, …
 - Control flow: `Show(cond, then)`, `ShowElse(cond, then, else)`,
   `Switch(sig, map[T]func()core.Node, default)`, `For(sig, keyFn, render)`.
+- Async rendering: `ShowResource(res, loadingFn, errFn, dataFn)` — handles loading/error/data states.
 - SVG: `Svg(...)` roots a namespaced subtree; shapes `Path`, `Circle`, `Rect`, `G`,
   `Line`, `Polyline`, `Polygon`, `Ellipse`; arbitrary attrs via `Attr("viewBox", …)`.
 - Refs/portals: `Ref()`, `RefTo(ref)`, `Portal(target, …)`.
@@ -130,6 +133,8 @@ import (
   — exact wins; `:param` and `/*` supported; most-specific match is deterministic.
 - Params: `r.Param("id")` (snapshot), `r.ParamSignal("id")` (reactive — bind this),
   `r.Params()`.
+- Query params: `r.QueryParam("tag")` (snapshot), `r.QueryParamSignal("tag")` (reactive),
+  `r.SetQueryParam("tag", "value")` (replaceState), `r.SetQueryParamPush("tag", "value")` (pushState).
 - Navigation: `r.Navigate(path)`, `r.NavigateReplace(path)`, `r.Back()`, `r.Forward()`,
   `r.Link(to, text)`.
 - Nesting/util: `r.SubRoute(prefix, routes)`, `router.Guard(check, fallback, route)`,
@@ -187,9 +192,10 @@ and applies the result safely; don't hand-roll goroutine+Schedule for loads):
 func Greeting() core.Node {
     return core.Component("Greeting", func() core.Node {
         msg := hooks.UseResource(nil, func() (string, error) { return api.Greeting() })
-        return ShowElse(msg.Loading,
+        return ShowResource(msg,
             func() core.Node { return P(Text("Loading…")) },
-            func() core.Node { return P(TextS(msg.Data)) },
+            func(err error) core.Node { return P(Textf("Error: %s", err)) },
+            func(data *core.Signal[string]) core.Node { return P(TextS(data)) },
         )
     })
 }

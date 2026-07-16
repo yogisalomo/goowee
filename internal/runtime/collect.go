@@ -16,6 +16,10 @@ func CollectIDs(n core.Node) []int {
 		if v.ID > 0 {
 			ids = append(ids, v.ID)
 		}
+	case *core.RawNode:
+		if v.ID > 0 {
+			ids = append(ids, v.ID)
+		}
 	case *core.FragmentNode:
 		for _, child := range v.Children {
 			ids = append(ids, CollectIDs(child)...)
