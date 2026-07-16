@@ -38,6 +38,8 @@ func CurrentPath() string {
 // matching stays base-relative. Call once at startup.
 func (r *Router) BindHistory() {
 	r.base = basePath()
+	// Parse initial query string.
+	r.Query.Set(parseQuery(js.Global().Get("location").Get("search").String()))
 	r.navFn = func(url string) {
 		js.Global().Get("history").Call("pushState", nil, "", url) // url already base-prefixed
 	}
@@ -55,6 +57,7 @@ func (r *Router) BindHistory() {
 		// on top of the one the browser just popped.
 		p := js.Global().Get("location").Get("pathname").String()
 		r.Path.Set(stripBase(p, r.base))
+		r.Query.Set(parseQuery(js.Global().Get("location").Get("search").String()))
 		return nil
 	}))
 }

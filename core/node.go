@@ -293,6 +293,27 @@ func flattenChildren(children []Node) []Node {
 	return flat
 }
 
+// RawNode holds a pre-rendered HTML string that is inserted verbatim into the
+// DOM. It does not participate in child reconciliation — the entire content is
+// replaced when the HTML changes. Use for markdown output, CMS content, or any
+// HTML that doesn't need reactive updates.
+type RawNode struct {
+	HTML string
+	ID   int
+}
+
+func (r *RawNode) nodeMarker() {}
+func (r *RawNode) String() string {
+	return fmt.Sprintf("Raw(%d bytes)", len(r.HTML))
+}
+
+func (r *RawNode) Apply(parent *ElementNode) {
+	if r == nil {
+		return
+	}
+	parent.Children = append(parent.Children, r)
+}
+
 type EventData struct {
 	Type   string
 	Target int

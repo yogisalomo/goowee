@@ -10,6 +10,7 @@ import (
 
 type Router struct {
 	Path      *core.Signal[string]
+	Query     *core.Signal[map[string]string]
 	params    *core.Signal[map[string]string]
 	navFn     func(string) // Navigate — calls pushState
 	replaceFn func(string) // NavigateReplace — calls replaceState
@@ -26,6 +27,7 @@ type Router struct {
 func New(initial string) *Router {
 	return &Router{
 		Path:   core.NewSignal(initial),
+		Query:  core.NewSignal(map[string]string{}).WithEquals(sameParams),
 		params: core.NewSignal(map[string]string{}).WithEquals(sameParams),
 	}
 }
@@ -107,6 +109,48 @@ func (r *Router) setParams(p map[string]string) {
 		p = map[string]string{}
 	}
 	r.params.Set(p)
+}
+
+// QueryParam returns the value of a URL query parameter ("" if absent).
+// This is a snapshot — good for event handlers and one-shot reads.
+func (r *Router) QueryParam(name string) string {
+	return r.Query.Get()[name]
+}
+
+// QueryParamSignal returns a derived signal of one query parameter's value that
+// updates when the URL changes. Bind it reactively, e.g. h.TextS(r.QueryParamSignal("tag")).
+func (r *Router) QueryParamSignal(name string) *core.Signal[string] {
+	return core.Computed([]core.SignalAccessor{r.Query}, func() string {
+		return r.Query.Get()[name]
+	})
+}
+
+// SetQueryParam updates a query parameter without navigating (replaceState).
+func (r *Router) SetQueryParam(name, value string) {
+	q := copyParams(r.Query.Get())
+	if value == "" {
+		delete(q, name)
+	} else {
+		q[name] = value
+	}
+	r.Query.Set(q)
+	if r.replaceFn != nil {
+		r.replaceFn(r.base + r.Path.Get() + "?" + encodeQuery(q))
+	}
+}
+
+// SetQueryParamPush is like SetQueryParam but pushes a history entry.
+func (r *Router) SetQueryParamPush(name, value string) {
+	q := copyParams(r.Query.Get())
+	if value == "" {
+		delete(q, name)
+	} else {
+		q[name] = value
+	}
+	r.Query.Set(q)
+	if r.navFn != nil {
+		r.navFn(r.base + r.Path.Get() + "?" + encodeQuery(q))
+	}
 }
 
 // Route renders the handler whose pattern matches the current path. Patterns:
@@ -322,4 +366,70 @@ func sameParams(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// copyParams returns a shallow copy of the map (or a fresh map if nil).
+func copyParams(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	cp := make(map[string]string, len(m))
+	for k, v := range m {
+		cp[k] = v
+	}
+	return cp
+}
+
+// parseQuery parses a query string like "?a=1&b=2" into a map.
+func parseQuery(raw string) map[string]string {
+	q := map[string]string{}
+	if raw == "" {
+		return q
+	}
+	raw = strings.TrimPrefix(raw, "?")
+	if raw == "" {
+		return q
+	}
+	for _, pair := range strings.Split(raw, "&") {
+		k, v, _ := strings.Cut(pair, "=")
+		if k != "" {
+			q[unescapeQuery(k)] = unescapeQuery(v)
+		}
+	}
+	return q
+}
+
+// encodeQuery encodes a map into a query string like "a=1&b=2".
+func encodeQuery(m map[string]string) string {
+	if len(m) == 0 {
+		return ""
+	}
+	var buf strings.Builder
+	first := true
+	for k, v := range m {
+		if !first {
+			buf.WriteByte('&')
+		}
+		first = false
+		buf.WriteString(escapeQuery(k))
+		buf.WriteByte('=')
+		buf.WriteString(escapeQuery(v))
+	}
+	return buf.String()
+}
+
+func escapeQuery(s string) string {
+	s = strings.ReplaceAll(s, "&", "%26")
+	s = strings.ReplaceAll(s, "=", "%3D")
+	s = strings.ReplaceAll(s, "+", "%2B")
+	s = strings.ReplaceAll(s, " ", "+")
+	return s
+}
+
+func unescapeQuery(s string) string {
+	s = strings.ReplaceAll(s, "+", " ")
+	s = strings.ReplaceAll(s, "%26", "&")
+	s = strings.ReplaceAll(s, "%3D", "=")
+	s = strings.ReplaceAll(s, "%2B", "+")
+	return s
 }

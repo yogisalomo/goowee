@@ -302,6 +302,17 @@ func (v *ssrVisitor) VisitScopeEnter(sn *core.ScopeNode) {}
 
 func (v *ssrVisitor) VisitScopeLeave(sn *core.ScopeNode, innerID int) {}
 
+func (v *ssrVisitor) VisitRaw(id int, rn *core.RawNode) {
+	if rn == nil {
+		return
+	}
+	v.r.Meta.NodeMap[id] = v.path
+	if v.silent {
+		return
+	}
+	fmt.Fprintf(v.buf, `<div data-node-id="%d">%s</div>`, id, rn.HTML)
+}
+
 func isValidAttrName(name string) bool {
 	if name == "" {
 		return false

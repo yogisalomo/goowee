@@ -105,6 +105,17 @@ func Map[T any](xs []T, fn func(T) core.Item) core.Item {
 // Nodes adapts a []core.Node into items so a slice of already-built nodes
 // can be spread into an element constructor: El("div", Nodes(children)...).
 // Every core.Node is already a core.Item; this just changes the slice type.
+// Raw renders a pre-rendered HTML string into the DOM without parsing it into
+// individual element nodes. Use for markdown output, CMS content, or any HTML
+// that doesn't need reactive updates.
+//
+// WARNING: The HTML is inserted as-is. Do not use with untrusted input without
+// sanitization (e.g. bluemonday). The node does not participate in
+// reconciliation — the entire content is replaced on re-render.
+func Raw(html string) *core.RawNode {
+	return &core.RawNode{HTML: html}
+}
+
 func Nodes(ns []core.Node) []core.Item {
 	items := make([]core.Item, len(ns))
 	for i, n := range ns {

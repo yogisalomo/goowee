@@ -40,6 +40,7 @@ type Visitor interface {
 	VisitComponentLeave(cn *core.ComponentNode, innerID int)
 	VisitScopeEnter(sn *core.ScopeNode)
 	VisitScopeLeave(sn *core.ScopeNode, innerID int)
+	VisitRaw(id int, rn *core.RawNode)
 }
 
 func (w *Walker) Walk(n core.Node, v Visitor) int {
@@ -127,6 +128,15 @@ func (w *Walker) Walk(n core.Node, v Visitor) int {
 		return v.VisitErrorBoundary(node, func() int {
 			return w.Walk(node.Child, v)
 		})
+
+	case *core.RawNode:
+		if node == nil {
+			return 0
+		}
+		id := w.AllocID()
+		node.ID = id
+		v.VisitRaw(id, node)
+		return id
 	}
 	return 0
 }

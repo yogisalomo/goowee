@@ -46,6 +46,8 @@ func AriaModal(v bool) core.Item         { return attrItem{"aria-modal", fmtBool
 func AriaLive(v string) core.Item        { return attrItem{"aria-live", v} }
 func AriaAtomic(v bool) core.Item        { return attrItem{"aria-atomic", fmtBool(v)} }
 func AriaBusy(v bool) core.Item          { return attrItem{"aria-busy", fmtBool(v)} }
+func AriaChecked(v bool) core.Item       { return attrItem{"aria-checked", fmtBool(v)} }
+func AriaDisabled(v bool) core.Item      { return attrItem{"aria-disabled", fmtBool(v)} }
 
 func Rows(v int) core.Item     { return attrItem{"rows", strconv.Itoa(v)} }
 func Cols(v int) core.Item     { return attrItem{"cols", strconv.Itoa(v)} }

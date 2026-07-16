@@ -89,6 +89,9 @@ Textarea(items...)
 
 // Generic element:
 El("tag", items...)
+
+// Raw HTML (untrusted input must be sanitized):
+Raw(html string)                        // renders pre-rendered HTML verbatim
 ```
 
 ### SVG
@@ -122,7 +125,7 @@ Attr("name", "value")                   // arbitrary attribute
 AriaLabel("value"), AriaHidden(bool), AriaCurrent("value")
 AriaExpanded(bool), AriaPressed(bool), AriaSelected(bool)
 AriaChecked(bool), AriaDisabled(bool), AriaRequired(bool)
-AriaInvalid(bool), AriaDescribedby("value"), AriaLabelledby("value")
+AriaInvalid(bool), AriaDescribedBy("value"), AriaLabelledBy("value")
 ```
 
 ### Attributes (reactive — track a signal)
@@ -261,8 +264,11 @@ res := hooks.UseResource[T]([]core.SignalAccessor{deps}, func() (T, error))
 // res *Resource[T] with fields:
 res.Data      *core.Signal[T]
 res.Loading   *core.Signal[bool]
-res.Err       *core.Signal[string]
-res.Refetch() func()
+res.Err       *core.Signal[error]
+res.Refetch()
+
+// Convenience wrapper for Resource state rendering (in h package):
+h.ShowResource[T](res, loadingFn, errFn, dataFn)
 ```
 
 ---
@@ -283,6 +289,12 @@ r.Route(routes map[string]func() core.Node)
 r.Param(name string) string                    // snapshot for handlers
 r.ParamSignal(name string) *core.Signal[string] // reactive — bind to markup
 r.Params() map[string]string
+
+// Read/write query parameters.
+r.QueryParam(name string) string                       // snapshot
+r.QueryParamSignal(name string) *core.Signal[string]   // reactive
+r.SetQueryParam(name, value string)                    // replaceState
+r.SetQueryParamPush(name, value string)                // pushState
 
 // Navigation.
 r.Navigate(path string)

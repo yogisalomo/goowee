@@ -349,6 +349,24 @@ func (r *DOMRenderer) VisitScopeLeave(sn *core.ScopeNode, innerID int) {
 	}
 }
 
+func (r *DOMRenderer) VisitRaw(id int, rn *core.RawNode) {
+	if rn == nil {
+		return
+	}
+	if r.hydrating {
+		*r.muts = append(*r.muts, core.Mutation{
+			Type: core.MutHydrate, NodeID: id, Key: "tag", Value: "raw",
+		})
+		return
+	}
+	*r.muts = append(*r.muts, core.Mutation{
+		Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: "div",
+	})
+	*r.muts = append(*r.muts, core.Mutation{
+		Type: core.MutSetProperty, NodeID: id, Key: "innerHTML", Value: rn.HTML,
+	})
+}
+
 func nodeID(n core.Node) int {
 	if n == nil {
 		return 0
@@ -357,6 +375,8 @@ func nodeID(n core.Node) int {
 	case *core.ElementNode:
 		return v.ID
 	case *core.TextNode:
+		return v.ID
+	case *core.RawNode:
 		return v.ID
 	case *core.ComponentNode:
 		return rootIDFromTree(v.Prev)
@@ -373,6 +393,8 @@ func rootIDFromTree(n core.Node) int {
 	case *core.ElementNode:
 		return v.ID
 	case *core.TextNode:
+		return v.ID
+	case *core.RawNode:
 		return v.ID
 	case *core.FragmentNode:
 		if len(v.Children) > 0 {
@@ -396,6 +418,9 @@ func rootTypeChanged(old, new core.Node) bool {
 		return !ok || a.Tag != b.Tag
 	case *core.TextNode:
 		_, ok := new.(*core.TextNode)
+		return !ok
+	case *core.RawNode:
+		_, ok := new.(*core.RawNode)
 		return !ok
 	case *core.FragmentNode:
 		_, ok := new.(*core.FragmentNode)
@@ -684,6 +709,20 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 			return r.renderNode(newNode, muts)
 		}
 		return r.diffBoundary(old, nb, muts)
+
+	case *core.RawNode:
+		nr, ok := newNode.(*core.RawNode)
+		if !ok {
+			r.emitRemoveTree(old, muts)
+			return r.renderNode(newNode, muts)
+		}
+		nr.ID = old.ID
+		if old.HTML != nr.HTML {
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutSetProperty, NodeID: old.ID, Key: "innerHTML", Value: nr.HTML,
+			})
+		}
+		return old.ID
 	}
 	return 0
 }
@@ -987,6 +1026,9 @@ func typeCompatible(a, b core.Node) bool {
 	case *core.TextNode:
 		_, ok := b.(*core.TextNode)
 		return ok
+	case *core.RawNode:
+		_, ok := b.(*core.RawNode)
+		return ok
 	case *core.FragmentNode:
 		_, ok := b.(*core.FragmentNode)
 		return ok
@@ -1058,5 +1100,7 @@ func (r *DOMRenderer) disposeReactive(n core.Node) {
 		if v.Prev != nil {
 			r.disposeReactive(v.Prev)
 		}
+	case *core.RawNode:
+		// Leaf node — nothing to dispose.
 	}
 }
