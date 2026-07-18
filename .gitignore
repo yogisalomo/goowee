@@ -2,6 +2,7 @@ main.wasm
 examples/counter/main.wasm
 examples/counter/wasm_exec.js
 examples/counter/goowee.js
+examples/counter/dist/
 bin/
 /counter
 /ssr-server

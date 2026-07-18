@@ -1,4 +1,4 @@
-.PHONY: wasm ssr-server test bench size e2e boot serve serve-ssr clean cpwasm cpjs pages
+.PHONY: wasm ssr-server test bench size e2e boot serve serve-ssr clean cpwasm cpjs pages docker
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -60,3 +60,17 @@ e2e:
 # set GOOWEE_TTI_BUDGET_MS to gate. See docs/plans/boot-latency-measurement.md.
 boot:
 	./test/e2e/boot.sh
+
+# Build the counter example into examples/counter/dist and run it in the
+# reference nginx image (examples/counter/Dockerfile + nginx.conf, the same
+# setup documented in docs/docker/). Requires docker. Serves on :8080.
+DOCKER_TAG ?= goowee-counter
+EXAMPLE_DIST = examples/counter/dist
+docker:
+	rm -rf $(EXAMPLE_DIST) && mkdir -p $(EXAMPLE_DIST)
+	GOOS=js GOARCH=wasm go build -o $(EXAMPLE_DIST)/main.wasm ./examples/counter
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(EXAMPLE_DIST)/
+	cp runtime/goowee.js $(EXAMPLE_DIST)/
+	cp examples/counter/index.html examples/counter/site.css examples/counter/counter.js $(EXAMPLE_DIST)/
+	docker build -t $(DOCKER_TAG) examples/counter
+	docker run --rm -p 8080:8080 $(DOCKER_TAG)
