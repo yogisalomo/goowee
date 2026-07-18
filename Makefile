@@ -1,4 +1,4 @@
-.PHONY: wasm ssr-server test bench size e2e boot serve serve-ssr clean cpwasm cpjs pages
+.PHONY: wasm ssr-server test bench size e2e boot serve serve-ssr clean cpwasm cpjs pages docker
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -60,3 +60,10 @@ e2e:
 # set GOOWEE_TTI_BUDGET_MS to gate. See docs/plans/boot-latency-measurement.md.
 boot:
 	./test/e2e/boot.sh
+
+# Build and run the Docker image (SPA fallback via nginx). Expects dist/ to
+# exist — see docs/deployment.md for how to populate it.
+APP_NAME ?= goowee-app
+docker:
+	docker build -t $(APP_NAME) -f docs/docker/Dockerfile .
+	docker run --rm -p 8080:8080 $(APP_NAME)
