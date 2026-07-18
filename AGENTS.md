@@ -192,6 +192,12 @@ For **SSR + hydration**: on the server, `body := ssr.New().Render(App(r))`, wrap
 server DOM (via `data-node-id`) and hydrates it. Keep server and client markup identical
 (rule 8).
 
+**Deployment:** goowee apps are SPAs — the server must serve `index.html` for
+all paths that don't match a static file, or deep links return 404 before the
+WASM loads. See [`docs/deployment.md`](docs/deployment.md) for host-specific
+configs (Cloudflare Pages, Netlify, Vercel, GitHub Pages, nginx) and
+[`docs/docker/`](docs/docker/) for a reference Docker image.
+
 ---
 
 ## Copy-paste patterns
