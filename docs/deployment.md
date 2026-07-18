@@ -50,8 +50,8 @@ Serve `dist/` with any static host configured for SPA fallback.
 
 ### Cloudflare Pages
 
-Enable **Single Page Application** in the dashboard, or add a
-`public/_redirects` file:
+Enable **Single Page Application** in the dashboard, or add a `_redirects` file
+to your publish directory (the `dist/` you built above):
 
 ```
 /* /index.html 200
@@ -59,7 +59,7 @@ Enable **Single Page Application** in the dashboard, or add a
 
 ### Netlify
 
-Add a `public/_redirects` file:
+Add a `_redirects` file to your publish directory (`dist/`):
 
 ```
 /* /index.html 200
@@ -86,10 +86,28 @@ Add `vercel.json`:
 
 ### GitHub Pages
 
-GitHub Pages does not support SPA fallback natively. Options:
+GitHub Pages has no SPA-fallback setting, but it serves a `404.html` for any
+unmatched path — so copying your `index.html` to `404.html` gives you the same
+effect: a deep link loads `404.html`, the WASM boots, reads the URL, and renders
+the right route. (The response carries a 404 status, which browsers ignore but
+crawlers don't — fine for an app, worth knowing for SEO.)
 
-- Use hash-based routing (`/#/todos/42`) instead of path-based routing.
-- Deploy to Cloudflare Pages or Netlify instead (free tier, same as GitHub Pages).
+If your site is served under a project sub-path
+(`username.github.io/repo/`) rather than a domain root, also set the base path
+so asset URLs and routing resolve under that prefix:
+
+```html
+<base href="/repo/">
+```
+
+goowee reads `<base href>` at boot and matches routes relative to it, so the
+same WASM binary works at `/` and under a sub-path. This repo's `make pages`
+target does exactly this — see the `pages` rule in the [Makefile](../Makefile)
+and [`scripts/pages-index.html`](../scripts/pages-index.html) for a working
+template (it substitutes the base path and copies `index.html` to `404.html`).
+
+> Note: goowee routing is path-based (History API), not hash-based — a
+> `/#/route` URL will not drive the router.
 
 ### Self-hosted (Nginx)
 
@@ -105,18 +123,25 @@ See [`docs/docker/`](docker/) for a ready-to-use Docker image.
 
 ## Docker
 
-A minimal nginx-based Docker image is provided in `docs/docker/`:
+[`docs/docker/`](docker/) has a reference `Dockerfile` and `nginx.conf` you can
+copy into your project. Put them next to your built `dist/` and build from that
+directory, so `dist/` and `nginx.conf` are both in the build context:
 
 ```sh
-# Build and run
-docker build -t my-goowee-app -f docs/docker/Dockerfile .
-docker run -p 8080:8080 my-goowee-app
+# layout: ./Dockerfile  ./nginx.conf  ./dist/
+docker build -t my-goowee-app .
+docker run --rm -p 8080:8080 my-goowee-app
 ```
 
-Or during development:
+Or, during development, serve an existing `dist/` with the config mounted in —
+no image build (mount `nginx.conf` too, or you get stock nginx on port 80 with
+no SPA fallback):
 
 ```sh
-docker run --rm -p 8080:8080 -v ./dist:/usr/share/nginx/html:ro nginx:alpine
+docker run --rm -p 8080:8080 \
+  -v "$PWD/dist:/usr/share/nginx/html:ro" \
+  -v "$PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+  nginx:alpine
 ```
 
 See [`docs/docker/README.md`](docker/README.md) for details.
