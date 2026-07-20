@@ -160,8 +160,8 @@ async function main() {
   const net = netProfile ? `${THROTTLE} (~${(netProfile.download / 1024).toFixed(0)} KB/s down)` : "unthrottled (loopback)";
   console.log(`\ngoowee boot latency — ${URL}  (${ITERS} cold-cache loads/scenario, median)`);
   console.log(`network: ${net}\n`);
-  console.log("scenario         download+compile   go boot+render     hydrate        TTI        wasm KB");
-  console.log("               " + "-".repeat(82));
+  console.log("scenario         download+compile   go boot+render     hydrate        FCP        TTI        wasm KB");
+  console.log("               " + "-".repeat(93));
   let worstTTI = 0;
   for (const sc of scenarios) {
     const runs = results[sc.name] || [];
@@ -173,14 +173,16 @@ async function main() {
       "  " + ms(median(col(runs, (r) => r.phases.downloadCompile))) + " ms" +
       "      " + ms(median(col(runs, (r) => r.phases.goBoot))) + " ms" +
       "   " + ms(median(col(runs, (r) => r.phases.hydrate))) + " ms" +
+      "   " + ms(median(col(runs, (r) => r.phases.fcp))) + " ms" +
       "  " + ms(tti) + " ms" +
       "   " + kb(median(col(runs, (r) => r.wasm?.transferSize)));
     console.log(line);
   }
-  console.log("               " + "-".repeat(82));
+  console.log("               " + "-".repeat(93));
   console.log(netProfile
     ? `(throttled ${THROTTLE}: download reflects bytes-on-the-wire — the compression win shows here)\n`
     : "(loopback: download is fast — read the phase *split* and wasm KB, not absolute download ms;\n run THROTTLE=4g to make the download phase, and the compression win, visible)\n");
+  console.log("(FCP credits SSR: server HTML paints before WASM boots, so SSR's FCP is well below its\n TTI; a client render paints only after WASM renders, so its FCP ≈ TTI.)\n");
 
   if (logs.length) console.log("--- notes ---\n" + logs.join("\n") + "\n");
 

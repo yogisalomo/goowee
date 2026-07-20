@@ -20,6 +20,11 @@ jobs:
       - name: Test (race)
         run: go test -race ./...
 
+      # Allocation-budget tests are tagged !race (the detector perturbs alloc
+      # counts), so they don't run above — run them in a dedicated non-race step.
+      - name: Allocation budgets
+        run: go test -run 'AllocBudget' -count=1 ./core/ ./internal/dom/
+
       - name: Build (native)
         run: go build ./...
 
@@ -39,3 +44,24 @@ jobs:
 
       - name: Benchmarks (smoke)
         run: go test -run '^$' -bench . -benchtime=10x ./core/ ./internal/dom/
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'   # global WebSocket/fetch — no npm deps in the harness
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+
+      # Builds the WASM app + SSR server, serves it, and drives the real app in
+      # headless Chrome (hydration, interactivity, routing/history, refs, async,
+      # error boundary, off-loop stopwatch) plus the devtools inspector checks.
+      - name: E2E (headless Chrome)
+        run: make e2e
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}

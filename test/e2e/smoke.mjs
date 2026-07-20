@@ -26,6 +26,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const userDir = mkdtempSync(join(tmpdir(), "goowee-e2e-"));
 const chrome = spawn(chromePath(), [
   "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+  // CI runners and containers need --no-sandbox; harmless locally. Opt out with CHROME_NO_SANDBOX=0.
+  ...(process.env.CHROME_NO_SANDBOX === "0" ? [] : ["--no-sandbox"]),
   `--remote-debugging-port=${DP}`, `--user-data-dir=${userDir}`, "about:blank",
 ], { stdio: "ignore" });
 
