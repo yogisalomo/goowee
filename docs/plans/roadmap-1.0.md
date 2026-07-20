@@ -126,30 +126,39 @@ median TTI phase split (download+compile / go boot+render / hydrate) in headless
 Chromium — see `docs/plans/boot-latency-measurement.md`. Baseline finding:
 download+compile of the ~4 MB binary dominates TTI. The 3.7× gzip download cut it
 surfaced is now served (see 3.1 / `docs/serving.md`), and `make boot` supports
-`THROTTLE=4g|fast3g|slow3g` to measure it on an emulated network. *Remaining:* an
-FCP mark to credit SSR's first-paint benefit, and CI budget wiring (3.5). **M**
+`THROTTLE=4g|fast3g|slow3g` to measure it on an emulated network. An **FCP mark**
+now lands in `bootTimings()` and the `make boot` report — it credits SSR (server
+HTML paints before WASM boots, so SSR's FCP sits well below its TTI, while a
+client render's FCP ≈ TTI). Allocation-budget gating is wired in CI (see 3.5),
+and the WASM size budget already gates CI. *Remaining:* a CI **TTI** budget stays
+deferred — headless-runner timing variance makes an absolute TTI gate flaky. **M**
 
-**3.3 Keyed-diff minimal moves.** The keyed reconciler re-inserts every row on a
-list change (no longest-increasing-subsequence), so large lists do O(n) DOM
-moves per update. Add LIS to move only what changed. **M**
+**3.3 Keyed-diff minimal moves.** ✅ **Done.** The keyed reconciler computes a
+longest-increasing-subsequence over retained rows (`lis` / `computeNeedsMove` in
+`internal/dom/renderer.go`) and emits `InsertBefore` only for rows outside it, so
+a reorder moves the minimum number of nodes.
 
-**3.4 Mutation transport.** JSON-marshal per frame allocates; upgrade path is a
-reusable buffer → structured clone via `js.ValueOf` → shared `ArrayBuffer`.
-Coalesce high-frequency events (scroll/pointermove) to one per frame. **M**
+**3.4 Mutation transport.** 🟡 **Partial.** High-frequency events
+(scroll/pointermove) are coalesced to one per frame (#31). *Remaining:* the
+binary-transport upgrade (reusable buffer → shared `ArrayBuffer`) stays deferred —
+measure a large-graph/drag workload first; JSON-marshal per frame is fine until
+then. **M**
 
-**3.5 Profiling & regression budgets.** Extend the benchmark set (fan-out, list
-re-render, deep trees), track numbers across releases, and add allocation
-budgets to CI. **S–M**
+**3.5 Profiling & regression budgets.** ✅ **Done.** Benchmarks cover signal
+fan-out, coalesce, list re-render, tree diff, and now deep trees
+(`BenchmarkDeepTreeRender`). Allocation-budget tests (`testing.AllocsPerRun`,
+tagged `!race`) guard the hot paths — O(1) signal notify, bounded coalesce,
+bounded diff — and CI runs them in a dedicated non-race step. *Remaining:*
+tracking numbers across releases is still manual (no perf dashboard). **S–M**
 
 ---
 
 ## P4 — Maintainability & robustness
 
-**4.1 Shared SSR/DOM walker.** One traversal that assigns ids and emits
-backend-agnostic events (DOM → mutations, SSR → HTML), so id parity holds *by
-construction* rather than via the golden test. Retires a whole class of future
-divergence. Big refactor of two now-stable renderers — low urgency, high
-long-term value. **L**
+**4.1 Shared SSR/DOM walker.** ✅ **Done** (#41). `internal/walker` does one
+traversal that assigns ids and calls a `Visitor`; the DOM renderer materializes
+mutations and the SSR renderer materializes HTML, so id parity holds *by
+construction*. `TestSSRDOMIDParity` stays as a belt-and-suspenders guard. **L**
 
 **4.2 Observability / devtools.** ✅ **Done.** Consistent recover boundaries
 emit structured `core.Log` entries (`recover.*`, `signal.cycle`, `warn` kinds);
@@ -157,9 +166,13 @@ the WASM bridge forwards them to `goowee.log()` → `console`. Dev-mode inspecto
 (`?goowee-dev` or `localStorage`) exposes `goowee.inspect()` for the
 component/scope tree and signal graph. See `docs/devtools.md`. **M–L**
 
-**4.3 Testing depth.** Run the browser E2E in CI (Chrome on the runner);
-cross-browser smoke; more property tests for the differ and scheduler; consider
-fuzzing the differ. **M**
+**4.3 Testing depth.** ✅ **Mostly done.** The headless-Chrome E2E now runs in
+CI — an `e2e` job (`browser-actions/setup-chrome` + `make e2e`) covering
+hydration, interactivity, routing/history, refs, async data, error boundary, the
+off-loop stopwatch, and the devtools inspector. (Wiring it in also caught a
+long-broken `devtools.mjs` — a duplicate `const` made it un-parseable.)
+*Remaining:* cross-browser smoke, more differ/scheduler property tests, and
+differ fuzzing. **M**
 
 ---
 
