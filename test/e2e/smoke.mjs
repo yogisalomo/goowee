@@ -75,8 +75,16 @@ async function main() {
     throw new Error("timeout waiting for: " + label + (logs.length ? "\n" + logs.join("\n") : ""));
   };
   // click a link/button by exact trimmed text, or (…Containing) by substring
-  const clickText = (tag, t) => evalJS(`(()=>{const el=[...document.querySelectorAll('${tag}')].find(e=>e.textContent.trim()===${JSON.stringify(t)}); if(!el) throw new Error('no ${tag} with text '+${JSON.stringify(t)}); el.click();})()`);
-  const clickLinkContaining = (sub) => evalJS(`(()=>{const el=[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})); if(!el) throw new Error('no link containing '+${JSON.stringify(sub)}); el.click();})()`);
+  // Auto-wait for the target to exist before clicking — a just-navigated route
+  // may not have rendered its links yet, and CI timing is slower than local.
+  const clickText = async (tag, t) => {
+    await waitFor(`[...document.querySelectorAll('${tag}')].some(e=>e.textContent.trim()===${JSON.stringify(t)})`, `${tag} with text ${JSON.stringify(t)}`);
+    return evalJS(`(()=>{const el=[...document.querySelectorAll('${tag}')].find(e=>e.textContent.trim()===${JSON.stringify(t)}); el.click();})()`);
+  };
+  const clickLinkContaining = async (sub) => {
+    await waitFor(`[...document.querySelectorAll('a')].some(a=>a.textContent.includes(${JSON.stringify(sub)}))`, `link containing ${JSON.stringify(sub)}`);
+    return evalJS(`(()=>{const el=[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})); el.click();})()`);
+  };
   const markerCount = `(()=>{const root=document.getElementById('root'); if(!root) return -1; let n=0;const w=document.createTreeWalker(root,NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^g\\d+$/.test(w.currentNode.data))n++;return n;})()`;
   const heroCount = `(document.querySelector('.count')?.textContent.trim())`;
   const hydrationReady = `(()=>{const m=${markerCount}; return m>=0&&m===0&&${heroCount}==='0'&&[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='increment');})()`;

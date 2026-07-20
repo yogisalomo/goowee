@@ -82,8 +82,15 @@ async function main() {
     for (let i = 0; i < 200; i++) { if (await evalJS(expr).catch(() => false)) return; await sleep(100); }
     throw new Error("timeout waiting for: " + label);
   };
-  const clickText = (tag, t) => evalJS(`(()=>{const el=[...document.querySelectorAll('${tag}')].find(e=>e.textContent.trim()===${JSON.stringify(t)}); if(!el) throw new Error('no ${tag} with text '+${JSON.stringify(t)}); el.click();})()`);
-  const clickLinkContaining = (sub) => evalJS(`(()=>{const el=[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})); if(!el) throw new Error('no link containing '+${JSON.stringify(sub)}); el.click();})()`);
+  // Auto-wait for the target to exist before clicking (see smoke.mjs).
+  const clickText = async (tag, t) => {
+    await waitFor(`[...document.querySelectorAll('${tag}')].some(e=>e.textContent.trim()===${JSON.stringify(t)})`, `${tag} with text ${JSON.stringify(t)}`);
+    return evalJS(`(()=>{const el=[...document.querySelectorAll('${tag}')].find(e=>e.textContent.trim()===${JSON.stringify(t)}); el.click();})()`);
+  };
+  const clickLinkContaining = async (sub) => {
+    await waitFor(`[...document.querySelectorAll('a')].some(a=>a.textContent.includes(${JSON.stringify(sub)}))`, `link containing ${JSON.stringify(sub)}`);
+    return evalJS(`(()=>{const el=[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})); el.click();})()`);
+  };
   const heroCount = `(document.querySelector('.count')?.textContent.trim())`;
   const hydrationReady = `(()=>{const root=document.getElementById('root'); if(!root) return false; let n=0;const w=document.createTreeWalker(root,NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^g\\d+$/.test(w.currentNode.data))n++;return n===0&&${heroCount}==='0'&&[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='increment');})()`;
 
