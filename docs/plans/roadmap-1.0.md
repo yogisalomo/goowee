@@ -18,10 +18,11 @@ usability** — do them top to bottom. Effort tags are rough (S/M/L).
 
 ## P0 — Adoptability (you can't use what you can't get, version, or learn)
 
-**0.1 Distribution & versioning.** *(license + module path: done.)*
-Remaining: adopt semver, cut tagged releases (`v0.x`), and state a stability
-policy — v0 means "expect breaking changes." Add a CHANGELOG. Until a real
-release exists, nobody can pin a version. **S**
+**0.1 Distribution & versioning.** ✅ **Done at v0.1.0.** License + module path
+(`github.com/yogisalomo/goowee`), semver adopted, the v0 stability/deprecation
+policy written (`docs/api-stability.md`), and a `CHANGELOG.md` covering the
+first-release surface. `v0.1.0` is the first tagged release, so downstreams (the
+personal site, `goowee-markdown`) can now pin a version instead of a commit. **S**
 
 **0.2 User-facing documentation.** The repo has design/plan docs, not usage
 docs. Needed: a Getting Started (scaffold → counter → build/serve), a Concepts
