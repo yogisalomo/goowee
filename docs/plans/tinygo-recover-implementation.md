@@ -1,8 +1,29 @@
 # Implementing `recover()` for TinyGo's WebAssembly target
 
-*Authored 2026-07-23. Status: research / proposal — not yet started. Written from
-goowee's perspective (a long-lived, in-browser WASM UI runtime) but scoped as an
-upstream TinyGo contribution.*
+*Authored 2026-07-23. Updated 2026-07-24. Written from goowee's perspective (a
+long-lived, in-browser WASM UI runtime) but scoped around the upstream TinyGo
+effort.*
+
+> **Update (2026-07-24): an upstream implementation already exists — TinyGo PR
+> [#4380 "wasm: add `recover()` support"](https://github.com/tinygo-org/tinygo/pull/4380)** — so this is no longer a from-scratch design. It is
+> **open, unmerged, has merge conflicts (`mergeable: false`), and stalled** (last
+> substantive activity 2025-05-21; opened 2024-08-04). It implements recover via
+> **native wasm exception handling** (our "Approach B"), touching
+> `compiler/defer.go`, `compiler/calls.go`, `src/runtime/panic.go`,
+> `targets/wasm.json` (+919/−398, 30 files). Per the author/maintainer (aykevl)
+> the two remaining blockers are exactly the ones this doc flagged:
+> 1. **A test environment** (NodeJS interim, or wait for Wasmtime EH support).
+> 2. **Asyncify × EH** — recover cannot combine with goroutines, because Asyncify
+>    doesn't support wasm EH. Needs one of: EH support in Asyncify
+>    ([binaryen#5475](https://github.com/WebAssembly/binaryen/pull/5475)), threads
+>    instead of asyncify, disabling goroutines, or a wasip3 mechanism.
+>
+> **Consequence for goowee:** even once #4380 merges, `recover()` will work only
+> *without* goroutines. goowee needs error boundaries to work in apps that also
+> use goroutines (`core.Schedule`, `UseResource`, off-loop timers), so #4380
+> alone does **not** fully unblock us — the asyncify×EH coexistence (upstream of
+> #4380, in Binaryen) is the real gate. The rest of this doc stands as background
+> and as the basis for helping move #4380 forward, especially its testing need.
 
 ## Why goowee cares
 
@@ -330,17 +351,25 @@ that fail today, so it is a ready-made acceptance test.
   exists and TinyGo's model is a clean fit). The asyncify interaction is the real
   unknown — Phase 0 exists to resolve it before committing.
 
-## Upstream, don't fork
+## How to help (given #4380 already exists)
 
-- #2914 is open, wanted, and names the EH approach. A well-scoped PR is the right
-  vehicle; carry a patched toolchain only until merge.
-- A fork means owning divergent TinyGo **and** its LLVM/Binaryen toolchain
-  forever, for no benefit over a merged PR. Only justified if upstream rejects
-  the direction — unlikely, since it is their stated roadmap.
-- Highest-leverage first move: post the "blocker is resolved" update on #2914
-  (see the drafted comment), and run Phase 0 to bring **data** (a working
-  `-scheduler=none` proof) to the thread. A spike branch + demo is far more
-  persuasive to maintainers than a design comment alone.
+Don't fork, and don't rewrite the compiler work — #4380 already did it. The
+useful contributions are the two things the maintainer said are blocking it:
+
+- **Testing (the tractable one, and where we're well-positioned).** aykevl
+  explicitly named "some place we can test it — NodeJS for that I guess." We have
+  already shown wasm EH runs in Node (Phase 0), and goowee ships a no-dependency
+  Node-CDP test harness. Offering a NodeJS-based runner for the PR's
+  `testdata/recover.go` is a concrete, well-scoped way to unblock blocker #1
+  without touching the hard part. This is the highest-leverage move.
+- **Asyncify × EH (the hard one, not ours to solve).** This is really a Binaryen
+  problem ([binaryen#5475](https://github.com/WebAssembly/binaryen/pull/5475)) or
+  a scheduler replacement (threads / wasip3 / JSPI stack-switching). Out of scope
+  for us to implement, but worth tracking, because **it is the true gate for
+  goowee** — without it, recover works only with goroutines disabled.
+- **What NOT to do:** post a naive "is anyone working on this?" comment on #2914.
+  #4380 exists; that would read as uninformed. Engage on #4380 with the testing
+  offer instead, if we engage at all.
 
 ## Open questions to resolve with the compiler source / maintainers
 
