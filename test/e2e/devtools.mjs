@@ -19,6 +19,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const userDir = mkdtempSync(join(tmpdir(), "goowee-devtools-e2e-"));
 const chrome = spawn(chromePath(), [
   "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+  // CI runners and containers need --no-sandbox; harmless locally. Opt out with CHROME_NO_SANDBOX=0.
+  ...(process.env.CHROME_NO_SANDBOX === "0" ? [] : ["--no-sandbox"]),
   `--remote-debugging-port=${DP}`, `--user-data-dir=${userDir}`, "about:blank",
 ], { stdio: "ignore" });
 
@@ -80,8 +82,15 @@ async function main() {
     for (let i = 0; i < 200; i++) { if (await evalJS(expr).catch(() => false)) return; await sleep(100); }
     throw new Error("timeout waiting for: " + label);
   };
-  const clickText = (tag, t) => evalJS(`(()=>{const el=[...document.querySelectorAll('${tag}')].find(e=>e.textContent.trim()===${JSON.stringify(t)}); if(!el) throw new Error('no ${tag} with text '+${JSON.stringify(t)}); el.click();})()`);
-  const clickLinkContaining = (sub) => evalJS(`(()=>{const el=[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})); if(!el) throw new Error('no link containing '+${JSON.stringify(sub)}); el.click();})()`);
+  // Auto-wait for the target to exist before clicking (see smoke.mjs).
+  const clickText = async (tag, t) => {
+    await waitFor(`[...document.querySelectorAll('${tag}')].some(e=>e.textContent.trim()===${JSON.stringify(t)})`, `${tag} with text ${JSON.stringify(t)}`);
+    return evalJS(`(()=>{const el=[...document.querySelectorAll('${tag}')].find(e=>e.textContent.trim()===${JSON.stringify(t)}); el.click();})()`);
+  };
+  const clickLinkContaining = async (sub) => {
+    await waitFor(`[...document.querySelectorAll('a')].some(a=>a.textContent.includes(${JSON.stringify(sub)}))`, `link containing ${JSON.stringify(sub)}`);
+    return evalJS(`(()=>{const el=[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})); el.click();})()`);
+  };
   const heroCount = `(document.querySelector('.count')?.textContent.trim())`;
   const hydrationReady = `(()=>{const root=document.getElementById('root'); if(!root) return false; let n=0;const w=document.createTreeWalker(root,NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^g\\d+$/.test(w.currentNode.data))n++;return n===0&&${heroCount}==='0'&&[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='increment');})()`;
 
@@ -98,7 +107,6 @@ async function main() {
   check(Array.isArray(snap?.signals) && snap.signals.length > 0, "snapshot lists registered signals");
 
   // --- Hydration + interactivity still work with dev mode on ---
-  const heroCount = `(document.querySelector('.count')?.textContent.trim())`;
   await waitFor(hydrationReady, "landing hydrated with dev mode");
   await clickText("button", "increment");
   await waitFor(`${heroCount} === '1'`, "hero increment with dev mode");
@@ -114,12 +122,15 @@ async function main() {
   await clickLinkContaining("Error boundary");
   await waitFor(`/Recovered:/.test(document.body.innerText)`, "error boundary fallback");
 
-  const boundaryLog = consoleLogs.find((l) =>
+  const mentionsBoundary = (l) =>
     l.text.includes("recover.error_boundary") ||
-    l.args.some((a) => a.description?.includes("recover.error_boundary"))
-  );
-  check(!!boundaryLog, "console received recover.error_boundary structured log");
-  check(boundaryLog?.type === "error", "recover.error_boundary routed to console.error");
+    l.args.some((a) => a.description?.includes("recover.error_boundary"));
+  check(consoleLogs.some(mentionsBoundary), "console received a recover.error_boundary log");
+  // core.Log emits to the Go host logger (surfaces as a console.log passthrough)
+  // AND the structured sink, which routes recover.* to console.error. Assert the
+  // structured error path specifically, not just the first line mentioning it.
+  const boundaryError = consoleLogs.find((l) => l.type === "error" && mentionsBoundary(l));
+  check(!!boundaryError, "recover.error_boundary routed to console.error");
 
   if (consoleLogs.length) console.log("--- captured console ---\n" + consoleLogs.map((l) => `[${l.type}] ${l.text}`).join("\n"));
   if (fail.length) { console.log("DEVTOOLS E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }

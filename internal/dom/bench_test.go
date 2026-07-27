@@ -48,6 +48,22 @@ func BenchmarkScopeReRenderList(b *testing.B) {
 	}
 }
 
+// Rendering a deep (not wide) tree — stresses the recursive walker and the
+// per-level mutation emission depth, complementing the wide-list benchmarks
+// (fan-out, list re-render). Roadmap 3.5.
+func BenchmarkDeepTreeRender(b *testing.B) {
+	const depth = 400
+	var node core.Node = &core.TextNode{Value: "leaf"}
+	for i := 0; i < depth; i++ {
+		node = &core.ElementNode{Tag: "div", Children: []core.Node{node}}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		New().Render(node)
+	}
+}
+
 // Diffing two K-node element trees (the reconciliation hot path).
 func BenchmarkDiffTree(b *testing.B) {
 	build := func(cls string) *core.ElementNode {

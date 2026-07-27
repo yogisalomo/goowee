@@ -96,6 +96,11 @@ goowee.bootTimings = function bootTimings() {
     };
     const res = performance.getEntriesByType("resource")
         .find(function (r) { return r.name.split("?")[0].endsWith("main.wasm"); });
+    // First Contentful Paint, from navigation start (timeOrigin) — same basis as
+    // tti. With SSR the server HTML paints before WASM boots, so FCP lands well
+    // before tti; a client-only render paints only after WASM renders (FCP ~ tti).
+    const paint = performance.getEntriesByType("paint")
+        .find(function (p) { return p.name === "first-contentful-paint"; });
     const sub = function (a, b) { return (a != null && b != null) ? a - b : null; };
     return {
         interactive: goowee._interactive === true,
@@ -104,6 +109,7 @@ goowee.bootTimings = function bootTimings() {
             downloadCompile: sub(marks.instantiated, marks.fetchStart),
             goBoot: sub(marks.interactive, marks.run),
             hydrate: sub(marks.hydrateEnd, marks.hydrateStart),
+            fcp: paint ? paint.startTime : null, // from navigation start (timeOrigin)
             tti: marks.interactive, // from navigation start (timeOrigin)
         },
         wasm: res ? {
