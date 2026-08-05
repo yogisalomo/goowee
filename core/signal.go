@@ -1,5 +1,7 @@
 package core
 
+import "reflect"
+
 type subscriber struct {
 	id int
 	fn func()
@@ -117,16 +119,24 @@ func (s *Signal[T]) lookup(id int) func() {
 	return nil
 }
 
-func (s *Signal[T]) equal(a, b T) (eq bool) {
+func (s *Signal[T]) equal(a, b T) bool {
 	if s.eq != nil {
 		return s.eq(a, b)
 	}
-	defer func() {
-		if recover() != nil {
-			eq = false
-		}
-	}()
-	return any(a) == any(b)
+	// Comparing uncomparable dynamic types (slices/maps/funcs) with == panics.
+	// Go can recover that runtime panic; TinyGo cannot, so we must not trigger
+	// it. Decide comparability by reflection instead: an uncomparable value
+	// (e.g. a signal holding a []T) is treated as always-changed, matching the
+	// previous recover-based fallback but without the crash on TinyGo.
+	ia, ib := any(a), any(b)
+	ta := reflect.TypeOf(ia)
+	if ta == nil { // a is a nil interface value
+		return ib == nil
+	}
+	if !ta.Comparable() {
+		return false
+	}
+	return ia == ib
 }
 
 var _ SignalAccessor = (*Signal[int])(nil)
