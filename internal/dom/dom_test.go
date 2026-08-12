@@ -2,9 +2,11 @@ package dom
 
 import (
 	"fmt"
-	"github.com/yogisalomo/goowee/core"
-	"github.com/yogisalomo/goowee/hooks"
 	"testing"
+
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/h"
+	"github.com/yogisalomo/goowee/hooks"
 )
 
 func TestDOMRenderElement(t *testing.T) {
@@ -1471,6 +1473,139 @@ func TestKeyedComponentListReorderPreservesIdentity(t *testing.T) {
 	}
 	if !reorderedUnderUl {
 		t.Fatalf("expected reorder InsertBefore under <ul>, got %v", muts)
+	}
+}
+
+// The same guarantee as above, but driven through the public h.For helper and
+// covering the shapes a real list UI hits: appending and removing items, not
+// just reordering them. A row's component state (and its effects) must survive
+// any list change that keeps its key, and a removed row must dispose exactly
+// once. h/flow.go once documented the opposite as a limitation — this test
+// exists so that claim can't quietly become true again.
+func TestForRowComponentStateSurvivesListChanges(t *testing.T) {
+	items := core.NewSignal([]int{1, 2, 3})
+	setups := map[int]int{}
+	cleanups := map[int]int{}
+	counts := map[int]*core.Signal[int]{}
+
+	tree := &core.ElementNode{Tag: "ul", Children: []core.Node{
+		h.For(items, func(i int) int { return i }, func(i int) core.Node {
+			return core.Component("Row", func() core.Node {
+				setups[i]++
+				count, _ := hooks.UseState(0)
+				counts[i] = count
+				hooks.OnMount(func() func() { return func() { cleanups[i]++ } })
+				return &core.ElementNode{Tag: "li"}
+			})
+		}),
+	}}
+
+	r := New()
+	r.Render(tree)
+	counts[2].Set(42) // give row 2 some state to lose
+
+	items.Set([]int{1, 2, 3, 4}) // append
+	r.Scheduler.Flush()
+	for _, id := range []int{1, 2, 3} {
+		if setups[id] != 1 || cleanups[id] != 0 {
+			t.Fatalf("append churned row %d: setups=%d cleanups=%d, want 1/0", id, setups[id], cleanups[id])
+		}
+	}
+	if got := counts[2].Get(); got != 42 {
+		t.Fatalf("append lost row 2 state: got %d, want 42", got)
+	}
+
+	items.Set([]int{1, 3, 4}) // remove the middle row
+	r.Scheduler.Flush()
+	if cleanups[2] != 1 {
+		t.Fatalf("removed row 2 disposed %d times, want 1", cleanups[2])
+	}
+	for _, id := range []int{1, 3, 4} {
+		if setups[id] != 1 || cleanups[id] != 0 {
+			t.Fatalf("remove churned surviving row %d: setups=%d cleanups=%d, want 1/0", id, setups[id], cleanups[id])
+		}
+	}
+
+	items.Set([]int{4, 1, 3}) // reorder
+	r.Scheduler.Flush()
+	for _, id := range []int{1, 3, 4} {
+		if setups[id] != 1 || cleanups[id] != 0 {
+			t.Fatalf("reorder churned row %d: setups=%d cleanups=%d, want 1/0", id, setups[id], cleanups[id])
+		}
+	}
+}
+
+// A row that owns an inner scope (the expand/collapse shape) keeps that scope's
+// state across list changes too — the case that pushed app authors to hoist row
+// state out of For.
+func TestForRowInnerScopeStateSurvivesListChanges(t *testing.T) {
+	items := core.NewSignal([]int{1, 2})
+	setups := map[int]int{}
+	open := map[int]*core.Signal[bool]{}
+
+	tree := &core.ElementNode{Tag: "ul", Children: []core.Node{
+		h.For(items, func(i int) int { return i }, func(i int) core.Node {
+			return core.Component("Row", func() core.Node {
+				setups[i]++
+				expanded, _ := hooks.UseState(false)
+				open[i] = expanded
+				return &core.ElementNode{Tag: "li", Children: []core.Node{
+					h.Show(expanded, func() core.Node {
+						return &core.ElementNode{Tag: "p"}
+					}),
+				}}
+			})
+		}),
+	}}
+
+	r := New()
+	r.Render(tree)
+	open[1].Set(true) // expand row 1
+	r.Scheduler.Flush()
+
+	items.Set([]int{1, 2, 3})
+	r.Scheduler.Flush()
+	if setups[1] != 1 {
+		t.Fatalf("row 1 setup re-ran on append: %d", setups[1])
+	}
+	if !open[1].Get() {
+		t.Fatalf("row 1 lost its expanded state across a list change")
+	}
+}
+
+// A component nested inside a keyed element row (rather than being the row
+// root) is preserved by the row's reuse.
+func TestNestedComponentInKeyedRowPreserved(t *testing.T) {
+	items := core.NewSignal([]int{1, 2, 3})
+	setups := map[int]int{}
+	cleanups := map[int]int{}
+
+	tree := &core.ElementNode{Tag: "ul", Children: []core.Node{
+		h.For(items, func(i int) int { return i }, func(i int) core.Node {
+			return &core.ElementNode{Tag: "li", Children: []core.Node{
+				core.Component("Inner", func() core.Node {
+					setups[i]++
+					hooks.OnMount(func() func() { return func() { cleanups[i]++ } })
+					return &core.ElementNode{Tag: "span"}
+				}),
+			}}
+		}),
+	}}
+
+	r := New()
+	r.Render(tree)
+	items.Set([]int{1, 2, 3, 4})
+	r.Scheduler.Flush()
+	items.Set([]int{4, 2, 1}) // drops 3, reorders the rest
+	r.Scheduler.Flush()
+
+	for _, id := range []int{1, 2, 4} {
+		if setups[id] != 1 || cleanups[id] != 0 {
+			t.Fatalf("row %d churned: setups=%d cleanups=%d, want 1/0", id, setups[id], cleanups[id])
+		}
+	}
+	if cleanups[3] != 1 {
+		t.Fatalf("removed row 3 disposed %d times, want 1", cleanups[3])
 	}
 }
 
