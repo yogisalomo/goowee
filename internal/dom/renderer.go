@@ -18,7 +18,7 @@ type DOMRenderer struct {
 	Scheduler      *core.Scheduler
 	Registry       *NodeRegistry
 	parentStack    []int
-	scopeSeq       int    // monotonic mount order; parents mount before children
+	scopeSeq       int // monotonic mount order; parents mount before children
 	scopeStack     []scopeState
 	hydrating      bool   // initial render claims server-rendered nodes
 	hydrateDynamic bool   // within a Dynamic subtree: re-apply values so client wins
@@ -885,8 +885,8 @@ func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts
 			if oldIdx, ok := oldByKey[k]; ok {
 				if paired[oldIdx] {
 					core.Log(core.LogWarn, "duplicate key in keyed children; treating extra as unkeyed", map[string]any{
-					"key": k,
-				})
+						"key": k,
+					})
 					continue
 				}
 				paired[oldIdx] = true

@@ -31,16 +31,16 @@ func Switch[T comparable](sig *core.Signal[T], cases map[T]func() core.Node, def
 	}, sig)
 }
 
-// For renders a keyed reactive list. key must return a unique, stable
-// value per item — it becomes ElementNode.Key so the DOM differ can reuse
-// and reorder rows instead of rebuilding them. render should return an
-// *ElementNode; other node types are rendered but matched positionally.
+// For renders a keyed reactive list. key must return a unique, stable value
+// per item — it becomes the row's Key so the DOM differ can reuse and reorder
+// rows instead of rebuilding them. render should return an *ElementNode or a
+// *ComponentNode; other node types are rendered but matched positionally.
 //
-// Limitation: because a ScopeNode re-render tears down all of its old
-// component frames, rows that contain ComponentNodes lose their component
-// state across re-renders until the ownership redesign lands. Keyed
-// reconciliation still preserves DOM identity (focus/scroll) for plain
-// element rows.
+// Rows keep their identity across list changes: as long as an item's key
+// survives, its DOM nodes are reused (preserving focus and scroll) and a
+// component row keeps its frame — setup does not re-run, so its state and
+// effects survive appends, removals, and reorders. A row whose key disappears
+// is unmounted and disposed exactly once.
 func For[T any, K comparable](items *core.Signal[[]T], key func(T) K, render func(T) core.Node) core.Node {
 	return hooks.UseScope(func() core.Node {
 		xs := items.Get()
