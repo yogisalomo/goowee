@@ -344,7 +344,37 @@ Input(RefTo(nameRef), Type("text"))
 Button(OnClick(func() { nameRef.Focus() }), Text("Focus input"))
 ```
 
-Methods: `Focus()`, `Blur()`, `Click()`, `ScrollIntoView()`.
+Commands: `Focus()`, `Blur()`, `Click()`, `ScrollIntoView()`. They run on the
+next frame, one-way.
+
+Reading a value back — measuring, scroll position, selection, validity — is
+`Get`. The read is answered on the next frame *after* that frame's DOM updates
+apply, and the callback runs on the render loop, so it may set signals:
+
+```go
+nameRef.Get("offsetWidth", func(v any) {
+    w, _ := v.(float64)           // numbers decode as float64
+    setWidth(int(w))
+})
+nameRef.Get("getBoundingClientRect", func(v any) {
+    rect, _ := v.(map[string]any) // objects decode as maps
+    ...
+})
+```
+
+A `prop` naming a method (`getBoundingClientRect`, `checkValidity`) is called
+with no arguments. `v` is `nil` if the property is undefined or the node is
+gone.
+
+To measure right after mount, defer past setup — the element has no id until
+the component's tree is walked:
+
+```go
+hooks.OnMount(func() func() {
+    core.Schedule(func() { listRef.Get("clientHeight", func(v any) { ... }) })
+    return nil
+})
+```
 
 Render outside the current subtree — modals, tooltips, dropdowns — with
 portals:
@@ -386,3 +416,30 @@ OnClickE(func(e core.EventData) {
 All standard events are available: `OnFocus`, `OnBlur`, `OnKeyDown`,
 `OnKeyUp`, `OnPaste`, `OnCut`, `OnCopy`, `OnFocusIn`, `OnFocusOut`,
 `OnReset`, `OnInvalid`, and more.
+
+### File inputs
+
+On a `change` (or `input`) event from `<input type="file">`, `e.Files()` holds
+each picked file's `Name`, `Size`, `Type` and `LastModified`. The contents stay
+in the browser until you ask: `Bytes()` blocks on the read, so call it from a
+goroutine and apply the result with `core.Schedule` — the same rule as any
+fetch (see [Off-loop updates](#off-loop-updates--coreschedule)):
+
+```go
+Input(Type("file"), Accept("audio/*"), OnChangeE(func(e core.EventData) {
+    for _, f := range e.Files() {
+        setStatus("reading " + f.Name)
+        go func() {
+            data, err := f.Bytes()
+            core.Schedule(func() {
+                if err != nil { setErr(err); return }
+                setAudio(data)
+            })
+        }()
+    }
+}))
+```
+
+A file stays readable until the input's selection changes or the element is
+removed. Calling `Bytes()` inline in the handler would block the WASM event
+loop, which is what the read needs to complete — hence the goroutine.

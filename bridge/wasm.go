@@ -4,6 +4,7 @@ package bridge
 
 import (
 	"encoding/json"
+	"errors"
 	"syscall/js"
 
 	"github.com/yogisalomo/goowee/core"
@@ -22,6 +23,9 @@ func Run(app core.Node) {
 	initObservability()
 
 	renderer := dom.New()
+	// Route core.Schedule onto this scheduler before the first render, so a
+	// mount effect can defer work (a ref read, say) to the first flush.
+	core.SetActiveScheduler(renderer.Scheduler)
 	// Hydrate when the document was server-rendered.
 	if js.Global().Get("document").Call("querySelector", "[data-node-id]").Truthy() {
 		renderer.SetHydrating(true)
@@ -76,8 +80,7 @@ func initInspector() {
 // dispatcher, announces the event types the app listens for, and drives one
 // requestAnimationFrame flush whenever work appears.
 func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry) {
-	// Route core.Schedule (off-loop goroutine updates) onto this scheduler.
-	core.SetActiveScheduler(sched)
+	core.SetFileReader(readFile)
 
 	js.Global().Set("handleEvent", js.FuncOf(func(this js.Value, args []js.Value) any {
 		opts, handled := registry.Dispatch(args[0].Int(), args[1].String(), args[2].String())
@@ -107,7 +110,7 @@ func startScheduler(sched *core.Scheduler) {
 		scheduled = false
 		muts := sched.Flush()
 		if len(muts) > 0 {
-			sendMutations(muts)
+			sendMutations(sched, muts)
 		}
 		return nil
 	})
@@ -124,10 +127,61 @@ func startScheduler(sched *core.Scheduler) {
 	sched.OnWork()
 }
 
-func sendMutations(muts []core.Mutation) {
+// sendMutations applies a batch and delivers the replies to any reads
+// (ref.Get) it carried: applyMutations returns them as JSON once every write in
+// the batch is in the DOM. The callbacks run here, on the render loop.
+func sendMutations(sched *core.Scheduler, muts []core.Mutation) {
 	data, err := json.Marshal(muts)
 	if err != nil {
 		return
 	}
-	js.Global().Call("applyMutations", string(data))
+	ret := js.Global().Call("applyMutations", string(data))
+	if ret.Type() != js.TypeString {
+		return
+	}
+	var replies []struct {
+		Req   int `json:"req"`
+		Value any `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(ret.String()), &replies); err != nil {
+		return
+	}
+	for _, r := range replies {
+		sched.Resolve(r.Req, r.Value)
+	}
+}
+
+// readFile backs core.File.Bytes: it asks the runtime for the parked File's
+// bytes and blocks until the promise settles. It must run off the event loop
+// (a goroutine), which is what File.Bytes documents.
+func readFile(handle int) ([]byte, error) {
+	promise := js.Global().Get("goowee").Call("readFile", handle)
+	done := make(chan struct{})
+	var (
+		out     []byte
+		readErr error
+	)
+	onOK := js.FuncOf(func(this js.Value, args []js.Value) any {
+		u8 := args[0]
+		out = make([]byte, u8.Get("length").Int())
+		js.CopyBytesToGo(out, u8)
+		close(done)
+		return nil
+	})
+	onErr := js.FuncOf(func(this js.Value, args []js.Value) any {
+		msg := "file read failed"
+		if len(args) > 0 && args[0].Type() == js.TypeObject {
+			if m := args[0].Get("message"); m.Type() == js.TypeString {
+				msg = m.String()
+			}
+		}
+		readErr = errors.New("goowee: " + msg)
+		close(done)
+		return nil
+	})
+	defer onOK.Release()
+	defer onErr.Release()
+	promise.Call("then", onOK, onErr)
+	<-done
+	return out, readErr
 }
