@@ -143,10 +143,42 @@ func formPage(r *router.Router) core.Node {
 		email, setEmail := hooks.UseState("")
 		agreed, setAgreed := hooks.UseState(false)
 		entries, setEntries := hooks.UseState([]entry{})
-		nameRef := Ref() // imperative focus (h.Ref -> ref.Focus)
+		nameRef := Ref() // imperative focus (h.Ref -> ref.Focus), measuring (ref.Get)
+		nameWidth, setNameWidth := hooks.UseState(0)
+		attachment, setAttachment := hooks.UseState("no file picked")
+
+		// A file input's change event carries the picked files' metadata; the
+		// bytes are read off-loop with File.Bytes and applied via core.Schedule.
+		pickFile := func(e core.EventData) {
+			files := e.Files()
+			if len(files) == 0 {
+				setAttachment("no file picked")
+				return
+			}
+			f := files[0]
+			setAttachment(fmt.Sprintf("picked %s (%d bytes), reading…", f.Name, f.Size))
+			go func() {
+				data, err := f.Bytes()
+				core.Schedule(func() {
+					if err != nil {
+						setAttachment(fmt.Sprintf("%s: %v", f.Name, err))
+						return
+					}
+					setAttachment(fmt.Sprintf("%s: read %d bytes: %q", f.Name, len(data), preview(data)))
+				})
+			}()
+		}
 
 		demo := Div(
 			Button(Type("button"), OnClick(func() { nameRef.Focus() }), Text("Focus name")),
+			Button(Type("button"), OnClick(func() {
+				nameRef.Get("offsetWidth", func(v any) {
+					w, _ := v.(float64)
+					setNameWidth(int(w))
+				})
+			}), Text("Measure name")),
+			Show(hooks.UseComputed([]core.SignalAccessor{nameWidth}, func() bool { return nameWidth.Get() > 0 }),
+				func() core.Node { return P(Class("measure"), Textf("Name input is %dpx wide", nameWidth)) }),
 			Form(
 				OnSubmit(func(vals map[string]string) {
 					en := entry{
@@ -166,6 +198,8 @@ func formPage(r *router.Router) core.Node {
 					Input(Type("checkbox"), Name("agreed"), BindChecked(agreed)),
 					Text(" Subscribe to newsletter"),
 				),
+				label("Attachment", Input(Type("file"), Name("attachment"), OnChangeE(pickFile))),
+				P(Class("attachment"), TextS(attachment)),
 				Button(Text("Submit")),
 			),
 			P(Class("preview"), Textf("Preview, Name: %s, Email: %s", name, email)),
@@ -191,11 +225,23 @@ func formPage(r *router.Router) core.Node {
 				"BindValue(name) fills the input from the signal and updates the signal on every keystroke, two-way.",
 				"OnSubmit(func(vals map[string]string){...}) receives values keyed by each input's Name; preventDefault is handled for you.",
 				"ref := Ref(); attach with RefTo(ref); ref.Focus() from a handler focuses the node.",
+				"ref.Get(\"offsetWidth\", func(v any){...}) reads a value back from the node on the next frame; the callback runs on the render loop.",
+				"OnChangeE on a file input gives e.Files(): name, size, type. f.Bytes() reads the contents, from a goroutine, applied with core.Schedule.",
 				"For(entries, key, render) renders the keyed, reactive list of submissions.",
 			),
 			tutorialStepNav(r, "/form"),
 		)
 	})
+}
+
+// preview trims file contents to a short, single-line snippet for display.
+func preview(data []byte) string {
+	const max = 40
+	s := string(data)
+	if len(s) > max {
+		s = s[:max] + "…"
+	}
+	return s
 }
 
 func label(text string, input core.Node) core.Node {

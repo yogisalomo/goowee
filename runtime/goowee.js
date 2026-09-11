@@ -190,6 +190,54 @@ window.goListen = function (type, capture) {
     document.addEventListener(type, handler, capture);
 };
 
+// File inputs: the change/input payload carries each picked file's metadata
+// plus a handle, and the File objects themselves are parked here so Go can
+// read their bytes later (goowee.readFile, via core.File.Bytes). A node's
+// handles are released when its selection changes or the node is removed,
+// mirroring the lifetime of input.files; a File that survives a re-selection
+// keeps its handle, so an in-flight read is not cut off by the second event
+// of the same pick (input then change).
+const fileStore = {};          // handle -> File
+const nodeFiles = new WeakMap(); // element -> Map(File -> handle)
+let nextFileHandle = 1;
+
+function stashFiles(el) {
+    const prev = nodeFiles.get(el) || new Map();
+    const next = new Map();
+    const out = [];
+    for (const f of el.files) {
+        let h = prev.get(f);
+        if (h === undefined) {
+            h = nextFileHandle++;
+            fileStore[h] = f;
+        }
+        next.set(f, h);
+        out.push({handle: h, name: f.name, size: f.size, type: f.type, lastModified: f.lastModified});
+    }
+    for (const [f, h] of prev) {
+        if (!next.has(f)) delete fileStore[h];
+    }
+    nodeFiles.set(el, next);
+    return out;
+}
+
+function releaseFiles(el) {
+    const prev = nodeFiles.get(el);
+    if (!prev) return;
+    for (const h of prev.values()) delete fileStore[h];
+    nodeFiles.delete(el);
+}
+
+// readFile resolves to the bytes of a parked File as a Uint8Array. Called by
+// the Go bridge for core.File.Bytes.
+goowee.readFile = function readFile(handle) {
+    const f = fileStore[handle];
+    if (!f) {
+        return Promise.reject(new Error("file is no longer available (selection changed or input removed)"));
+    }
+    return f.arrayBuffer().then(function (buf) { return new Uint8Array(buf); });
+};
+
 function buildPayload(type, e) {
     switch (type) {
         case "click": case "dblclick":
@@ -200,6 +248,8 @@ function buildPayload(type, e) {
             const t = e.target;
             if (t.type === "checkbox" || t.type === "radio")
                 return {value: t.value, checked: t.checked};
+            if (t.type === "file" && t.files)
+                return {value: t.value, files: stashFiles(t)};
             return {value: t.value};
         }
         case "submit": {
@@ -246,6 +296,9 @@ window.applyMutations = function applyMutations(json) {
         mark("goowee:interactive");
     }
     const muts = JSON.parse(json);
+    // Reads (ref.Get) are answered after every write in the batch has been
+    // applied, so a handler that updates state and measures sees the result.
+    const reads = [];
     for (const mut of muts) {
         let el;
         switch (mut.type) {
@@ -266,6 +319,7 @@ window.applyMutations = function applyMutations(json) {
             case 1: // RemoveNode
                 el = nodeMap[mut.nodeId];
                 if (el && el.parentNode) el.parentNode.removeChild(el);
+                if (el) releaseFiles(el);
                 delete nodeMap[mut.nodeId];
                 break;
             case 2: // SetAttribute
@@ -326,6 +380,9 @@ window.applyMutations = function applyMutations(json) {
                 }
                 break;
             }
+            case 10: // Read — deferred to after the batch (see below)
+                reads.push(mut);
+                break;
             case 7: { // Hydrate — claim a server-rendered node by id
                 const pre = preexistingNodes[mut.nodeId];
                 const wantText = mut.value === "#text";
@@ -359,4 +416,21 @@ window.applyMutations = function applyMutations(json) {
             }
         }
     }
+    if (reads.length === 0) return undefined;
+    return JSON.stringify(reads.map(function (mut) {
+        return {req: mut.value, value: readProp(nodeMap[mut.nodeId], mut.key)};
+    }));
 };
+
+// readProp evaluates a ref.Get: a method is called with no arguments, a
+// property is read as-is. Anything JSON can't carry (undefined, a function, a
+// throwing getter, a missing node) comes back as null.
+function readProp(el, key) {
+    if (!el) return null;
+    try {
+        const v = typeof el[key] === "function" ? el[key]() : el[key];
+        return v === undefined ? null : v;
+    } catch (_) {
+        return null;
+    }
+}
