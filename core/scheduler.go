@@ -33,6 +33,11 @@ type Scheduler struct {
 	// thing called from other goroutines.
 	postMu sync.Mutex
 	posted []func()
+
+	// reads holds the callbacks of in-flight DOM reads (Ref.Get), keyed by
+	// request id. The bridge answers each MutRead in a batch through Resolve.
+	reads    map[int]func(any)
+	nextRead int
 }
 
 // Post queues fn to run on the render loop at the next flush. It is safe to
@@ -58,7 +63,7 @@ func (s *Scheduler) drainPosted() {
 }
 
 func NewScheduler() *Scheduler {
-	return &Scheduler{dirty: make(map[any]*dirtyScope)}
+	return &Scheduler{dirty: make(map[any]*dirtyScope), reads: make(map[int]func(any))}
 }
 
 func (s *Scheduler) signalWork() {
@@ -76,6 +81,38 @@ func (s *Scheduler) Enqueue(muts ...Mutation) {
 	s.queue = append(s.queue, muts...)
 	s.signalWork()
 }
+
+// Read enqueues a MutRead for prop on nodeID and parks fn until the bridge
+// delivers the value via Resolve. The mutation's Value carries the request id.
+func (s *Scheduler) Read(nodeID int, prop string, fn func(any)) {
+	s.nextRead++
+	id := s.nextRead
+	s.reads[id] = fn
+	s.Enqueue(Mutation{Type: MutRead, NodeID: nodeID, Key: prop, Value: id})
+}
+
+// Resolve delivers the reply to a pending read on the render loop. Unknown ids
+// (already resolved, or never issued) are ignored. A panicking callback is
+// contained and logged, like an event handler.
+func (s *Scheduler) Resolve(id int, v any) {
+	fn, ok := s.reads[id]
+	if !ok {
+		return
+	}
+	delete(s.reads, id)
+	defer func() {
+		if rec := recover(); rec != nil {
+			Log(LogRecoverRead, "panic in ref read callback", map[string]any{
+				"request": id,
+				"panic":   rec,
+			})
+		}
+	}()
+	fn(v)
+}
+
+// PendingReads reports how many reads await a reply.
+func (s *Scheduler) PendingReads() int { return len(s.reads) }
 
 // MarkDirty schedules a scope (identified by a unique key, e.g. the ScopeNode
 // pointer) to re-render on the next flush. Repeated marks before a flush
@@ -196,6 +233,7 @@ const (
 	MutHydrate      // claim a server-rendered node by id (Value = tag or "#text")
 	MutInvoke       // call a method on a node (Key = method name), e.g. focus
 	MutPortalAppend // append a child to a container matched by selector (Value)
+	MutRead         // read a property (Key) of a node; Value = request id, answered via Scheduler.Resolve
 )
 
 func (mt MutationType) String() string {
@@ -220,6 +258,8 @@ func (mt MutationType) String() string {
 		return "Invoke"
 	case MutPortalAppend:
 		return "PortalAppend"
+	case MutRead:
+		return "Read"
 	default:
 		return "Unknown"
 	}

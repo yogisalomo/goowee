@@ -70,11 +70,20 @@ return Form(
         setEntries(append(entries.Get(), entry{name: vals["name"]}))
         setName("")                                   // clear the bound input
     }),
-    Input(Type("text"), Name("name"), BindValue(name)), // two-way binding
+    Input(Type("text"), Name("name"), RefTo(nameRef), BindValue(name)), // two-way binding
+    Input(Type("file"), OnChangeE(func(e core.EventData) {  // e.Files(): name, size, type
+        f := e.Files()[0]
+        go func() {                                       // bytes are read off-loop
+            data, err := f.Bytes()
+            core.Schedule(func() { setPicked(f.Name, data, err) })
+        }()
+    })),
     Button(Text("Submit")),
     For(entries, func(e entry) int { return e.id },     // keyed list
         func(e entry) core.Node { return Li(Text(e.name)) }),
-)`
+)
+// Elsewhere: nameRef.Focus() to focus the field, or read a value back —
+// nameRef.Get("offsetWidth", func(v any) { w, _ := v.(float64); setWidth(int(w)) })`
 
 const todosCode = `todos, setTodos := hooks.UseState(initial)   // 100 rows
 

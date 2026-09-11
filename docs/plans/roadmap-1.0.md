@@ -103,14 +103,17 @@ restores the selection instead of jumping to the end (programmatic updates
 still apply). *Remaining:* explicit selection preservation across keyed
 reorders (the active-element check covers the common case).
 
-**2.4 Refs / DOM escape hatch & portals.** ✅ **Mostly done** (ADR-017).
+**2.4 Refs / DOM escape hatch & portals.** ✅ **Mostly done** (ADR-017, ADR-019).
 `h.Ref`/`h.RefTo` give imperative command handles — `ref.Focus()`, `Blur()`,
-`Click()`, `ScrollIntoView()` via a `MutInvoke` command to the bridge (the form
-example's "Focus name" button dogfoods it, E2E-checked). `h.Portal(target, …)`
-renders into another container (client-side, rendered fresh under hydration).
-*Remaining:* ref **reads** (measure/`getBoundingClientRect`) need a value
-channel back to Go; portals rebuild children on re-render (no id-keyed
-reconciliation) — both deferred, documented in ADR-017.
+`Click()`, `ScrollIntoView()` via a `MutInvoke` command to the bridge — and a
+value channel back: `ref.Get(prop, fn)` rides the batch as a `MutRead`, is
+answered after that frame's writes, and runs `fn` on the render loop
+(measuring, `getBoundingClientRect`, selection). File inputs expose
+`e.Files()` metadata and `File.Bytes()` for the contents (#51). The form
+example dogfoods all three, E2E-checked. `h.Portal(target, …)` renders into
+another container (client-side, rendered fresh under hydration).
+*Remaining:* portals rebuild children on re-render (no id-keyed
+reconciliation) — deferred, documented in ADR-017.
 
 ---
 

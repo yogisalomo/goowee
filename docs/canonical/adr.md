@@ -395,7 +395,8 @@ without `Dynamic`, since `OnMount` runs only on the client after hydration.
 
 ## ADR-017: Refs are imperative command handles; portals are client-side and rebuild
 
-**Status:** Accepted (2026-07-06)
+**Status:** Accepted (2026-07-06). The "reads are not supported" clause is
+superseded by ADR-019; the portal decision stands.
 
 **Context.** Real UIs need to reach the DOM imperatively (focus a field, scroll
 into view) and render outside the current subtree (modals, tooltips). Go never
@@ -466,3 +467,58 @@ instead. Server-side boundary recovery: SSR renders the child transparently
 update-time failures are contained but don't switch to the fallback (a
 documented gap). Error boundaries are a client concern; don't rely on them
 during SSR.
+
+---
+
+## ADR-019: DOM reads are a request/reply over the mutation batch; files are handles, not payloads
+
+**Status:** Accepted (2026-09-11)
+
+**Context.** ADR-017 made refs one-way and deferred reads "until there's a real
+use." Issue #51 supplied one: a page reading an audio file the user picks had
+no supported way to reach `input.files` — the `change` payload carries only
+the fake path — and fell back to `getElementById` with a hand-managed id.
+Measuring (`offsetWidth`, `scrollTop`, selection) is the same gap. Two
+requirements hide here: reading a *serializable value*, and getting at a
+*live JS object* (`File`), which no JSON channel can carry.
+
+**Decision.**
+- **Values: `ref.Get(prop, fn)`.** A `MutRead{node, prop, reqID}` rides the
+  normal mutation batch. The runtime applies every write in the batch first,
+  then evaluates the reads and returns them as `applyMutations`'s result; the
+  bridge feeds each reply to `Scheduler.Resolve`, which runs `fn` on the render
+  loop. So a handler can set state and measure the outcome in one frame, and
+  `fn` may set signals without `core.Schedule`. Values are JSON-decoded
+  (`float64`/`string`/`bool`/`map`/`nil`); a prop naming a method is called
+  with no arguments, which covers `getBoundingClientRect` and `checkValidity`.
+  No new JS call per frame: the reply piggybacks on the existing one.
+- **Files: handles, read on demand.** The `change`/`input` payload of a file
+  input carries metadata (`name`, `size`, `type`, `lastModified`) plus an
+  integer handle per file; the runtime parks the `File` objects by handle.
+  `core.File.Bytes()` asks the bridge for the bytes (`goowee.readFile` →
+  `arrayBuffer` → `CopyBytesToGo`) and **blocks**, so it is called from a
+  goroutine and applied with `core.Schedule` — the same contract as a fetch
+  (ADR-015). Handles live as long as `input.files` would: released when the
+  selection changes (a `File` that survives keeps its handle, so `input` then
+  `change` for one pick don't cut off an in-flight read) or the node is
+  removed. Bytes are copied once, on demand, never serialized with the event.
+- **No `ref.Node() js.Value`.** Still rejected for the reason in ADR-017: it
+  can't exist in native/SSR builds and puts `syscall/js` in component code.
+  The two channels above cover the cases in #51; app-level JS interop
+  (`decodeAudioData`) stays in the app, fed by `[]byte`.
+
+**Alternatives.** A separate read channel (`goowee.read(json)`) — cleaner
+typing, but a second bridge call per frame and no ordering guarantee against
+that frame's writes. A synchronous `ref.Measure()` — a blocking round-trip
+from a `js.FuncOf` callback deadlocks the event loop. Serializing file bytes
+into the event payload — pays the copy on every pick, and base64 through JSON
+for something the app may never read. A callback-style `File.Read(fn)` — avoids
+the goroutine footgun, but diverges from how every other async source in the
+framework (fetch, timers) is written.
+
+**Consequences.** Refs are two-way; the "measuring is a known gap" note in
+ADR-017 is closed. The blocking `Bytes()` inherits the WASM rule that I/O
+happens off the event loop, documented on the method. Fake DOMs in tests ignore
+`MutRead` like any unknown mutation; pure-Go tests exercise `Get`/`Resolve`
+and `Files`/`Bytes` through the `SetFileReader` hook, and the E2E smoke test
+covers the runtime with a real Chrome (`DOM.setFileInputFiles`).

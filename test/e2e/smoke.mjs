@@ -6,9 +6,11 @@
 //   - hydration reuses the server-rendered DOM (no duplicated text, marker
 //     comments removed) and the app is interactive (Count: 0 -> click -> 1),
 //   - client routing + history: a nav link pushState-navigates and swaps the
-//     route; browser back pops to the previous route and restores it.
+//     route; browser back pops to the previous route and restores it,
+//   - refs both ways: ref.Focus reaches the node, ref.Get reads a value back,
+//     and a picked file's bytes reach Go through e.Files()[i].Bytes().
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -131,6 +133,19 @@ async function main() {
   await waitFor(`!!document.querySelector('input[name="name"]')`, "form page");
   await clickText("button", "Focus name");
   await waitFor(`document.activeElement && document.activeElement.name === 'name'`, "ref.Focus focused the name input");
+
+  // --- Ref reads (ref.Get): a value comes back from the node on the next frame ---
+  await clickText("button", "Measure name");
+  await waitFor(`/Name input is [1-9]\\d*px wide/.test(document.body.innerText)`, "ref.Get returned the input's offsetWidth");
+
+  // --- File input (e.Files + File.Bytes): the picked file's bytes reach Go ---
+  const filePath = join(userDir, "note.txt");
+  writeFileSync(filePath, "hello from e2e");
+  const doc = await send("DOM.getDocument", { depth: 0 });
+  const { nodeId: fileInput } = await send("DOM.querySelector", { nodeId: doc.root.nodeId, selector: 'input[name="attachment"]' });
+  check(fileInput > 0, "file input rendered");
+  await send("DOM.setFileInputFiles", { nodeId: fileInput, files: [filePath] });
+  await waitFor(`/note\\.txt: read 14 bytes: "hello from e2e"/.test(document.body.innerText)`, "File.Bytes delivered the picked file's contents");
 
   // --- Async data (hooks.UseResource): loading → loaded via a goroutine ---
   await clickText("a", "goowee");

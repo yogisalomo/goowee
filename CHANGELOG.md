@@ -9,6 +9,32 @@ Under `v0.x`, breaking changes to the public API are allowed between minor
 releases but are called out here; anything not listed as public may change at any
 time. The public surface freezes under semver at v1.
 
+## [Unreleased]
+
+### Added
+- `ref.Get(prop, fn)` — read a value back from a ref'd node (`offsetWidth`,
+  `scrollTop`, `selectionStart`, `getBoundingClientRect`, …). The read is
+  answered after the next frame's DOM updates apply and `fn` runs on the render
+  loop, so it may set signals. Backed by a new `MutRead` mutation whose reply
+  piggybacks on `applyMutations`' return value (ADR-019).
+- `e.Files()` on `change`/`input` events from `<input type="file">`: each
+  `core.File` carries `Name`, `Size`, `Type`, `LastModified`, and
+  `Bytes() ([]byte, error)` reads the contents on demand — from a goroutine,
+  applied with `core.Schedule`, like a fetch. Closes #51 (no more
+  `getElementById` to reach `input.files`).
+- `core.SetFileReader` hook (installed by the bridge) and `core.ErrNoFileReader`
+  for SSR/tests; `core.LogRecoverRead` for a panicking read callback.
+
+### Changed
+- `bridge.Run` activates the scheduler before the first render, so
+  `core.Schedule` called during initial setup (e.g. from `OnMount`, to defer a
+  `ref.Get` until the element exists) runs on the first flush instead of being
+  dropped.
+- `runtime/goowee.js`: `applyMutations` now returns a JSON string of read
+  replies when the batch carried reads (otherwise `undefined`); file inputs
+  park their `File` objects by handle (released when the selection changes or
+  the node is removed) and expose `goowee.readFile(handle)`.
+
 ## [0.1.0] — 2026-07-23
 
 First tagged release. goowee is a reactive UI framework in pure Go that compiles
