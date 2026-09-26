@@ -66,3 +66,65 @@ Go runtime boot (~40 ms) — those are already small relative to download. Once 
 binary is served compressed, the next lever is the raw binary size itself (3.1:
 TinyGo, code splitting), evaluated against the *post-compression* number — the
 incremental win from TinyGo is smaller once you're already at ~1 MB on the wire.
+
+## What not to import: `net/http`
+
+The binary is the app's one big download, so watch what you pull in. The
+costliest trap is `net/http`: it works under `GOOS=js` (it's implemented on the
+browser's `fetch`), but it drags in `crypto/tls`, `net`, and the HTTP/2 stack.
+Measured with Go 1.25: a minimal WASM program that makes one request is
+**10.0 MB with `net/http`** and **2.7 MB with the helper below** — about 7 MB
+for one import, before goowee is even involved.
+
+Call the browser's `fetch` through `syscall/js` instead. This helper is
+context-aware, so it fits `hooks.UseResource` (a cancelled context aborts the
+request):
+
+```go
+//go:build js && wasm
+
+// fetchText GETs url with the browser's fetch, aborting when ctx is
+// cancelled. Call it from a goroutine (UseResource's fetch runs in one).
+func fetchText(ctx context.Context, url string) (string, error) {
+    ctrl := js.Global().Get("AbortController").New()
+    stop := context.AfterFunc(ctx, func() { ctrl.Call("abort") })
+    defer stop()
+
+    type result struct {
+        body string
+        err  error
+    }
+    done := make(chan result, 1)
+    onText := js.FuncOf(func(_ js.Value, args []js.Value) any {
+        done <- result{body: args[0].String()}
+        return nil
+    })
+    onResponse := js.FuncOf(func(_ js.Value, args []js.Value) any {
+        resp := args[0]
+        if !resp.Get("ok").Bool() {
+            done <- result{err: fmt.Errorf("GET %s: %d %s", url, resp.Get("status").Int(), resp.Get("statusText").String())}
+            return nil
+        }
+        return resp.Call("text").Call("then", onText)
+    })
+    onError := js.FuncOf(func(_ js.Value, args []js.Value) any {
+        done <- result{err: errors.New(args[0].Get("message").String())}
+        return nil
+    })
+    defer onText.Release()
+    defer onResponse.Release()
+    defer onError.Release()
+
+    js.Global().Call("fetch", url, map[string]any{"signal": ctrl.Get("signal")}).
+        Call("then", onResponse).
+        Call("catch", onError)
+    r := <-done
+    return r.body, r.err
+}
+```
+
+For JSON, `json.Unmarshal` the text (`encoding/json` is fine — it's already in
+the binary). For POSTs, pass `method`, `headers` and `body` in the options map.
+Check the effect of any new dependency with `make size` (CI gates the example
+at 6 MiB).
+

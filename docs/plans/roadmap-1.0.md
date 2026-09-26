@@ -1,6 +1,7 @@
 # Road to 1.0 — Production Readiness
 
-*Authored 2026-07-05.*
+*Authored 2026-07-05. Status refreshed 2026-09-26 after the second review
+(issues #57–#83; see "Second review" below).*
 
 The core framework has been hardened end-to-end against the architecture review
 (`docs/26-07-02-fable-review.md`, §1–§10): sound reactive core (token-based
@@ -24,11 +25,10 @@ policy written (`docs/api-stability.md`), and a `CHANGELOG.md` covering the
 first-release surface. `v0.1.0` is the first tagged release, so downstreams (the
 personal site, `goowee-markdown`) can now pin a version instead of a commit. **S**
 
-**0.2 User-facing documentation.** The repo has design/plan docs, not usage
-docs. Needed: a Getting Started (scaffold → counter → build/serve), a Concepts
-guide (signals, run-once components, scopes/`Show`/`For`, SSR + hydration), and
-an API reference for the public surface (`h`, `hooks`, `core` signals,
-`router`, `ssr`). The README should be the entry point, not a design dump. **M**
+**0.2 User-facing documentation.** ✅ **Done** (#39). Getting Started, a
+Concepts guide, and an API reference, kept current with each change (the second
+review corrected several snippets that had drifted from the code: `Render`'s
+two results, `EventData` accessors, handler options, `Watch` timing). **M**
 
 **0.3 Public vs internal API boundary.** 🟡 **Mostly done.** The public API is
 now defined and the v0 stability/deprecation policy written (`docs/api-stability.md`):
@@ -40,7 +40,8 @@ old `dom.New()`/`renderer.Render`/`bridge.Init` dance that leaked
 `core` still exports framework internals (scheduler, mutations, render context,
 node structs) alongside its public subset — hiding those needs a `core` split
 into public/internal halves (an L refactor, related to P4.1); for now the boundary
-is documented rather than compiler-enforced. **M**
+is documented rather than compiler-enforced. The public `core` subset now also
+lists `Batch`, `Peek`, `ComponentWithProps` and `SetKey`. **M**
 
 ---
 
@@ -62,9 +63,11 @@ deterministic content keeps the boot optimization. Structural mismatches (wrong
 tag / missing node) now log a clear `console.error` and best-effort recover
 instead of silently corrupting. The hydration contract (deterministic markup)
 and the placeholder-plus-`OnMount` pattern for client-only values are
-documented. *Remaining:* fully **automatic** per-subtree render-and-replace on
-structural mismatch — deferred (needs renderer DOM access via a build tag or a
-JS→Go round-trip; see ADR-016 alternatives).
+documented. Scope end anchors (ADR-021) are claimed like other nodes, and the
+E2E now fails on any hydration-mismatch console error. *Remaining:* fully
+**automatic** per-subtree render-and-replace on structural mismatch — deferred
+(ADR-016); text inside raw-text elements (`<textarea>`, `<title>`) still can't
+be hydrated (ADR-009), so such pages are client-only (`ssr.HandlerOptions.ClientOnly`).
 
 ---
 
@@ -91,8 +94,11 @@ the subtree and shows `fallback(err)` (rolling back renderer state so recovery
 is clean); update-time panics are **contained** by a `recover` in
 `reRenderScope` (the subtree keeps its previous state, logged) so a panicking
 update never blanks the page. `/error` tutorial page dogfoods it; unit tests +
-E2E. *Gap:* update-time panics are contained but don't switch to the fallback
-UI (ADR-018).
+E2E. A panic while a re-render diffs through a boundary now shows the fallback,
+and everything a failed walk set up is released (ADR-021, #61). `UseResource`
+fetches take a cancellable `context.Context` (ADR-025, #75). *Remaining:*
+server-side data loading for resources — deferred by design (ADR-025: it needs
+per-request state reachable from hooks, which conflicts with lock-free SSR).
 
 **2.3 Forms, inputs, focus.** ✅ **Mostly done.** `BindSelect` (change-based
 `<select>`) and `BindValueLazy` (commit on change) join `BindValue`/
@@ -112,14 +118,19 @@ answered after that frame's writes, and runs `fn` on the render loop
 `e.Files()` metadata and `File.Bytes()` for the contents (#51). The form
 example dogfoods all three, E2E-checked. `h.Portal(target, …)` renders into
 another container (client-side, rendered fresh under hydration).
-*Remaining:* portals rebuild children on re-render (no id-keyed
+`bridge.Element(ref)` hands the live element to a JavaScript library, and
+`OnMount` runs after the DOM exists, so that works in one step (ADR-022, #53,
+#60). *Remaining:* portals rebuild children on re-render (no id-keyed
 reconciliation) — deferred, documented in ADR-017.
 
 ---
 
 ## P3 — Performance & footprint (adoption-deciding, not correctness)
 
-**3.1 Bundle size.** ~3.7 MB raw / ~1.0 MB gzip today. *gzip/brotli serving:*
+**3.1 Bundle size.** ~4.7 MB raw / ~1.2 MB gzip for the example app today.
+`docs/guides/serving.md` now warns that `net/http` alone adds ~7 MB (#54) and
+gives a `fetch` helper instead. TinyGo is a dead end for now
+(`docs/plans/tinygo-recover-implementation.md`). *gzip/brotli serving:*
 ✅ **Done** — documented in `docs/serving.md`; the reference SSR server gzips the
 wasm (3.7×), JS/CSS, and SSR HTML, and GitHub Pages gzips via its CDN. *Remaining:*
 evaluate TinyGo (the reflect-free core helps) against the *post-compression*
@@ -139,11 +150,13 @@ deferred — headless-runner timing variance makes an absolute TTI gate flaky. *
 
 **3.3 Keyed-diff minimal moves.** ✅ **Done.** The keyed reconciler computes a
 longest-increasing-subsequence over retained rows (`lis` / `computeNeedsMove` in
-`internal/dom/renderer.go`) and emits `InsertBefore` only for rows outside it, so
-a reorder moves the minimum number of nodes.
+`internal/dom/diff.go`, now O(n log n) with an O(n) no-move fast path) and emits
+`InsertBefore` only for rows outside it. `h.For` reuses unchanged rows as-is,
+and removals send only subtree roots: appending to a 5,000-row list went from
+14 ms to 1.3 ms (#70, #71).
 
 **3.4 Mutation transport.** 🟡 **Partial.** High-frequency events
-(scroll/pointermove) are coalesced to one per frame (#31). *Remaining:* the
+(scroll/pointermove) are coalesced to one per frame per element (#31, #68). *Remaining:* the
 binary-transport upgrade (reusable buffer → shared `ArrayBuffer`) stays deferred —
 measure a large-graph/drag workload first; JSON-marshal per frame is fine until
 then. **M**
@@ -151,8 +164,10 @@ then. **M**
 **3.5 Profiling & regression budgets.** ✅ **Done.** Benchmarks cover signal
 fan-out, coalesce, list re-render, tree diff, and now deep trees
 (`BenchmarkDeepTreeRender`). Allocation-budget tests (`testing.AllocsPerRun`,
-tagged `!race`) guard the hot paths — O(1) signal notify, bounded coalesce,
-bounded diff — and CI runs them in a dedicated non-race step. *Remaining:*
+tagged `!race`) guard the hot paths — O(1) signal notify (zero allocations;
+notification itself went from O(N²) to O(N), #69), bounded coalesce, bounded
+diff — and CI runs them in a dedicated non-race step. SSR renders run
+concurrently (ADR-024, #72). *Remaining:*
 tracking numbers across releases is still manual (no perf dashboard). **S–M**
 
 ---
@@ -175,26 +190,51 @@ CI — an `e2e` job (`browser-actions/setup-chrome` + `make e2e`) covering
 hydration, interactivity, routing/history, refs, async data, error boundary, the
 off-loop stopwatch, and the devtools inspector. (Wiring it in also caught a
 long-broken `devtools.mjs` — a duplicate `const` made it un-parseable.)
-*Remaining:* cross-browser smoke, more differ/scheduler property tests, and
-differ fuzzing. **M**
+App authors get the same headless setup through the public `gooweetest`
+package (#76), and property tests cover keyed lists between siblings and the
+LIS. *Remaining:* cross-browser smoke and differ fuzzing. **M**
 
 ---
 
 ## P5 — DX polish
 
-**5.1 Examples & scaffolding.** A handful of real-shaped examples beyond the
-counter; a `create-goowee-app`-style scaffold. **M**
+**5.1 Examples & scaffolding.** 🟡 The tutorial gained an Events lesson and a
+canvas chart (JS interop); `ssr.Handler` makes the SSR server a few lines.
+*Remaining:* a real-shaped second example app and a `create-goowee-app`-style
+scaffold. **M**
 **5.2 Templates (gated).** The `.gwx` compiler from the ergonomics plan
 (Phase 3) — *only* with LSP + formatter + editor support, per the Vugu lesson
 that a template format without tooling is negative value. **L**
 **5.3 Router & a11y.** ✅ **Mostly done.** `SubRoute` (nested groups),
 `Guard(check, fallback, route)`, `Lazy` (deferred handler init), and
 `NavigateReplace`/`Back`/`Forward`; a set of `Aria*` attribute helpers +
-`AutoFocus`. *Remaining:* `SubRoute`'s internal matcher isn't most-specific-
-ordered like `Route` (fine for simple sub-routes), and nested-route children
-aren't state-preserved across sub-navigation — refinements, not blockers.
+`AutoFocus`. `SubRoute` now matches deterministically and merges params (#62); `Link` leaves
+modifier/middle clicks to the browser (#67); `Router.NotFound` drives real 404s
+under SSR (#77).
 
 ---
+
+## Second review (2026-09-26)
+
+A fresh full review found silent-staleness, lifecycle, placement and event bugs
+beneath the hardened surface; all were reproduced with tests and fixed:
+
+| Area | Issues | Decision |
+|---|---|---|
+| Placement & ownership: scope anchors, adoption, lazy `Computed`, boundary cleanup | #58 #59 #61 #83 | ADR-021 |
+| Lifecycle: effects after the DOM is applied; `bridge.Element` | #53 #56 #60 | ADR-022 |
+| Stale props: `ComponentWithProps`, name + key identity, `For` item changes | #57 | ADR-001 amendment |
+| Batching & signal performance | #69 #73 | ADR-020 |
+| Events: bubbling, non-bubbling capture, per-event decisions, data | #65–#68 | ADR-023 |
+| SSR: lock-free renders, `ssr.Handler`, script-URL blocking | #72 #77 #78 #79 | ADR-024 |
+| Resources: cancellable fetch | #75 | ADR-025 |
+| Dev-mode undeclared-dependency check | #74 | ADR-002 amendment |
+| Smaller fixes (router, differ robustness, list perf, tests harness) | #62–#64 #70 #71 #76 | — |
+
+What's left before 1.0, in order: server-side resource data (needs a design,
+ADR-025), the `core` public/internal split (0.3), a scaffold + second example
+(5.1), cross-browser smoke + differ fuzzing (4.3), and automatic hydration
+mismatch recovery (1.2).
 
 ## Definition of 1.0
 
