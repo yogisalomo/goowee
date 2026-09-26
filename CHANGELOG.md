@@ -12,6 +12,12 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- `gooweetest` — headless component tests for app authors: `Render(t, node)`
+  mounts into an in-memory DOM that applies the real mutation stream, with
+  CSS-subset finders, `Click`/`Input`/`Submit`/`KeyDown`/`Dispatch` (DOM
+  bubbling, prevent-default reporting), effects after each frame, `WaitFor`
+  for async resources, portals/head/focus inspection. Also
+  `Scheduler.HasWork` and `DOMRenderer.Unmount`. (#76)
 - Dev-mode dependency checking (`?goowee-dev` → `core.SetDevChecks`): a
   signal read while a `Show`/`For`/`Switch`/`Route`/`UseScope` renders or a
   `Computed` computes, but not declared as a dep, is reported once per read

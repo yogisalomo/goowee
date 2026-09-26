@@ -115,6 +115,7 @@ bridge/       WASM entry point — bridge.Run(node) is all you need
 runtime/      JS runtime (goowee.js)
 examples/     Demo app (counter, form, todos, dashboard, routing, params)
 cmd/          SSR server binary
+gooweetest/   Headless component tests for your app (Render, Find, Click, …)
 test/e2e/     Headless-browser smoke test
 docs/         Design docs, ADRs, roadmap, guides, API reference
 ```
