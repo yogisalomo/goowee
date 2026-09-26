@@ -82,8 +82,9 @@ func TestDOMReactiveUpdate(t *testing.T) {
 	if len(updates) != 1 {
 		t.Fatalf("expected 1 mutation, got %d", len(updates))
 	}
-	if updates[0].Value != 1 {
-		t.Fatalf("expected 1, got %v", updates[0].Value)
+	// Text is formatted in Go (%v, like SSR) and sent as a string.
+	if updates[0].Value != "1" {
+		t.Fatalf(`expected "1", got %#v`, updates[0].Value)
 	}
 }
 

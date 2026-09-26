@@ -25,7 +25,12 @@ time. The public surface freezes under semver at v1.
 - `core.SetFileReader` hook (installed by the bridge) and `core.ErrNoFileReader`
   for SSR/tests; `core.LogRecoverRead` for a panicking read callback.
 
+- `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
+
 ### Changed
+- Bound text (`TextS`, `Textf`, `BindProp("textContent", …)`) is formatted in Go
+  with `%v` and sent as a string, the same format SSR uses — floats no longer
+  change format after hydration (`1e+08` vs JS's `100000000`). (#64)
 - `bridge.Run` activates the scheduler before the first render, so
   `core.Schedule` called during initial setup (e.g. from `OnMount`, to defer a
   `ref.Get` until the element exists) runs on the first flush instead of being
@@ -36,6 +41,14 @@ time. The public surface freezes under semver at v1.
   the node is removed) and expose `goowee.readFile(handle)`.
 
 ### Fixed
+- A prop whose value is a slice, map, or func no longer panics the differ
+  ("comparing uncomparable type") and freezes the subtree; it is treated as
+  changed and re-set. An uncomparable key falls back to positional matching
+  with a warning instead of panicking, and signal equality now also catches a
+  struct whose interface field holds an uncomparable value. (#63)
+- One mutation JSON can't encode (a `NaN`/`±Inf` property value) no longer
+  silently drops every DOM update of the frame: the bridge falls back to
+  per-mutation encoding, applies the rest, and logs what it dropped. (#64)
 - `router.SubRoute` matching is deterministic: it now compiles and orders its
   patterns most-specific-first like `Route`, instead of ranging over the
   routes map (overlapping patterns used to match at random). A sub-route's

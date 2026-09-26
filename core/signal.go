@@ -128,12 +128,13 @@ func (s *Signal[T]) equal(a, b T) bool {
 	// it. Decide comparability by reflection instead: an uncomparable value
 	// (e.g. a signal holding a []T) is treated as always-changed, matching the
 	// previous recover-based fallback but without the crash on TinyGo.
+	// Value.Comparable inspects the dynamic value, so it also catches a
+	// comparable-looking struct whose interface field holds a slice.
 	ia, ib := any(a), any(b)
-	ta := reflect.TypeOf(ia)
-	if ta == nil { // a is a nil interface value
-		return ib == nil
+	if ia == nil || ib == nil {
+		return ia == nil && ib == nil
 	}
-	if !ta.Comparable() {
+	if !reflect.ValueOf(ia).Comparable() || !reflect.ValueOf(ib).Comparable() {
 		return false
 	}
 	return ia == ib

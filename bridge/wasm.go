@@ -131,10 +131,8 @@ func startScheduler(sched *core.Scheduler) {
 // (ref.Get) it carried: applyMutations returns them as JSON once every write in
 // the batch is in the DOM. The callbacks run here, on the render loop.
 func sendMutations(sched *core.Scheduler, muts []core.Mutation) {
-	data, err := json.Marshal(muts)
-	if err != nil {
-		return
-	}
+	data, dropped := dom.EncodeBatch(muts)
+	dom.LogDropped(dropped)
 	ret := js.Global().Call("applyMutations", string(data))
 	if ret.Type() != js.TypeString {
 		return
@@ -144,6 +142,7 @@ func sendMutations(sched *core.Scheduler, muts []core.Mutation) {
 		Value any `json:"value"`
 	}
 	if err := json.Unmarshal([]byte(ret.String()), &replies); err != nil {
+		core.Log(core.LogWarn, "could not decode ref read replies", map[string]any{"error": err.Error()})
 		return
 	}
 	for _, r := range replies {

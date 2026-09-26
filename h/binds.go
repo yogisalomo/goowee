@@ -13,6 +13,7 @@ func BindAttr(name string, sig core.SignalAccessor) core.Item {
 func ClassS(sig core.SignalAccessor) core.Item    { return BindAttr("class", sig) }
 func StyleS(sig core.SignalAccessor) core.Item    { return BindAttr("style", sig) }
 func HrefS(sig core.SignalAccessor) core.Item     { return BindAttr("href", sig) }
+func SrcS(sig core.SignalAccessor) core.Item      { return BindAttr("src", sig) }
 func ValueS(sig core.SignalAccessor) core.Item    { return BindProp("value", sig) }
 func CheckedS(sig core.SignalAccessor) core.Item  { return BindProp("checked", sig) }
 func DisabledS(sig core.SignalAccessor) core.Item { return BindProp("disabled", sig) }
