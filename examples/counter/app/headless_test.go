@@ -56,6 +56,15 @@ func (d *fakeDOM) detach(id int) {
 	n.parent = -1
 }
 
+func (d *fakeDOM) forget(id int) {
+	if n := d.nodes[id]; n != nil {
+		for _, c := range n.children {
+			d.forget(c)
+		}
+		delete(d.nodes, id)
+	}
+}
+
 func (d *fakeDOM) apply(muts []core.Mutation) {
 	for _, m := range muts {
 		switch m.Type {
@@ -74,8 +83,9 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 				}
 			}
 		case core.MutRemoveNode:
+			// Go sends only a removed subtree's roots; forget the subtree.
 			d.detach(m.NodeID)
-			delete(d.nodes, m.NodeID)
+			d.forget(m.NodeID)
 		case core.MutSetAttribute:
 			if n := d.nodes[m.NodeID]; n != nil {
 				n.attrs[m.Key] = toStr(m.Value)
@@ -95,7 +105,12 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 				c.parent = p.id
 			}
 		case core.MutInsertBefore:
-			p, c := d.nodes[m.NodeID], d.nodes[m.ChildID]
+			// Like goowee.js: insert at the reference node's actual parent.
+			pid := m.NodeID
+			if ref := d.nodes[m.RefID]; m.RefID != 0 && ref != nil && ref.parent != -1 {
+				pid = ref.parent
+			}
+			p, c := d.nodes[pid], d.nodes[m.ChildID]
 			if p == nil || c == nil {
 				break
 			}

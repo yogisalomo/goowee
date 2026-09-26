@@ -1088,6 +1088,16 @@ func (d *fakeDOM) detach(n *fakeNode) {
 	n.attached = false
 }
 
+// forget drops n and its whole subtree, like goowee.js's forget.
+func (d *fakeDOM) forget(n *fakeNode) {
+	for _, c := range n.Children {
+		if cn := d.nodes[c]; cn != nil {
+			d.forget(cn)
+		}
+	}
+	delete(d.nodes, n.ID)
+}
+
 // apply mirrors runtime/goowee.js: AppendChild only attaches a detached node;
 // InsertBefore moves the node and inserts at the reference's actual parent.
 func (d *fakeDOM) apply(muts []core.Mutation) {
@@ -1129,7 +1139,7 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 		case core.MutRemoveNode:
 			if n := d.nodes[m.NodeID]; n != nil {
 				d.detach(n)
-				delete(d.nodes, m.NodeID)
+				d.forget(n)
 			}
 		case core.MutSetAttribute:
 		case core.MutSetProperty:

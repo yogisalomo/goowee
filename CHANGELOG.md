@@ -41,6 +41,11 @@ time. The public surface freezes under semver at v1.
 - `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
 
 ### Changed
+- Removing a subtree sends one `RemoveNode` per DOM root (plus portal/head
+  content inside it) instead of one per descendant; the JS runtime forgets the
+  removed subtree's nodes (and parked file handles) itself. Clearing 100
+  five-node rows: 500 mutations → 100. `goowee.nodeCount()` exposes the tracked
+  node count (the E2E test checks it for leaks). (#71)
 - `h.For` renders only new and changed items (unchanged rows are reused as-is),
   the keyed diff's LIS is O(n log n) with an O(n) fast path when nothing moved,
   and `core.FlatTree` is shallow (children are flattened as the renderer

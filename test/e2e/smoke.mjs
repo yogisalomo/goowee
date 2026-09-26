@@ -191,6 +191,12 @@ async function main() {
   // should advance past 00:00.0 within a couple of seconds.
   await waitFor(`(${disp}) !== '' && (${disp}) !== '00:00.0'`, "stopwatch advanced via goroutine (core.Schedule)");
 
+  // --- No stale nodes: after all that navigation, every node the runtime still
+  // tracks is live in the document (removed subtrees are forgotten).
+  const tracked = await evalJS(`goowee.nodeCount()`);
+  const live = await evalJS(`(()=>{let n=0;const walk=(el)=>{if(el._nodeID!==undefined)n++;for(let c=el.firstChild;c;c=c.nextSibling)walk(c);};walk(document.documentElement);return n;})()`);
+  check(tracked === live, `runtime tracks ${tracked} nodes but only ${live} are in the document`);
+
   if (logs.length) console.log("--- browser logs ---\n" + logs.join("\n"));
   if (fail.length) { console.log("E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }
   else console.log("E2E PASS: hydration reuses SSR DOM, interactive, routing + history work.");
