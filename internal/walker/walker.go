@@ -104,7 +104,7 @@ func (w *Walker) Walk(n core.Node, v Visitor) int {
 			return 0
 		}
 		v.VisitScopeEnter(node)
-		inner := core.FlatTree(node.Render())
+		inner := core.FlatTree(core.RenderScope(node))
 		id := w.Walk(inner, v)
 		node.Prev = inner
 		// The end anchor is allocated after the content, in both renderers, so

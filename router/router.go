@@ -126,7 +126,7 @@ func (r *Router) BasePath() string { return r.base }
 // changes (e.g. /todos/1 -> /todos/2, where the same component is preserved),
 // bind reactively with ParamSignal instead.
 func (r *Router) Param(name string) string {
-	return r.params.Get()[name]
+	return r.params.Peek()[name]
 }
 
 // Params is the reactive signal of the current route's params.
@@ -153,7 +153,7 @@ func (r *Router) setParams(p map[string]string) {
 // QueryParam returns the value of a URL query parameter ("" if absent).
 // This is a snapshot — good for event handlers and one-shot reads.
 func (r *Router) QueryParam(name string) string {
-	return r.Query.Get()[name]
+	return r.Query.Peek()[name]
 }
 
 // QueryParamSignal returns a derived signal of one query parameter's value that
@@ -258,7 +258,7 @@ func (r *Router) SubRoute(prefix string, routes map[string]func() core.Node) cor
 		if len(sub) == 0 && len(lastKeys) == 0 {
 			return
 		}
-		merged := copyParams(r.params.Get())
+		merged := copyParams(r.params.Peek())
 		for _, k := range lastKeys {
 			delete(merged, k)
 		}

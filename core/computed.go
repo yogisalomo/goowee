@@ -52,7 +52,8 @@ func (d *derivation[T]) refresh(s *Signal[T]) {
 	if !d.stale() {
 		return
 	}
-	v := d.compute()
+	var v T
+	checkedEval("Computed", d.deps, func() { v = d.compute() })
 	if d.depVers == nil {
 		d.depVers = make([]uint64, len(d.deps))
 	}

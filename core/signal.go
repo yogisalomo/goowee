@@ -48,6 +48,19 @@ func (s *Signal[T]) WithEquals(eq func(a, b T) bool) *Signal[T] {
 // dependency changed since the last evaluation (an unobserved Computed, or a
 // read inside a Batch before notifications ran), it recomputes first.
 func (s *Signal[T]) Get() T {
+	if readTracker != nil {
+		recordRead(s) // dev mode only (see devcheck.go)
+	}
+	if s.derived != nil {
+		s.derived.refresh(s)
+	}
+	return s.value
+}
+
+// Peek returns the current value like Get, but is never counted as a
+// dependency read by dev-mode checking: use it for an intentional snapshot
+// inside a reactive region.
+func (s *Signal[T]) Peek() T {
 	if s.derived != nil {
 		s.derived.refresh(s)
 	}
@@ -57,6 +70,7 @@ func (s *Signal[T]) Get() T {
 func (s *Signal[T]) Value() any { return s.Get() }
 
 func (s *Signal[T]) currentVersion() uint64 {
+	// Called by Computeds checking their deps: not a user read.
 	if s.derived != nil {
 		s.derived.refresh(s)
 	}
@@ -178,10 +192,17 @@ func (s *Signal[T]) notify() {
 		// removed ones are flagged dead, and compaction waits for the pass to
 		// end — so indexing the live slice is safe and allocation-free.
 		n := len(s.subs)
+		saved := readTracker // subscribers' reads aren't the tracked caller's
+		if saved != nil {
+			readTracker = nil
+		}
 		for i := 0; i < n; i++ {
 			if sub := s.subs[i]; !sub.dead {
 				sub.fn()
 			}
+		}
+		if saved != nil {
+			readTracker = saved
 		}
 		if !s.dirty {
 			return

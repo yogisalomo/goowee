@@ -34,7 +34,7 @@ func ShowResource[T any](
 	})
 	return Switch(state, map[int]func() core.Node{
 		0: loading,
-		1: func() core.Node { return errFn(res.Err.Get()) },
+		1: func() core.Node { return errFn(res.Err.Peek()) }, // the state computed covers Err
 		2: func() core.Node { return data(res.Data) },
 	}, nil)
 }

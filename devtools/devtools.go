@@ -34,6 +34,7 @@ func Enable() {
 	}
 	mu.Unlock()
 	wireHooks()
+	core.SetDevChecks(true) // report undeclared signal dependencies (#74)
 }
 
 // Enabled reports whether devtools are active.
