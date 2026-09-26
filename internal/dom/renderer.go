@@ -1,6 +1,8 @@
 package dom
 
 import (
+	"fmt"
+
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/internal/runtime"
@@ -184,7 +186,7 @@ func (r *DOMRenderer) VisitText(id int, tn *core.TextNode) {
 		if sig, ok := tn.Value.(core.SignalAccessor); ok {
 			r.Bindings.Bind(id, core.Bind{Target: core.BindToProp, Name: "textContent", Signal: sig})
 			if r.hydrateDynamic {
-				*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: sig.Value()})
+				*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: runtime.TextValue(sig.Value())})
 			}
 		} else if r.hydrateDynamic {
 			if s, ok := tn.Value.(string); ok {
@@ -201,7 +203,7 @@ func (r *DOMRenderer) VisitText(id int, tn *core.TextNode) {
 		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: val})
 	case core.SignalAccessor:
 		r.Bindings.Bind(id, core.Bind{Target: core.BindToProp, Name: "textContent", Signal: val})
-		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: val.Value()})
+		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: "textContent", Value: runtime.TextValue(val.Value())})
 	}
 }
 
@@ -556,7 +558,9 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 			oldProps[p.Name] = p.Value
 		}
 		for _, p := range new.Props {
-			if ov, ok := oldProps[p.Name]; !ok || ov != p.Value {
+			// SafeEqual: a slice/map prop value must count as changed, not
+			// panic the differ (which would freeze the subtree).
+			if ov, ok := oldProps[p.Name]; !ok || !runtime.SafeEqual(ov, p.Value) {
 				*muts = append(*muts, core.Mutation{
 					Type: core.MutSetProperty, NodeID: old.ID, Key: p.Name, Value: p.Value,
 				})
@@ -618,7 +622,7 @@ func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation
 				})
 				*muts = append(*muts, core.Mutation{
 					Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent",
-					Value: newSig.Value(),
+					Value: runtime.TextValue(newSig.Value()),
 				})
 			} else if newStr, ok := new.Value.(string); ok {
 				*muts = append(*muts, core.Mutation{
@@ -791,17 +795,40 @@ func (r *DOMRenderer) diffChildren(parentID int, old, new []core.Node, muts *[]c
 // components). Keyed matching therefore works uniformly whether list rows are
 // elements or components.
 func keyOf(n core.Node) (any, bool) {
+	var k any
 	switch v := n.(type) {
 	case *core.ElementNode:
-		if v != nil && v.Key != nil {
-			return v.Key, true
+		if v != nil {
+			k = v.Key
 		}
 	case *core.ComponentNode:
-		if v != nil && v.Key != nil {
-			return v.Key, true
+		if v != nil {
+			k = v.Key
 		}
 	}
-	return nil, false
+	if k == nil {
+		return nil, false
+	}
+	if !runtime.Comparable(k) {
+		// Keys index a map; an uncomparable key (slice, map, …) would panic.
+		// Treat the row as unkeyed instead and say so once per key type.
+		warnUncomparableKey(k)
+		return nil, false
+	}
+	return k, true
+}
+
+var warnedKeyTypes = map[string]bool{}
+
+func warnUncomparableKey(k any) {
+	t := fmt.Sprintf("%T", k)
+	if warnedKeyTypes[t] {
+		return
+	}
+	warnedKeyTypes[t] = true
+	core.Log(core.LogWarn, "uncomparable key; row matched positionally instead", map[string]any{
+		"keyType": t,
+	})
 }
 
 func hasAnyKey(nodes []core.Node) bool {

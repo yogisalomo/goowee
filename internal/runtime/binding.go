@@ -45,8 +45,12 @@ func MutationForBind(nodeID int, b core.Bind) core.Mutation {
 			Value: fmt.Sprintf("%v", b.Signal.Value()),
 		}
 	}
+	v := b.Signal.Value()
+	if b.Name == "textContent" {
+		v = TextValue(v)
+	}
 	return core.Mutation{
 		Type: core.MutSetProperty, NodeID: nodeID, Key: b.Name,
-		Value: b.Signal.Value(),
+		Value: v,
 	}
 }
