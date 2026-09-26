@@ -56,6 +56,12 @@ time. The public surface freezes under semver at v1.
 - `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
 
 ### Changed
+- **Breaking:** `hooks.UseResource`'s fetch takes a `context.Context`
+  (`func(ctx context.Context) (T, error)`), cancelled when a newer load starts
+  (dep change, `Refetch`) or the component unmounts. Migrate by adding the
+  parameter and passing it to your request. (#75)
+- `h.ShowResource` shows exactly one view — loading, else error, else data
+  (it used to show the data view alongside the loading view).
 - Removed the unused `ssr.HydrationMeta`, `ssr.SlotRef`, `Renderer.Meta` and
   `Renderer.RenderWithMeta` (leftovers of the pre-ADR-008 design). (#79)
 - `focus`/`blur`/`scroll` handlers fire for the target element only (a

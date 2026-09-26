@@ -112,7 +112,7 @@ import (
 - `sig.Get()`, `sig.Set(v)`, `core.NewSignal(v)`, `sig.WithEquals(eq)`
 - `core.Computed(deps, compute) *Signal[T]`
 - `hooks.UseEffect(deps, func() func())`, `hooks.Watch(deps, func())`, `hooks.OnMount(func() func())`
-- `hooks.UseResource(deps, fetch) *Resource[T]` — async load (`Data`/`Loading`/`Err` + `Refetch`)
+- `hooks.UseResource(deps, func(ctx) (T, error)) *Resource[T]` — async load (`Data`/`Loading`/`Err` + `Refetch`; ctx cancelled on refetch/unmount)
 - `hooks.UseComputed(deps, compute) *Signal[T]` — re-export of `core.Computed`
 - `core.Schedule(func())` — run an update on the render loop from off-loop code
 - `core.Batch(func())` — group signal writes so dependents run once (handlers,
@@ -220,7 +220,7 @@ and applies the result safely; don't hand-roll goroutine+Schedule for loads):
 ```go
 func Greeting() core.Node {
     return core.Component("Greeting", func() core.Node {
-        msg := hooks.UseResource(nil, func() (string, error) { return api.Greeting() })
+        msg := hooks.UseResource(nil, func(ctx context.Context) (string, error) { return api.Greeting(ctx) })
         return ShowResource(msg,
             func() core.Node { return P(Text("Loading…")) },
             func(err error) core.Node { return P(Textf("Error: %s", err)) },
@@ -230,7 +230,8 @@ func Greeting() core.Node {
 }
 ```
 `Resource` exposes `Data`/`Loading`/`Err` signals + `Refetch()`; pass deps
-(`UseResource([]core.SignalAccessor{id}, …)`) to refetch when they change.
+(`UseResource([]core.SignalAccessor{id}, …)`) to refetch when they change. Pass
+`fetch`'s `ctx` to your request: it is cancelled on refetch and unmount.
 Fetching is client-side, so SSR renders the loading state. (For a one-off
 side-effect that isn't a data load, use `OnMount` + a goroutine + `core.Schedule`
 directly.)

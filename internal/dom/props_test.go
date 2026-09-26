@@ -257,3 +257,30 @@ func TestLISIsMaximalAndIncreasing(t *testing.T) {
 		}
 	}
 }
+
+// ShowResource shows exactly one of loading / error / data.
+func TestShowResourceShowsOneStateAtATime(t *testing.T) {
+	res := &hooks.Resource[string]{
+		Data:    core.NewSignal(""),
+		Loading: core.NewSignal(true),
+		Err:     core.NewSignal[error](nil),
+	}
+	r, d := mountText(t, h.Div(h.ShowResource(res,
+		func() core.Node { return h.P(h.Text("loading")) },
+		func(err error) core.Node { return h.P(h.Text("error: " + err.Error())) },
+		func(data *core.Signal[string]) core.Node { return h.P(h.TextS(data)) },
+	)))
+	if got := d.texts(); got != "loading" {
+		t.Fatalf("while loading want only the loading view, got %q", got)
+	}
+	core.Batch(func() { res.Data.Set("hi"); res.Loading.Set(false) })
+	flushText(r, d)
+	if got := d.texts(); got != "hi" {
+		t.Fatalf("want only the data view, got %q", got)
+	}
+	core.Batch(func() { res.Err.Set(fmt.Errorf("boom")) })
+	flushText(r, d)
+	if got := d.texts(); got != "error: boom" {
+		t.Fatalf("want only the error view, got %q", got)
+	}
+}

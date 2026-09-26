@@ -269,28 +269,34 @@ this internally.
 ## Async data — UseResource
 
 ```go
-res := hooks.UseResource(nil, func() (string, error) {
-    return fetchGreeting() // blocking call, runs in a goroutine
+res := hooks.UseResource(nil, func(ctx context.Context) (string, error) {
+    return fetchGreeting(ctx) // blocking call, runs in a goroutine
 })
 
-return ShowElse(res.Loading,
+return ShowResource(res,
     func() core.Node { return P(Text("Loading\u2026")) },
-    func() core.Node { return P(TextS(res.Data)) },
+    func(err error) core.Node { return P(Textf("Error: %v", err)) },
+    func(data *core.Signal[string]) core.Node { return P(TextS(data)) },
 )
 ```
 
 `UseResource` returns a `*Resource[T]` with three signal fields:
-- `Data` — the loaded value (empty string before first success)
+- `Data` — the last loaded value (the zero value before the first success)
 - `Loading` — true while fetching
-- `Err` — error string
+- `Err` — the last error (`nil` on success)
 
 Plus `Refetch()` to reload. Pass a deps slice to reload on signal change:
 
 ```go
-res := hooks.UseResource([]core.SignalAccessor{userID}, func() (Profile, error) {
-    return loadProfile(userID.Get())
+res := hooks.UseResource([]core.SignalAccessor{userID}, func(ctx context.Context) (Profile, error) {
+    return loadProfile(ctx, userID.Get())
 })
 ```
+
+`fetch`'s context is cancelled when its result is no longer wanted — a newer
+load started (dep change, `Refetch`) or the component unmounted — so pass it
+to your HTTP request or query and the work stops early. A superseded result is
+ignored either way.
 
 Fetching is client-side; SSR renders the loading state, and the client fills
 it in after hydration.

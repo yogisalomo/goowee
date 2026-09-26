@@ -731,3 +731,31 @@ reports `EnvServer`. `UseContext` remains for tests.
 renderer concurrently with server renders (it never does: the client renderer
 runs in the browser, and host tests are sequential).
 
+---
+
+## ADR-025: Resource fetches are cancellable; server-side resource data is deferred
+
+**Status:** Accepted (2026-09-26)
+
+**Context.** `UseResource`'s fetch had no context, so a superseded or unmounted
+load kept its request running (#75). Separately, SSR renders a resource's
+loading state, and the client fetches after hydration — SSR doesn't help pages
+whose content is data.
+
+**Decision.** The fetch is `func(ctx context.Context) (T, error)`; the context
+is cancelled when a newer load starts or the component unmounts, and a
+superseded result is ignored regardless. A breaking change, taken pre-1.0.
+
+Server-side data loading is **deferred**. Running fetches during SSR and
+embedding results for hydration needs per-request state reachable from the
+`UseResource` call; hooks are plain functions, so that means either an
+ambient per-request store — which reintroduces the process-wide lock ADR-024
+removed (Go has no goroutine-local storage) — or threading an explicit value
+through the app (as the router already is). The likely shape is route-level
+loaders on the per-request router whose results a hook reads; it needs its
+own design pass.
+
+**Consequences.** Cancellation works with `net/http` (`GOOS=js` uses fetch +
+AbortController) and any context-aware client. SSR of data pages still shows
+the loading state until the client loads.
+

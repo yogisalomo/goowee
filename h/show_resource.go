@@ -9,7 +9,7 @@ import (
 // caller-provided views. This eliminates the repetitive Show/ShowElse
 // boilerplate that every UseResource call site otherwise needs.
 //
-//	res := hooks.UseResource(nil, fetchUser)
+//	res := hooks.UseResource(nil, fetchUser) // fetchUser(ctx) (User, error)
 //	return ShowResource(res,
 //	    func() core.Node { return P(Text("Loading…")) },
 //	    func(err error) core.Node { return P(Textf("Error: %s", err)) },
@@ -21,16 +21,20 @@ func ShowResource[T any](
 	errFn func(error) core.Node,
 	data func(*core.Signal[T]) core.Node,
 ) core.Node {
-	hasErr := core.Computed([]core.SignalAccessor{res.Err}, func() bool {
-		return res.Err.Get() != nil
+	// One view at a time: loading, else the error, else the data.
+	state := core.Computed([]core.SignalAccessor{res.Loading, res.Err}, func() int {
+		switch {
+		case res.Loading.Get():
+			return 0
+		case res.Err.Get() != nil:
+			return 1
+		default:
+			return 2
+		}
 	})
-	return &core.FragmentNode{
-		Children: []core.Node{
-			Show(res.Loading, loading),
-			ShowElse(hasErr,
-				func() core.Node { return errFn(res.Err.Get()) },
-				func() core.Node { return data(res.Data) },
-			),
-		},
-	}
+	return Switch(state, map[int]func() core.Node{
+		0: loading,
+		1: func() core.Node { return errFn(res.Err.Get()) },
+		2: func() core.Node { return data(res.Data) },
+	}, nil)
 }
