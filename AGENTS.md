@@ -65,6 +65,13 @@ Bind a signal instead.
    read/write signals normally.
 5. **Lists → `For` with a stable key.** `For(sig, func(x T) K { return x.ID }, func(x T) core.Node { ... })`.
    The key must be unique and stable per item so reordering preserves identity.
+   For component rows whose item can change, build the row with
+   `core.ComponentWithProps` (keeps row state) — a plain `core.Component` row is
+   remounted when its item changes.
+5b. **A component keeps the plain values it was first called with.** If a parent
+   re-render can pass different data, pass signals, use
+   `core.ComponentWithProps(name, props, func(p *core.Signal[P]) core.Node)`, or
+   key it (`core.SetKey(Card(id), id)`) to remount.
 6. **Conditionals → `Show` / `ShowElse` / `Switch`** (not an `if` in the body,
    which only runs once): `ShowElse(flag, func() core.Node {...}, func() core.Node {...})`.
 7. **Derived values → `core.Computed`**, not recomputation in the body:

@@ -67,21 +67,26 @@ func (r *DOMRenderer) diffNode(old, nw core.Node, parentID, endRef int, muts *[]
 		if !ok {
 			return r.replace(old, nw, parentID, muts)
 		}
+		core.FlatTree(n)
 		r.diffChildren(parentID, o.Children, n.Children, endRef, muts)
 		return false
 
 	case *core.ComponentNode:
 		n, ok := nw.(*core.ComponentNode)
-		if !ok || o.Name != n.Name {
-			// Different component (or no longer a component): unmount + mount.
+		if !ok || o.Name != n.Name || !runtime.SafeEqual(o.Key, n.Key) {
+			// A different component, or the same one under a different key:
+			// unmount + mount.
 			return r.replace(old, nw, parentID, muts)
 		}
 		// Same component: preserve it. Setup ran once at mount and the output
 		// is a stable, self-updating subtree (bindings and inner scopes react
 		// on their own), so we keep the frame and DOM untouched — this is what
 		// gives components stable identity and state across scope re-renders.
-		n.Frame = o.Frame
-		n.Prev = o.Prev
+		// A ComponentWithProps receives the new props through its signal.
+		n.Adopt(o)
+		if !n.HasProps() && n.Key == nil {
+			warnPreservedPlainComponent(n.Name)
+		}
 		return false
 
 	case *core.ScopeNode:
@@ -136,6 +141,7 @@ func (r *DOMRenderer) replace(old, nw core.Node, parentID int, muts *[]core.Muta
 }
 
 func (r *DOMRenderer) diffElement(old, nw *core.ElementNode, muts *[]core.Mutation) {
+	core.FlatTree(nw) // flattening is shallow; children are flattened as reached
 	nw.ID = old.ID
 	if nw.Ref != nil {
 		nw.Ref.ID = old.ID // a ref created by this render points at the reused node
@@ -475,46 +481,56 @@ func computeNeedsMove(oldIndexForNew []int) []bool {
 	return needsMove
 }
 
-// lis computes the longest increasing subsequence on arr (O(n²) DP).
-// Returns a boolean slice where true means the element at that index is
-// part of one longest increasing subsequence.
+// lis marks one longest strictly increasing subsequence of arr (the kept rows'
+// old indices, in new order): true = the row is already in the right relative
+// order and needn't move. O(n log n) patience sorting with predecessor links,
+// plus an O(n) fast path for the common case where nothing moved (appends,
+// removals, in-place edits).
 func lis(arr []int) []bool {
 	n := len(arr)
+	in := make([]bool, n)
 	if n == 0 {
-		return nil
+		return in
 	}
-
-	dp := make([]int, n)
-	maxLen := 0
-	for i := 0; i < n; i++ {
-		dp[i] = 1
-		for j := 0; j < i; j++ {
-			if arr[j] < arr[i] && dp[j]+1 > dp[i] {
-				dp[i] = dp[j] + 1
+	sorted := true
+	for i := 1; i < n; i++ {
+		if arr[i] <= arr[i-1] {
+			sorted = false
+			break
+		}
+	}
+	if sorted {
+		for i := range in {
+			in[i] = true
+		}
+		return in
+	}
+	tails := make([]int, 0, n) // tails[l] = index of the smallest tail of an increasing run of length l+1
+	prev := make([]int, n)     // predecessor of arr[i] in its run, -1 at the start
+	for i, v := range arr {
+		lo, hi := 0, len(tails)
+		for lo < hi {
+			mid := (lo + hi) / 2
+			if arr[tails[mid]] < v {
+				lo = mid + 1
+			} else {
+				hi = mid
 			}
 		}
-		if dp[i] > maxLen {
-			maxLen = dp[i]
+		prev[i] = -1
+		if lo > 0 {
+			prev[i] = tails[lo-1]
+		}
+		if lo == len(tails) {
+			tails = append(tails, i)
+		} else {
+			tails[lo] = i
 		}
 	}
-
-	inLIS := make([]bool, n)
-	if maxLen == 0 {
-		return inLIS
+	for k := tails[len(tails)-1]; k >= 0; k = prev[k] {
+		in[k] = true
 	}
-
-	// Reconstruct from the right: pick the rightmost element with dp = target
-	// and value < previously picked value (greedy backwards walk).
-	target := maxLen
-	prev := int(^uint(0) >> 1) // max int
-	for i := n - 1; i >= 0; i-- {
-		if dp[i] == target && arr[i] < prev {
-			inLIS[i] = true
-			target--
-			prev = arr[i]
-		}
-	}
-	return inLIS
+	return in
 }
 
 func typeCompatible(a, b core.Node) bool {

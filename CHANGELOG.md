@@ -12,6 +12,9 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- `core.ComponentWithProps(name, props, func(*core.Signal[P]) core.Node)` — a
+  component whose preserved instance receives new props through a signal and
+  keeps its state; `ComponentNode.HasProps` / `Adopt` for renderers. (#57)
 - `bridge.Element(ref) js.Value` (js/wasm): the live DOM element behind a ref,
   for handing to a JavaScript library (maps, charts, editors, `<canvas>`) from
   `OnMount` (ADR-022). The dashboard example draws a canvas chart with it.
@@ -38,6 +41,10 @@ time. The public surface freezes under semver at v1.
 - `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
 
 ### Changed
+- `h.For` renders only new and changed items (unchanged rows are reused as-is),
+  the keyed diff's LIS is O(n log n) with an O(n) fast path when nothing moved,
+  and `core.FlatTree` is shallow (children are flattened as the renderer
+  reaches them). Appending one row to a 5,000-row list: 14 ms → 1.3 ms. (#70)
 - Reactive regions get an end anchor: SSR emits `<!--/{id}-->` after each
   region's content and the client keeps an empty comment there; node ids after
   a region shift by one (ADR-021).
@@ -67,6 +74,12 @@ time. The public surface freezes under semver at v1.
   the node is removed) and expose `goowee.readFile(handle)`.
 
 ### Fixed
+- A plain component kept across a parent re-render no longer silently shows
+  stale data in `h.For`: when an item changes, element rows are diffed in
+  place, `ComponentWithProps` rows get the new item, and plain component rows
+  are remounted. Component identity is now name + key, so keying a component
+  by a value remounts it when the value changes; dev mode warns once when an
+  unkeyed plain component is kept across a re-render. (#57)
 - `OnMount` (and `UseEffect`'s first run) runs after the component's DOM is in
   the document — refs are set, so `ref.Focus()`/`ref.Get()` work directly and
   no `core.Schedule` is needed to wait for an element; an effect whose

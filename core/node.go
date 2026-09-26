@@ -207,10 +207,32 @@ type ComponentFrame struct {
 
 type ComponentNode struct {
 	Name   string
-	Key    any // used by keyed reconciliation (For); nil = unkeyed
+	Key    any // identity with Name: a different key remounts; nil = unkeyed
 	Render func() Node
 	Prev   Node
 	Frame  *ComponentFrame
+
+	// Set by ComponentWithProps: the props this node was built with, and (once
+	// mounted) how to deliver new props to the mounted instance.
+	props    any
+	hasProps bool
+	setProps func(any)
+}
+
+// HasProps reports whether the component was built with ComponentWithProps,
+// i.e. whether a mounted instance can receive new props without remounting.
+func (c *ComponentNode) HasProps() bool { return c != nil && c.hasProps }
+
+// Adopt is used by renderers when a re-render of the parent produces c in the
+// position of the mounted prev (same name and key): c takes over prev's frame
+// and rendered tree, so setup does not run again. For a ComponentWithProps,
+// c's props are delivered to the mounted instance through its props signal.
+func (c *ComponentNode) Adopt(prev *ComponentNode) {
+	c.Frame, c.Prev = prev.Frame, prev.Prev
+	c.setProps = prev.setProps
+	if c.hasProps && c.setProps != nil {
+		c.setProps(c.props)
+	}
 }
 
 // SetKey sets the reconciliation key on a node that carries one (elements and
@@ -263,11 +285,12 @@ var VoidElements = map[string]bool{
 	"meta": true, "link": true, "base": true, "param": true,
 }
 
-// FlatTree collapses nested fragments into their parent's child list so the
-// renderer never has to append a fragment (which has no single DOM node).
-// ComponentNode and ScopeNode pass through untouched: they are reconciled
-// lazily by the renderer (a component runs its setup once on mount and is
-// then a stable, self-updating boundary; a scope re-renders on its deps).
+// FlatTree collapses the fragments among n's children (recursively, for
+// fragments nested in fragments) into n's own child list, so the renderer never
+// has to place a fragment (which has no single DOM node). It is shallow: an
+// element child is flattened when the renderer reaches it, so re-flattening a
+// reused subtree (a cached list row) costs nothing. ComponentNode and ScopeNode
+// pass through untouched: they are reconciled lazily by the renderer.
 func FlatTree(n Node) Node {
 	switch v := n.(type) {
 	case *ElementNode:
@@ -282,16 +305,26 @@ func FlatTree(n Node) Node {
 }
 
 func flattenChildren(children []Node) []Node {
-	var flat []Node
-	for _, child := range children {
-		f := FlatTree(child)
-		if f == nil {
-			continue
+	flatAlready := true
+	for _, c := range children {
+		if _, frag := c.(*FragmentNode); frag || c == nil {
+			flatAlready = false
+			break
 		}
-		if frag, ok := f.(*FragmentNode); ok {
-			flat = append(flat, frag.Children...)
-		} else {
-			flat = append(flat, f)
+	}
+	if flatAlready {
+		return children // the common case: no allocation
+	}
+	flat := make([]Node, 0, len(children))
+	for _, child := range children {
+		switch c := child.(type) {
+		case nil:
+		case *FragmentNode:
+			if c != nil {
+				flat = append(flat, flattenChildren(c.Children)...)
+			}
+		default:
+			flat = append(flat, child)
 		}
 	}
 	return flat

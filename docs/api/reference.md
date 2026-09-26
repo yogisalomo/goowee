@@ -41,12 +41,19 @@ total := core.Computed([]core.SignalAccessor{items}, func() int {
 ### Types
 
 ```go
-type SignalAccessor interface { SignalID() SignalID }
+type SignalAccessor interface { Value() any; Subscribe(func()) func() } // *Signal[T]
 
-type Node interface { nodeMarker() }
-type ElementNode struct { Tag, Namespace string; Attrs, Props, Events, Children }
-type TextNode struct { Text string }
-type ComponentNode struct { Name string; Setup func() Node }
+type Node interface { /* implemented by the node types below */ }
+type ElementNode struct { ID int; Tag, Namespace string; Key any; Attrs; Props; Binds; Handlers; Children []Node; … }
+type TextNode struct { ID int; Value any }  // a string, or a signal (reactive)
+type ComponentNode struct { Name string; Key any; Render func() Node; … }
+
+// Components: setup runs once, at mount. Identity is name + key — a
+// different key remounts.
+core.Component(name string, setup func() core.Node) *ComponentNode
+// A preserved instance receives new props through its props signal.
+core.ComponentWithProps(name string, props P, setup func(*core.Signal[P]) core.Node) *ComponentNode
+core.SetKey(node core.Node, key any)
 type ScopeNode struct { ... }         // created by Show/For/Switch
 ```
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/devtools"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/internal/runtime"
 	"github.com/yogisalomo/goowee/internal/walker"
@@ -747,6 +748,26 @@ func firstRoot(n core.Node) int {
 		}
 	}
 	return 0
+}
+
+// devMode reports whether dev-only diagnostics are on (?goowee-dev); a
+// variable so tests can switch it.
+var devMode = devtools.Enabled
+
+var warnedPreserved = map[string]bool{}
+
+// warnPreservedPlainComponent tells a developer (once per component name, in
+// dev mode) that a component survived a re-render of its parent with the
+// values it captured at mount — the classic stale-props surprise (#57).
+func warnPreservedPlainComponent(name string) {
+	if warnedPreserved[name] || !devMode() {
+		return
+	}
+	warnedPreserved[name] = true
+	core.Log(core.LogWarn, "component kept across a parent re-render: plain values it was called with are from its first render", map[string]any{
+		"component": name,
+		"fix":       "pass signals, use core.ComponentWithProps, or key it (core.SetKey) to remount on change",
+	})
 }
 
 var warnedKeyTypes = map[string]bool{}
