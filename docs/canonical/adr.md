@@ -215,6 +215,9 @@ rendered client-side (don't SSR it), e.g. the tutorial's AI-guidance `<textarea>
 page is a client-only route. A proper fix (skip markers for raw-text parents and
 claim their text without one) is deferred.
 
+**Extended by ADR-021.** SSR also emits a `<!--/{id}-->` end anchor after each
+scope's content. Unlike text markers, anchors stay in the DOM.
+
 ---
 
 ## ADR-010: Signals are single-threaded (no locking)
@@ -468,6 +471,12 @@ update-time failures are contained but don't switch to the fallback (a
 documented gap). Error boundaries are a client concern; don't rely on them
 during SSR.
 
+**Amended by ADR-021 (2026-09-26).** A boundary now releases everything its
+failed child walk set up (effects, bindings, handlers, scope subscriptions), and
+a panic while a re-render *diffs through* a boundary swaps to the fallback
+instead of keeping a half-diffed subtree. A panic in a scope that re-renders on
+its own (below a boundary) is still contained in place.
+
 ---
 
 ## ADR-019: DOM reads are a request/reply over the mutation batch; files are handles, not payloads
@@ -558,4 +567,61 @@ up in profiles.
 **Consequences.** A glitch-free default for handlers and async results;
 `Batch` is render-loop only, like signals (ADR-010). `Set` with 1,000
 subscribers: ~505 µs → ~1 µs, 0 allocations.
+
+---
+
+## ADR-021: Scopes have end anchors, are adopted across parent re-renders, and own their render's hooks
+
+**Status:** Accepted (2026-09-26)
+
+**Context.** Four bugs shared a root cause — a scope (`Show`/`For`/`Switch`/
+`Route`/`UseScope`) had no stable position in the DOM and no lifetime of its own:
+
+- Multi-root scope content was appended at the end of its parent, after any
+  following siblings (a `For` list followed by a footer put new rows after the
+  footer) (#83).
+- When a parent diff met a nested scope, it tore the scope down and rebuilt it,
+  remounting components inside (state loss) and recording the wrong parent for
+  later updates (#59). A scope replaced by a plain element rendered nothing.
+- Only component frames owned disposers, so `Textf`/`Computed`/`Watch` created
+  in a scope's render were never released (#58).
+- A boundary whose child panicked mid-walk leaked everything mounted before the
+  panic (#61).
+
+**Decision.**
+- **End anchors.** The walker allocates an id for an anchor after each scope's
+  content — in both SSR and the DOM renderer, so parity holds by construction.
+  SSR writes it as `<!--/{id}-->`; the client creates or claims an empty comment.
+  Scope content is always placed with `insertBefore(anchor)`, and the JS runtime
+  resolves an insert's parent from its reference node, so placement is right
+  even inside a portal target or the root container.
+- **Root-based placement.** A diff knows its parent and the stable node after
+  it. Children are diffed last-to-first; fresh renders inside a diff attach
+  nothing at the top level (`detached`) and the diff places every root of a
+  fresh or moved child. `rootIDs(node)` = element/text itself, the content of
+  fragments/components/boundaries, a scope's content plus its anchor.
+- **Adoption.** A parent diff that meets old/new scope nodes moves the mounted
+  scope's DOM, anchor and renderer state (`scopeInfo`: seq, parent, owner) to
+  the new node, re-subscribes to the new deps, and diffs the new render against
+  the old content — components inside survive.
+- **Ownership.** `Computed` is lazy (subscribed only while observed), so it
+  needs no owner. Each scope render runs under an owner frame that owns the
+  hooks called directly in it; the previous render's owner is disposed after a
+  successful re-render and the current one when the scope is removed.
+- **Recovery.** Boundary walks and scope re-renders record the scopes they
+  subscribe/adopt and the first node id they allocate; on panic the renderer
+  unsubscribes those scopes, disposes the owner frame tree, and unbinds every id
+  the failed walk allocated. A panic while diffing through a boundary now
+  renders the fallback (amends ADR-018).
+
+**Alternatives.** Finding the following sibling on demand instead of anchors:
+no DOM or SSR change, but needs parent pointers through components, fragments
+and boundaries and an O(siblings) search per update — fragile. Solid-style
+recreation of everything under a re-running scope: simpler ownership, but
+breaks the component preservation of ADR-001.
+
+**Consequences.** One comment node per mounted scope (a few bytes of SSR HTML
+each). Node ids after a scope shift by one relative to before. Hooks called in
+a region's render function behave as that render's, not the enclosing
+component's.
 

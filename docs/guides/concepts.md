@@ -32,7 +32,10 @@ total := core.Computed([]core.SignalAccessor{items}, func() string {
 ```
 
 `Computed` recomputes only when a listed dependency changes. It is read-only:
-`total.Get()`.
+`total.Get()`. It is also lazy: it subscribes to its deps only while something
+observes it (a binding, a scope, a `Watch`), and an unobserved `Computed` holds
+no subscriptions at all — `Get` recomputes on demand — so creating one inside a
+render (as `Textf` does) can't leak.
 
 ### Batching
 
@@ -180,6 +183,12 @@ hooks.OnMount(func() func() {
 Use `OnMount` for timers, subscriptions, and one-shot fetches. The cleanup
 function runs on unmount, so no goroutine leaks.
 
+Hooks are best called in a component's setup. Called directly inside a
+reactive region's render function (a `Show` branch, a `UseScope`), they belong
+to that render: when the region re-renders, the previous render's `Watch`,
+`UseEffect` and `OnMount` are disposed (the new render creates its own), and
+all of them are disposed when the region is removed.
+
 ### Watch
 
 ```go
@@ -189,7 +198,8 @@ hooks.Watch([]core.SignalAccessor{count}, func() {
 })
 ```
 
-No cleanup. Runs once on mount, then on each dep change.
+No cleanup. Runs on each dep change — not on mount (use `OnMount` or
+`UseEffect` for that).
 
 ### UseEffect
 
@@ -269,10 +279,12 @@ ErrorBoundary(
 )
 ```
 
-If `riskyComponent()` panics while rendering, the boundary catches it and
-renders the fallback — the rest of the page stays intact. Update-time panics
-are contained (the subtree keeps its previous state) and logged to the
-console.
+If `riskyComponent()` panics while rendering — at mount or when a re-render
+reaches it — the boundary catches it and renders the fallback; the rest of the
+page stays intact. Everything the failed render had set up (effects, bindings,
+handlers) is released. A later successful render swaps the child back in. A
+panic in a scope re-render outside any boundary is contained too: that scope
+keeps its previous DOM, and the panic is logged.
 
 ---
 
@@ -287,9 +299,13 @@ body := ssr.New().Render(App(r))
 // serve <div id="root">{body}</div> + the WASM entry
 ```
 
-SSR emits `data-node-id` attributes and text markers. On the client, the
-`dom` renderer detects the server-rendered DOM and **hydrates** — claiming
-existing nodes and wiring up event handlers and bindings without rebuilding.
+SSR emits `data-node-id` attributes, `<!--g{id}-->` text markers, and a
+`<!--/{id}-->` end anchor after each reactive region (`Show`, `For`, `Switch`,
+`Route`, `UseScope`). On the client, the `dom` renderer detects the
+server-rendered DOM and **hydrates** — claiming existing nodes (anchors
+included) and wiring up event handlers and bindings without rebuilding. The
+anchors stay in the DOM: they mark where each region ends, so re-rendered
+content is always inserted in the right place.
 
 ### Deterministic markup
 

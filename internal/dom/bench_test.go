@@ -91,7 +91,7 @@ func BenchmarkDiffTree(b *testing.B) {
 		}
 		next := build(cls)
 		var muts []core.Mutation
-		r.diffNode(old, next, &muts)
+		r.diffNode(old, next, 0, 0, &muts)
 		old = next
 	}
 }

@@ -12,12 +12,16 @@ type subscriber struct {
 
 type Signal[T any] struct {
 	value     T
+	version   uint64 // bumped whenever value changes; lets Computeds detect stale deps
 	subs      []*subscriber
 	deadSubs  int // dead entries still in subs, awaiting compaction
 	eq        func(a, b T) bool
 	notifying bool
 	dirty     bool
 	queued    bool // written inside a Batch; notifies when the batch ends
+
+	// Set only for a Computed (see computed.go).
+	derived *derivation[T]
 }
 
 func NewSignal[T any](v T) *Signal[T] {
@@ -40,15 +44,33 @@ func (s *Signal[T]) WithEquals(eq func(a, b T) bool) *Signal[T] {
 	return s
 }
 
-func (s *Signal[T]) Get() T { return s.value }
+// Get returns the current value. For a Computed it is always up to date: if a
+// dependency changed since the last evaluation (an unobserved Computed, or a
+// read inside a Batch before notifications ran), it recomputes first.
+func (s *Signal[T]) Get() T {
+	if s.derived != nil {
+		s.derived.refresh(s)
+	}
+	return s.value
+}
 
-func (s *Signal[T]) Value() any { return s.value }
+func (s *Signal[T]) Value() any { return s.Get() }
+
+func (s *Signal[T]) currentVersion() uint64 {
+	if s.derived != nil {
+		s.derived.refresh(s)
+	}
+	return s.version
+}
 
 func (s *Signal[T]) Update(fn func(T) T) { s.Set(fn(s.value)) }
 
 // Subscribe registers fn to run after each change and returns a function that
 // removes it. Unsubscribing is O(1) and idempotent.
 func (s *Signal[T]) Subscribe(fn func()) func() {
+	if s.derived != nil && len(s.subs)-s.deadSubs == 0 {
+		s.derived.activate(s) // first observer: start listening to deps
+	}
 	sub := &subscriber{fn: fn}
 	s.subs = append(s.subs, sub)
 	return func() {
@@ -59,6 +81,9 @@ func (s *Signal[T]) Subscribe(fn func()) func() {
 		sub.fn = nil // release the closure now; the slot is compacted later
 		s.deadSubs++
 		s.compact()
+		if s.derived != nil && len(s.subs)-s.deadSubs == 0 {
+			s.derived.deactivate() // last observer gone: stop listening
+		}
 	}
 }
 
@@ -107,6 +132,13 @@ func (s *Signal[T]) Set(v T) {
 		return
 	}
 	s.value = v
+	s.version++
+	s.publish()
+}
+
+// publish notifies subscribers of a change now, or at the end of the current
+// Batch.
+func (s *Signal[T]) publish() {
 	if batchDepth > 0 {
 		if !s.queued {
 			s.queued = true

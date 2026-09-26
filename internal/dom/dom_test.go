@@ -290,7 +290,8 @@ func TestDOMScopeStructuralChange(t *testing.T) {
 		if m.Type == core.MutRemoveNode && m.NodeID == 1 {
 			hasRemove = true
 		}
-		if m.Type == core.MutAppendChild && m.NodeID == 0 && m.ChildID != 0 {
+		// New content goes in before the scope's end anchor.
+		if m.Type == core.MutInsertBefore && m.RefID == scope.Anchor && m.ChildID != 0 {
 			hasAppend = true
 		}
 	}
@@ -301,7 +302,7 @@ func TestDOMScopeStructuralChange(t *testing.T) {
 		t.Fatal("expected CreateElement for new span")
 	}
 	if !hasAppend {
-		t.Fatal("expected AppendChild to root (node 0) for new span")
+		t.Fatal("expected the new span inserted before the scope's anchor")
 	}
 }
 
@@ -916,7 +917,7 @@ func TestKeyedReorderReusesIDs(t *testing.T) {
 	r.Render(&core.ElementNode{Tag: "div", Children: old})
 	parentID := 1
 	var muts []core.Mutation
-	r.diffChildren(parentID, old, rev, &muts)
+	r.diffChildren(parentID, old, rev, 0, &muts)
 
 	removeCount := 0
 	createCount := 0
@@ -948,7 +949,7 @@ func TestKeyedRemoveFirst(t *testing.T) {
 	r.Render(&core.ElementNode{Tag: "div", Children: old})
 	parentID := 1
 	var muts []core.Mutation
-	r.diffChildren(parentID, old, new, &muts)
+	r.diffChildren(parentID, old, new, 0, &muts)
 
 	removeCount := 0
 	createCount := 0
@@ -983,7 +984,7 @@ func TestKeyedInsertMiddle(t *testing.T) {
 	r.Render(&core.ElementNode{Tag: "div", Children: old})
 	parentID := 1
 	var muts []core.Mutation
-	r.diffChildren(parentID, old, new, &muts)
+	r.diffChildren(parentID, old, new, 0, &muts)
 
 	createCount := 0
 	for _, m := range muts {
@@ -1022,7 +1023,7 @@ func TestKeyedAndUnkeyedMix(t *testing.T) {
 	r.Render(&core.ElementNode{Tag: "div", Children: old})
 	parentID := 1
 	var muts []core.Mutation
-	r.diffChildren(parentID, old, new, &muts)
+	r.diffChildren(parentID, old, new, 0, &muts)
 
 	createCount := 0
 	removeCount := 0
@@ -1047,6 +1048,7 @@ type fakeNode struct {
 	ParentID int
 	Tag      string
 	Children []int
+	attached bool
 }
 
 type fakeDOM struct {
@@ -1054,57 +1056,66 @@ type fakeDOM struct {
 }
 
 func newFakeDOM() *fakeDOM {
-	return &fakeDOM{nodes: map[int]*fakeNode{0: {ID: 0, Tag: "#root"}}}
+	return &fakeDOM{nodes: map[int]*fakeNode{0: {ID: 0, Tag: "#root", attached: true}}}
 }
 
+// detach removes n from its current parent's child list (a DOM move).
+func (d *fakeDOM) detach(n *fakeNode) {
+	if !n.attached {
+		return
+	}
+	if p, ok := d.nodes[n.ParentID]; ok {
+		for i := len(p.Children) - 1; i >= 0; i-- {
+			if p.Children[i] == n.ID {
+				p.Children = append(p.Children[:i], p.Children[i+1:]...)
+			}
+		}
+	}
+	n.attached = false
+}
+
+// apply mirrors runtime/goowee.js: AppendChild only attaches a detached node;
+// InsertBefore moves the node and inserts at the reference's actual parent.
 func (d *fakeDOM) apply(muts []core.Mutation) {
 	for _, m := range muts {
 		switch m.Type {
 		case core.MutCreateElement:
 			d.nodes[m.NodeID] = &fakeNode{ID: m.NodeID, Tag: m.Value.(string)}
 		case core.MutAppendChild:
-			if p, ok := d.nodes[m.NodeID]; ok {
-				p.Children = append(p.Children, m.ChildID)
-				if c, ok := d.nodes[m.ChildID]; ok {
-					c.ParentID = m.NodeID
-				}
+			p, c := d.nodes[m.NodeID], d.nodes[m.ChildID]
+			if p != nil && c != nil && !c.attached {
+				p.Children = append(p.Children, c.ID)
+				c.ParentID, c.attached = p.ID, true
 			}
 		case core.MutInsertBefore:
-			if p, ok := d.nodes[m.NodeID]; ok {
-				ins := m.ChildID
-				ref := m.RefID
-
-				// Simulate DOM insertBefore: move existing node (remove then
-				// re-insert), or just insert a new one.
-				for i := len(p.Children) - 1; i >= 0; i-- {
-					if p.Children[i] == ins {
-						p.Children = append(p.Children[:i], p.Children[i+1:]...)
-						break
-					}
-				}
-
-				idx := len(p.Children)
-				for i, cid := range p.Children {
-					if cid == ref {
-						idx = i
-						break
-					}
-				}
-				p.Children = append(p.Children, 0)
-				copy(p.Children[idx+1:], p.Children[idx:])
-				p.Children[idx] = ins
-				if c, ok := d.nodes[ins]; ok {
-					c.ParentID = m.NodeID
+			c := d.nodes[m.ChildID]
+			if c == nil {
+				continue
+			}
+			pid := m.NodeID
+			if rn := d.nodes[m.RefID]; m.RefID != 0 && rn != nil && rn.attached {
+				pid = rn.ParentID
+			}
+			p := d.nodes[pid]
+			if p == nil {
+				continue
+			}
+			d.detach(c)
+			idx := len(p.Children)
+			for i, cid := range p.Children {
+				if cid == m.RefID {
+					idx = i
+					break
 				}
 			}
+			p.Children = append(p.Children, 0)
+			copy(p.Children[idx+1:], p.Children[idx:])
+			p.Children[idx] = c.ID
+			c.ParentID, c.attached = p.ID, true
 		case core.MutRemoveNode:
-			delete(d.nodes, m.NodeID)
-			for _, n := range d.nodes {
-				for i := len(n.Children) - 1; i >= 0; i-- {
-					if n.Children[i] == m.NodeID {
-						n.Children = append(n.Children[:i], n.Children[i+1:]...)
-					}
-				}
+			if n := d.nodes[m.NodeID]; n != nil {
+				d.detach(n)
+				delete(d.nodes, m.NodeID)
 			}
 		case core.MutSetAttribute:
 		case core.MutSetProperty:
@@ -1150,14 +1161,14 @@ func TestFakeDOMKeyedProperty(t *testing.T) {
 
 		parentID := 1
 		var muts []core.Mutation
-		r.diffChildren(parentID, oldNodes, newNodes, &muts)
+		r.diffChildren(parentID, oldNodes, newNodes, 0, &muts)
 
 		fd := newFakeDOM()
 		fd.nodes[parentID] = &fakeNode{ID: parentID, Tag: "div"}
 
 		for _, n := range oldNodes {
 			if el, ok := n.(*core.ElementNode); ok {
-				fd.nodes[el.ID] = &fakeNode{ID: el.ID, Tag: el.Tag, ParentID: parentID}
+				fd.nodes[el.ID] = &fakeNode{ID: el.ID, Tag: el.Tag, ParentID: parentID, attached: true}
 				fd.nodes[parentID].Children = append(fd.nodes[parentID].Children, el.ID)
 			}
 		}
@@ -1219,7 +1230,7 @@ func TestDuplicateKeysLoggedNotPanic(t *testing.T) {
 	r := New()
 	r.Render(&core.ElementNode{Tag: "div", Children: old})
 	var muts []core.Mutation
-	r.diffChildren(1, old, new, &muts)
+	r.diffChildren(1, old, new, 0, &muts)
 
 	createCount := 0
 	for _, m := range muts {
@@ -1248,7 +1259,7 @@ func TestPositionalShrinkRemovesOnce(t *testing.T) {
 		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "a"}}},
 	}
 	var muts []core.Mutation
-	r.diffChildren(parent.ID, old, newKids, &muts)
+	r.diffChildren(parent.ID, old, newKids, 0, &muts)
 
 	removes := map[int]int{}
 	for _, m := range muts {
@@ -1372,8 +1383,8 @@ func TestFragmentListAttachesToParent(t *testing.T) {
 			appended++
 		}
 	}
-	if appended != 2 {
-		t.Fatalf("want 2 <li> appended under <ul> on init, got %d (muts=%v)", appended, initMuts)
+	if appended != 3 { // two rows, then the scope's end anchor
+		t.Fatalf("want 2 <li> + anchor appended under <ul> on init, got %d (muts=%v)", appended, initMuts)
 	}
 
 	order.Set([]int{1, 2, 3}) // append a third
@@ -1424,7 +1435,7 @@ func TestKeyedComponentListReorderPreservesIdentity(t *testing.T) {
 	outID := map[int]int{}
 	for _, n := range scope.Prev.(*core.FragmentNode).Children {
 		c := n.(*core.ComponentNode)
-		outID[c.Key.(int)] = rootIDFromTree(c.Prev)
+		outID[c.Key.(int)] = firstRoot(c.Prev)
 	}
 	for id := 1; id <= 3; id++ {
 		if setups[id] != 1 || outID[id] == 0 {
@@ -1462,7 +1473,7 @@ func TestKeyedComponentListReorderPreservesIdentity(t *testing.T) {
 	// Identity preserved: each key still maps to its original output node.
 	for _, n := range scope.Prev.(*core.FragmentNode).Children {
 		c := n.(*core.ComponentNode)
-		if got := rootIDFromTree(c.Prev); got != outID[c.Key.(int)] {
+		if got := firstRoot(c.Prev); got != outID[c.Key.(int)] {
 			t.Fatalf("component %v output changed %d -> %d (identity lost)", c.Key, outID[c.Key.(int)], got)
 		}
 	}

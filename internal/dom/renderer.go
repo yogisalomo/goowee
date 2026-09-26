@@ -9,23 +9,48 @@ import (
 	"github.com/yogisalomo/goowee/internal/walker"
 )
 
+// detached is pushed on parentStack while a fresh subtree is rendered inside a
+// diff (renderFresh): the subtree's top-level nodes are not attached during the
+// walk, because the diff knows where they belong and places them itself.
+const detached = -1
+
+// scopeInfo is the renderer's state for one mounted scope. It moves from the
+// old ScopeNode to the new one when a parent re-render adopts the scope.
+type scopeInfo struct {
+	seq         int                  // mount order; parents re-render before children
+	parentID    int                  // DOM parent (best effort; JS inserts at the anchor's real parent)
+	owner       *core.ComponentFrame // owns the hooks called by the current render
+	ownerParent *core.ComponentFrame // the frame the scope was mounted under
+}
+
 type scopeState struct {
 	seq      int
 	parentID int
+	detached bool
 }
 
 type DOMRenderer struct {
 	walker.Walker
-	Bindings       *runtime.BindingRegistry
-	Scheduler      *core.Scheduler
-	Registry       *NodeRegistry
+	Bindings  *runtime.BindingRegistry
+	Scheduler *core.Scheduler
+	Registry  *NodeRegistry
+
 	parentStack    []int
-	scopeSeq       int // monotonic mount order; parents mount before children
+	freshParent    int // the real parent while parentStack's top is `detached`
+	scopeSeq       int // monotonic mount order
 	scopeStack     []scopeState
+	scopes         map[*core.ScopeNode]*scopeInfo
 	hydrating      bool   // initial render claims server-rendered nodes
 	hydrateDynamic bool   // within a Dynamic subtree: re-apply values so client wins
 	currentNS      string // XML namespace inherited by the subtree being rendered (SVG)
 	muts           *[]core.Mutation
+
+	// Recovery bookkeeping. While a walk that may be abandoned is in progress
+	// (an error boundary's child, a scope re-render), every scope subscribed or
+	// adopted is recorded here so a panic can release the ones the failed walk
+	// touched. Truncated once the outermost such walk ends.
+	recoveryDepth  int
+	recoveryScopes []*core.ScopeNode
 }
 
 // SetHydrating puts the renderer into hydration mode for the next Render: it
@@ -44,6 +69,7 @@ func New() *DOMRenderer {
 		Scheduler: sched,
 		Bindings:  runtime.NewBindingRegistry(sched),
 		Registry:  NewNodeRegistry(),
+		scopes:    map[*core.ScopeNode]*scopeInfo{},
 	}
 }
 
@@ -52,6 +78,7 @@ func (r *DOMRenderer) Reset() {
 	r.Walker.Reset()
 	r.Bindings = runtime.NewBindingRegistry(r.Scheduler)
 	r.Registry = NewNodeRegistry()
+	r.scopes = map[*core.ScopeNode]*scopeInfo{}
 }
 
 var _ walker.Visitor = (*DOMRenderer)(nil)
@@ -62,7 +89,6 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 	defer func() { r.hydrating = false }()
 
 	r.parentStack = nil
-	r.scopeSeq = 0
 	r.scopeStack = nil
 	r.currentNS = ""
 	r.hydrateDynamic = false
@@ -74,32 +100,37 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 	r.muts = nil
 	if rootID != 0 && !hydrating {
 		// When hydrating, the root is already attached to #root by the server.
+		// Fragments and scopes attach their own content to the root container.
 		muts = append(muts, core.Mutation{
 			Type: core.MutAppendChild, NodeID: 0, ChildID: rootID,
 		})
 	}
-	// A top-level fragment attaches its own children to the root container
-	// (node 0) inside renderNode; nothing more to do here.
-	return muts, rootID
+	return muts, firstRoot(n)
 }
 
-// renderNode delegatesto the shared walker for fresh subtree renders.
-// For scope re-renders (where Prev != nil) it handles the diff inline
-// since that path is DOM-specific and bypasses the walker.
-func (r *DOMRenderer) renderNode(n core.Node, muts *[]core.Mutation) int {
-	if sn, ok := n.(*core.ScopeNode); ok && sn.Prev != nil {
-		newTree := core.FlatTree(sn.Render())
-		var diffMuts []core.Mutation
-		r.diffNode(sn.Prev, newTree, &diffMuts)
-		r.Scheduler.Enqueue(diffMuts...)
-		sn.Prev = newTree
-		return rootIDFromTree(newTree)
+// renderFresh walks n as a brand-new subtree inside a diff. Its top-level
+// nodes are left unattached — the caller places rootIDs(n) — while everything
+// below them is attached as usual.
+func (r *DOMRenderer) renderFresh(n core.Node, parentID int, muts *[]core.Mutation) {
+	savedMuts, savedFresh := r.muts, r.freshParent
+	r.muts, r.freshParent = muts, parentID
+	r.parentStack = append(r.parentStack, detached)
+	r.Walker.Walk(n, r)
+	r.parentStack = r.parentStack[:len(r.parentStack)-1]
+	r.muts, r.freshParent = savedMuts, savedFresh
+}
+
+// currentParent is where the walk attaches top-level nodes: the enclosing
+// element, 0 for the root container, or `detached`.
+func (r *DOMRenderer) currentParent() int {
+	if len(r.parentStack) == 0 {
+		return 0
 	}
-	savedMuts := r.muts
-	r.muts = muts
-	id := r.Walker.Walk(n, r)
-	r.muts = savedMuts
-	return id
+	return r.parentStack[len(r.parentStack)-1]
+}
+
+func (r *DOMRenderer) appendChild(parentID, childID int) {
+	*r.muts = append(*r.muts, core.Mutation{Type: core.MutAppendChild, NodeID: parentID, ChildID: childID})
 }
 
 // ---------------------------------------------------------------------------
@@ -134,9 +165,11 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 		}
 		prevDynamic := r.hydrateDynamic
 		r.hydrateDynamic = dynamic
+		r.parentStack = append(r.parentStack, id)
 		for _, child := range el.Children {
 			walkChild(child)
 		}
+		r.parentStack = r.parentStack[:len(r.parentStack)-1]
 		r.hydrateDynamic = prevDynamic
 		return
 	}
@@ -166,9 +199,9 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 	prevNS := r.currentNS
 	r.currentNS = ns
 	for _, child := range el.Children {
-		childID := walkChild(child)
-		if childID != 0 {
-			*r.muts = append(*r.muts, core.Mutation{Type: core.MutAppendChild, NodeID: id, ChildID: childID})
+		// Fragments and scopes attach their own content (and return 0).
+		if childID := walkChild(child); childID != 0 {
+			r.appendChild(id, childID)
 		}
 	}
 	r.currentNS = prevNS
@@ -211,14 +244,11 @@ func (r *DOMRenderer) VisitFragment(fn *core.FragmentNode, walkChild func(core.N
 	if fn == nil {
 		return
 	}
-	parentID := 0
-	if len(r.parentStack) > 0 {
-		parentID = r.parentStack[len(r.parentStack)-1]
-	}
+	parentID := r.currentParent()
 	for _, child := range fn.Children {
 		cid := walkChild(child)
-		if cid != 0 && !r.hydrating {
-			*r.muts = append(*r.muts, core.Mutation{Type: core.MutAppendChild, NodeID: parentID, ChildID: cid})
+		if cid != 0 && !r.hydrating && parentID != detached {
+			r.appendChild(parentID, cid)
 		}
 	}
 }
@@ -248,30 +278,28 @@ func (r *DOMRenderer) VisitMetadata(mn *core.MetadataNode, walkChild func(core.N
 	}
 	// Fresh render (pure-client app, or a re-render): create the head nodes and
 	// append them to <head>.
-	prevHydrating, prevNS := r.hydrating, r.currentNS
-	r.hydrating, r.currentNS = false, ""
-	for _, child := range mn.Children {
-		childID := walkChild(child)
-		if childID != 0 {
-			*r.muts = append(*r.muts, core.Mutation{
-				Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: "head",
-			})
-		}
-	}
-	r.hydrating, r.currentNS = prevHydrating, prevNS
+	r.renderInto("head", mn.Children, r.muts)
 }
 
 func (r *DOMRenderer) VisitPortal(pn *core.PortalNode, walkChild func(core.Node) int) {
 	if pn == nil {
 		return
 	}
+	r.renderInto(pn.Target, pn.Children, r.muts)
+}
+
+// renderInto renders children fresh and appends their roots to the container
+// matched by selector (a portal target, or "head" for metadata). The content
+// is client-side: never claimed, even during hydration, since the server does
+// not render it in place.
+func (r *DOMRenderer) renderInto(selector string, children []core.Node, muts *[]core.Mutation) {
 	prevHydrating, prevNS := r.hydrating, r.currentNS
 	r.hydrating, r.currentNS = false, ""
-	for _, child := range pn.Children {
-		childID := walkChild(child)
-		if childID != 0 {
-			*r.muts = append(*r.muts, core.Mutation{
-				Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: pn.Target,
+	for _, child := range children {
+		r.renderFresh(child, 0, muts)
+		for _, id := range rootIDs(child) {
+			*muts = append(*muts, core.Mutation{
+				Type: core.MutPortalAppend, NodeID: 0, ChildID: id, Value: selector,
 			})
 		}
 	}
@@ -285,6 +313,8 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 	baseStack := len(r.parentStack)
 	frameDepth := runtime.SaveFrameStack()
 	savedNS, savedDyn := r.currentNS, r.hydrateDynamic
+	mark := r.beginRecoverable()
+	owner := runtime.PushOwner() // every frame the child creates hangs off this
 
 	var childMuts []core.Mutation
 	savedMuts := r.muts
@@ -299,14 +329,17 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 		r.parentStack = r.parentStack[:baseStack]
 		runtime.RestoreFrameStack(frameDepth)
 		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
+		r.abandon(mark, owner)
 		core.Log(core.LogRecoverErrorBoundary, "caught panic, rendering fallback", map[string]any{
 			"phase": "render",
 			"panic": rec,
 		})
 		fb := core.FlatTree(ebn.Fallback(rec))
 		ebn.Prev = fb
-		return r.renderNode(fb, r.muts)
+		return r.Walker.Walk(fb, r)
 	}
+	runtime.PopComponent() // owner
+	r.endRecoverable()
 	*r.muts = append(*r.muts, childMuts...)
 	ebn.Prev = ebn.Child
 	return id
@@ -314,7 +347,6 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 
 func (r *DOMRenderer) VisitComponentEnter(cn *core.ComponentNode) {
 	// The walker handles PushComponent / PopComponent and Render.
-	// We just track the frame after the walk.
 }
 
 func (r *DOMRenderer) VisitComponentLeave(cn *core.ComponentNode, innerID int) {
@@ -324,31 +356,70 @@ func (r *DOMRenderer) VisitComponentLeave(cn *core.ComponentNode, innerID int) {
 }
 
 func (r *DOMRenderer) VisitScopeEnter(sn *core.ScopeNode) {
+	// seq is taken on entry, so an enclosing scope always orders before the
+	// scopes inside it (Flush re-renders parent-before-child).
 	r.scopeSeq++
-	seq := r.scopeSeq
-	parentID := 0
-	if len(r.parentStack) > 0 {
-		parentID = r.parentStack[len(r.parentStack)-1]
+	st := scopeState{seq: r.scopeSeq, parentID: r.currentParent()}
+	if st.parentID == detached {
+		st.parentID, st.detached = r.freshParent, true
 	}
-	r.scopeStack = append(r.scopeStack, scopeState{seq: seq, parentID: parentID})
+	r.scopeStack = append(r.scopeStack, st)
+	// Hooks called directly by the scope's render function belong to it.
+	runtime.PushOwner()
 }
 
-func (r *DOMRenderer) VisitScopeLeave(sn *core.ScopeNode, innerID int) {
-	if len(r.scopeStack) == 0 {
-		return
-	}
-	state := r.scopeStack[len(r.scopeStack)-1]
+func (r *DOMRenderer) VisitScopeLeave(sn *core.ScopeNode, innerID int) int {
+	owner := runtime.CurrentComponent()
+	runtime.PopComponent()
+	st := r.scopeStack[len(r.scopeStack)-1]
 	r.scopeStack = r.scopeStack[:len(r.scopeStack)-1]
 
+	if r.hydrating {
+		*r.muts = append(*r.muts, core.Mutation{
+			Type: core.MutHydrate, NodeID: sn.Anchor, Key: "tag", Value: "#comment",
+		})
+	} else {
+		*r.muts = append(*r.muts, core.Mutation{
+			Type: core.MutCreateElement, NodeID: sn.Anchor, Key: "tag", Value: "#comment",
+		})
+		// A scope attaches its own content and end anchor, in order, so the
+		// anchor always sits right after the content.
+		if !st.detached {
+			if innerID != 0 {
+				r.appendChild(st.parentID, innerID)
+			}
+			r.appendChild(st.parentID, sn.Anchor)
+		}
+	}
+
+	info := &scopeInfo{seq: st.seq, parentID: st.parentID, owner: owner}
+	if owner != nil {
+		info.ownerParent = owner.Parent
+	}
+	r.scopes[sn] = info
+	r.subscribeScope(sn, info)
+	return 0
+}
+
+func (r *DOMRenderer) subscribeScope(sn *core.ScopeNode, info *scopeInfo) {
+	if r.recoveryDepth > 0 {
+		r.recoveryScopes = append(r.recoveryScopes, sn)
+	}
 	sn.Unsubs = make([]func(), len(sn.Deps))
 	for i, dep := range sn.Deps {
-		dep := dep
 		sn.Unsubs[i] = dep.Subscribe(func() {
-			r.Scheduler.MarkDirty(sn, state.seq, func() {
-				r.reRenderScope(sn, state.parentID)
-			})
+			r.Scheduler.MarkDirty(sn, info.seq, func() { r.reRenderScope(sn) })
 		})
 	}
+}
+
+func unsubscribeScope(sn *core.ScopeNode) {
+	for _, u := range sn.Unsubs {
+		if u != nil {
+			u()
+		}
+	}
+	sn.Unsubs = nil
 }
 
 func (r *DOMRenderer) VisitRaw(id int, rn *core.RawNode) {
@@ -356,8 +427,9 @@ func (r *DOMRenderer) VisitRaw(id int, rn *core.RawNode) {
 		return
 	}
 	if r.hydrating {
+		// SSR renders a raw node as a <div> wrapper; claim it as one.
 		*r.muts = append(*r.muts, core.Mutation{
-			Type: core.MutHydrate, NodeID: id, Key: "tag", Value: "raw",
+			Type: core.MutHydrate, NodeID: id, Key: "tag", Value: "div",
 		})
 		return
 	}
@@ -369,705 +441,151 @@ func (r *DOMRenderer) VisitRaw(id int, rn *core.RawNode) {
 	})
 }
 
-func nodeID(n core.Node) int {
-	if n == nil {
-		return 0
-	}
-	switch v := n.(type) {
-	case *core.ElementNode:
-		return v.ID
-	case *core.TextNode:
-		return v.ID
-	case *core.RawNode:
-		return v.ID
-	case *core.ComponentNode:
-		return rootIDFromTree(v.Prev)
-	case *core.ScopeNode:
-		return rootIDFromTree(v.Prev)
-	case *core.MetadataNode:
-		return 0
-	}
-	return 0
-}
+// ---------------------------------------------------------------------------
+// Scope updates
+// ---------------------------------------------------------------------------
 
-func rootIDFromTree(n core.Node) int {
-	switch v := n.(type) {
-	case *core.ElementNode:
-		return v.ID
-	case *core.TextNode:
-		return v.ID
-	case *core.RawNode:
-		return v.ID
-	case *core.FragmentNode:
-		if len(v.Children) > 0 {
-			return rootIDFromTree(v.Children[0])
-		}
-	case *core.ComponentNode:
-		return rootIDFromTree(v.Prev)
-	case *core.ScopeNode:
-		return rootIDFromTree(v.Prev)
+// reRenderScope re-renders a dirty scope (called from Scheduler.Flush). A panic
+// is contained: this scope's partial work is discarded and its DOM keeps its
+// previous state, instead of aborting the whole flush and blanking the page.
+func (r *DOMRenderer) reRenderScope(sn *core.ScopeNode) {
+	info := r.scopes[sn]
+	if info == nil {
+		return // removed or adopted since it was marked dirty
 	}
-	return 0
-}
-
-func rootTypeChanged(old, new core.Node) bool {
-	if old == nil || new == nil {
-		return old != new
-	}
-	switch a := old.(type) {
-	case *core.ElementNode:
-		b, ok := new.(*core.ElementNode)
-		return !ok || a.Tag != b.Tag
-	case *core.TextNode:
-		_, ok := new.(*core.TextNode)
-		return !ok
-	case *core.RawNode:
-		_, ok := new.(*core.RawNode)
-		return !ok
-	case *core.FragmentNode:
-		_, ok := new.(*core.FragmentNode)
-		return !ok
-	case *core.ScopeNode:
-		_, ok := new.(*core.ScopeNode)
-		return !ok
-	case *core.ComponentNode:
-		b, ok := new.(*core.ComponentNode)
-		return !ok || a.Name != b.Name
-	}
-	return true
-}
-
-func (r *DOMRenderer) reRenderScope(s *core.ScopeNode, parentID int) {
-	// Contain a panic during re-render: mutations are built into the local
-	// `muts` and only enqueued at the end, so a panic here discards this
-	// scope's partial work (its DOM keeps its previous state) instead of
-	// aborting the whole flush and blanking the page. Restore parentStack,
-	// which a mid-render panic would leave unbalanced.
 	baseStack := len(r.parentStack)
 	frameDepth := runtime.SaveFrameStack()
-	defer func() {
-		if rec := recover(); rec != nil {
-			r.parentStack = r.parentStack[:baseStack]
-			runtime.RestoreFrameStack(frameDepth)
-			core.Log(core.LogRecoverReRender, "panic during scope re-render; subtree kept previous state", map[string]any{
-				"panic": rec,
-			})
-		}
-	}()
-
-	newTree := core.FlatTree(s.Render())
-
+	mark := r.beginRecoverable()
 	var muts []core.Mutation
-
-	// Push the scope's parent so any multi-root (fragment) content mounted
-	// during this diff attaches under the real parent, not the root.
-	r.parentStack = append(r.parentStack, parentID)
-
-	oldFrag, oldIsFrag := s.Prev.(*core.FragmentNode)
-	newFrag, newIsFrag := newTree.(*core.FragmentNode)
-
-	switch {
-	case rootTypeChanged(s.Prev, newTree):
-		newRootID := r.renderNode(newTree, &muts)
-		oldRootID := rootIDFromTree(s.Prev)
-		if newRootID != 0 {
-			switch {
-			case parentID != 0 && oldRootID != 0:
-				// Place the new root where the old one sits, then remove old.
-				muts = append(muts, core.Mutation{
-					Type: core.MutInsertBefore, NodeID: parentID,
-					ChildID: newRootID, RefID: oldRootID,
-				})
-			case parentID != 0:
-				// Old root had no DOM node (e.g. the scope was showing an
-				// empty fragment), so there is no sibling to anchor against.
-				// Append to the parent — correct for a trailing/only child.
-				muts = append(muts, core.Mutation{
-					Type: core.MutAppendChild, NodeID: parentID, ChildID: newRootID,
-				})
-			default:
-				muts = append(muts, core.Mutation{
-					Type: core.MutAppendChild, NodeID: 0, ChildID: newRootID,
+	ok := func() (ok bool) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				r.parentStack = r.parentStack[:baseStack]
+				runtime.RestoreFrameStack(frameDepth)
+				r.abandon(mark, nil)
+				core.Log(core.LogRecoverReRender, "panic during scope re-render; subtree kept previous state", map[string]any{
+					"panic": rec,
 				})
 			}
-		}
-		if s.Prev != nil {
-			r.emitRemoveTree(s.Prev, &muts)
-		}
-	case oldIsFrag && newIsFrag:
-		// Multi-root list content (e.g. For): reconcile the children directly
-		// against the scope's real parent so keyed reorders, inserts, and
-		// removes land in the right place — this is what makes keyed lists
-		// (of elements or components) work when they aren't wrapped in an
-		// element of their own.
-		r.diffChildren(parentID, oldFrag.Children, newFrag.Children, &muts)
-	default:
-		r.diffNode(s.Prev, newTree, &muts)
+		}()
+		r.updateScope(sn, info, &muts)
+		return true
+	}()
+	if !ok {
+		return
 	}
-
-	r.parentStack = r.parentStack[:len(r.parentStack)-1]
-
+	r.endRecoverable()
 	if len(muts) > 0 {
 		r.Scheduler.Enqueue(muts...)
 	}
-
-	s.Prev = newTree
 }
 
-func (r *DOMRenderer) diffNode(oldNode, newNode core.Node, muts *[]core.Mutation) int {
-	if oldNode == nil && newNode == nil {
-		return 0
+// updateScope re-runs the scope's render and diffs the result against what it
+// rendered last time, inserting anything new before the scope's anchor. The
+// render runs under a fresh owner frame; once it succeeds, the previous
+// render's owner — the Watch/UseEffect/OnMount calls that render made — is
+// disposed, since this render re-created whatever it still needs.
+func (r *DOMRenderer) updateScope(sn *core.ScopeNode, info *scopeInfo, muts *[]core.Mutation) {
+	owner := runtime.NewOwner(info.ownerParent)
+	runtime.PushFrame(owner)
+	defer func() {
+		if rec := recover(); rec != nil {
+			// Components mounted by the failed diff hang off owner; release
+			// them, then let the enclosing recovery handle the rest.
+			hooks.DisposeFrameTree(owner)
+			panic(rec)
+		}
+	}()
+	newTree := core.FlatTree(sn.Render())
+	r.parentStack = append(r.parentStack, info.parentID)
+	r.diffChildren(info.parentID, contentList(sn.Prev), contentList(newTree), sn.Anchor, muts)
+	r.parentStack = r.parentStack[:len(r.parentStack)-1]
+	runtime.PopComponent()
+
+	sn.Prev = newTree
+	prev := info.owner
+	info.owner = owner
+	if prev != nil {
+		hooks.RunFrameCleanup(prev)
 	}
-	if oldNode == nil {
-		return r.renderNode(newNode, muts)
-	}
-	if newNode == nil {
-		r.emitRemoveTree(oldNode, muts)
-		return 0
-	}
-
-	switch old := oldNode.(type) {
-	case *core.ElementNode:
-		new, ok := newNode.(*core.ElementNode)
-		if !ok || old.Tag != new.Tag {
-			r.emitRemoveTree(old, muts)
-			return r.renderNode(newNode, muts)
-		}
-		new.ID = old.ID
-
-		oldAttrs := map[string]string{}
-		for _, a := range old.Attrs {
-			oldAttrs[a.Name] = a.Value
-		}
-		for _, a := range new.Attrs {
-			if ov, ok := oldAttrs[a.Name]; !ok || ov != a.Value {
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutSetAttribute, NodeID: old.ID, Key: a.Name, Value: a.Value,
-				})
-			}
-			delete(oldAttrs, a.Name)
-		}
-		for name := range oldAttrs {
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutRemoveAttribute, NodeID: old.ID, Key: name,
-			})
-		}
-
-		oldProps := map[string]any{}
-		for _, p := range old.Props {
-			oldProps[p.Name] = p.Value
-		}
-		for _, p := range new.Props {
-			// SafeEqual: a slice/map prop value must count as changed, not
-			// panic the differ (which would freeze the subtree).
-			if ov, ok := oldProps[p.Name]; !ok || !runtime.SafeEqual(ov, p.Value) {
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutSetProperty, NodeID: old.ID, Key: p.Name, Value: p.Value,
-				})
-			}
-			delete(oldProps, p.Name)
-		}
-		for name, ov := range oldProps {
-			var zero any = ""
-			if _, isBool := ov.(bool); isBool {
-				zero = false
-			}
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutSetProperty, NodeID: old.ID, Key: name, Value: zero,
-			})
-		}
-
-		r.Bindings.Unbind(old.ID)
-		for _, b := range new.Binds {
-			r.Bindings.Bind(old.ID, b)
-			*muts = append(*muts, runtime.MutationForBind(old.ID, b))
-		}
-
-		newEvents := map[string]bool{}
-		for _, hd := range new.Handlers {
-			r.Registry.RegisterHandler(old.ID, hd.Event, hd.Fn, hd.Options)
-			newEvents[hd.Event] = true
-		}
-		for _, hd := range old.Handlers {
-			if !newEvents[hd.Event] {
-				r.Registry.RemoveHandler(old.ID, hd.Event)
-			}
-		}
-
-		r.diffChildren(old.ID, old.Children, new.Children, muts)
-		return old.ID
-
-	case *core.TextNode:
-		new, ok := newNode.(*core.TextNode)
-		if !ok {
-			r.emitRemoveTree(old, muts)
-			return r.renderNode(newNode, muts)
-		}
-		new.ID = old.ID
-
-		oldStr, oldIsStr := old.Value.(string)
-		newStr, newIsStr := new.Value.(string)
-		if oldIsStr && newIsStr && oldStr != newStr {
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent", Value: newStr,
-			})
-			return old.ID
-		}
-
-		if oldIsStr != newIsStr || (!oldIsStr && !newIsStr) {
-			r.Bindings.Unbind(old.ID)
-			if newSig, ok := new.Value.(core.SignalAccessor); ok {
-				r.Bindings.Bind(old.ID, core.Bind{
-					Target: core.BindToProp, Name: "textContent", Signal: newSig,
-				})
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent",
-					Value: runtime.TextValue(newSig.Value()),
-				})
-			} else if newStr, ok := new.Value.(string); ok {
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent", Value: newStr,
-				})
-			}
-		}
-		return old.ID
-
-	case *core.FragmentNode:
-		new, ok := newNode.(*core.FragmentNode)
-		if !ok {
-			r.emitRemoveTree(old, muts)
-			return r.renderNode(newNode, muts)
-		}
-		r.diffChildren(0, old.Children, new.Children, muts)
-		return 0
-
-	case *core.ComponentNode:
-		new, ok := newNode.(*core.ComponentNode)
-		if !ok || old.Name != new.Name {
-			// Different component (or no longer a component): unmount + mount.
-			r.emitRemoveTree(old, muts)
-			return r.renderNode(newNode, muts)
-		}
-		// Same component: preserve it. Setup ran once at mount and the output
-		// is a stable, self-updating subtree (bindings and inner scopes react
-		// on their own), so we keep the frame and DOM untouched — this is what
-		// gives components stable identity and state across scope re-renders.
-		new.Frame = old.Frame
-		new.Prev = old.Prev
-		return rootIDFromTree(old.Prev)
-
-	case *core.ScopeNode:
-		if old == newNode {
-			return rootIDFromTree(old.Prev)
-		}
-		if old.Prev != nil {
-			r.emitRemoveTree(old.Prev, muts)
-		}
-		for _, unsub := range old.Unsubs {
-			if unsub != nil {
-				unsub()
-			}
-		}
-		old.Unsubs = nil
-		newScope, ok := newNode.(*core.ScopeNode)
-		if !ok {
-			return 0
-		}
-		return r.renderNode(newScope, muts)
-
-	case *core.MetadataNode:
-		// Like portals: tear down old head content and render new.
-		for _, c := range old.Children {
-			r.emitRemoveTree(c, muts)
-		}
-		if nm, ok := newNode.(*core.MetadataNode); ok {
-			for _, child := range nm.Children {
-				childID := r.renderNode(child, muts)
-				if childID != 0 {
-					*muts = append(*muts, core.Mutation{
-						Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: "head",
-					})
-				}
-			}
-		}
-		return 0
-
-	case *core.PortalNode:
-		// The target is a selector, not a node we can reconcile against, so
-		// tear down the old portal content and render the new (ADR-017). Keep
-		// portal state in signals outside the portal.
-		for _, c := range old.Children {
-			r.emitRemoveTree(c, muts)
-		}
-		if np, ok := newNode.(*core.PortalNode); ok {
-			r.renderPortal(np, muts)
-		}
-		return 0
-
-	case *core.ErrorBoundaryNode:
-		nb, ok := newNode.(*core.ErrorBoundaryNode)
-		if !ok {
-			if old.Prev != nil {
-				r.emitRemoveTree(old.Prev, muts)
-			}
-			return r.renderNode(newNode, muts)
-		}
-		return r.diffBoundary(old, nb, muts)
-
-	case *core.RawNode:
-		nr, ok := newNode.(*core.RawNode)
-		if !ok {
-			r.emitRemoveTree(old, muts)
-			return r.renderNode(newNode, muts)
-		}
-		nr.ID = old.ID
-		if old.HTML != nr.HTML {
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutSetProperty, NodeID: old.ID, Key: "innerHTML", Value: nr.HTML,
-			})
-		}
-		return old.ID
-	}
-	return 0
 }
 
-// diffBoundary updates a boundary on re-render. It diffs the previously rendered
-// subtree against the new child (preserving child state); if that panics, it
-// keeps the previous DOM and logs (update-time panics are contained, not
-// swapped to the fallback). When the previous render was the fallback, a
-// successful diff to the new child restores it.
-func (r *DOMRenderer) diffBoundary(old, nb *core.ErrorBoundaryNode, muts *[]core.Mutation) int {
-	baseStack := len(r.parentStack)
-	frameDepth := runtime.SaveFrameStack()
-	savedNS, savedDyn := r.currentNS, r.hydrateDynamic
+// adoptScope carries a mounted scope over to the new ScopeNode that a parent
+// re-render produced in its place (the parent's render builds new nodes every
+// time). The DOM, anchor, and renderer state move across and the content is
+// diffed against the new render — so components inside survive, instead of
+// the whole scope being torn down and rebuilt.
+func (r *DOMRenderer) adoptScope(old, nw *core.ScopeNode, parentID int, muts *[]core.Mutation) {
+	info := r.scopes[old]
+	delete(r.scopes, old)
+	unsubscribeScope(old)
+	r.Scheduler.CancelDirty(old) // the adopting render supersedes a pending one
+	nw.Prev, nw.Anchor = old.Prev, old.Anchor
+	info.parentID = parentID
+	r.scopes[nw] = info
+	r.updateScope(nw, info, muts)
+	r.subscribeScope(nw, info)
+}
 
-	var childMuts []core.Mutation
-	id, rec := r.tryDiffNode(old.Prev, nb.Child, &childMuts)
-	if rec != nil {
-		r.parentStack = r.parentStack[:baseStack]
-		runtime.RestoreFrameStack(frameDepth)
-		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
-		core.Log(core.LogRecoverErrorBoundary, "panic during boundary update; subtree kept previous state", map[string]any{
-			"phase": "update",
-			"panic": rec,
-		})
-		nb.Prev = old.Prev
-		return nodeID(old.Prev)
+// beginRecoverable starts a walk that may be abandoned by a panic.
+func (r *DOMRenderer) beginRecoverable() recoveryMark {
+	r.recoveryDepth++
+	return recoveryMark{startID: r.Walker.NextID(), scopes: len(r.recoveryScopes)}
+}
+
+func (r *DOMRenderer) endRecoverable() {
+	r.recoveryDepth--
+	if r.recoveryDepth == 0 {
+		r.recoveryScopes = r.recoveryScopes[:0]
 	}
-	*muts = append(*muts, childMuts...)
-	nb.Prev = nb.Child
-	return id
 }
 
-func (r *DOMRenderer) tryDiffNode(old, new core.Node, muts *[]core.Mutation) (id int, rec any) {
-	defer func() { rec = recover() }()
-	id = r.diffNode(old, new, muts)
-	return
+type recoveryMark struct {
+	startID int // first node id the walk could allocate
+	scopes  int // recoveryScopes length when it began
 }
 
-// renderPortal renders a portal's children into their target container. The
-// content is client-side: rendered fresh (never claimed) even during
-// hydration, since the server does not render portals.
-func (r *DOMRenderer) renderPortal(p *core.PortalNode, muts *[]core.Mutation) {
-	prevHydrating, prevNS := r.hydrating, r.currentNS
-	r.hydrating, r.currentNS = false, ""
-	for _, child := range p.Children {
-		childID := r.renderNode(child, muts)
-		if childID != 0 {
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutPortalAppend, NodeID: 0, ChildID: childID, Value: p.Target,
-			})
+// abandon releases everything a failed walk set up: scopes it subscribed or
+// adopted, the frame tree under owner (effects, Watch, …), and the bindings
+// and handlers of every node id it allocated — none of which ever reached the
+// DOM, since the walk's mutations are discarded.
+func (r *DOMRenderer) abandon(m recoveryMark, owner *core.ComponentFrame) {
+	for _, sc := range r.recoveryScopes[m.scopes:] {
+		unsubscribeScope(sc)
+		r.Scheduler.CancelDirty(sc)
+		if info := r.scopes[sc]; info != nil {
+			if info.owner != nil {
+				hooks.RunFrameCleanup(info.owner)
+			}
+			delete(r.scopes, sc)
 		}
 	}
-	r.hydrating, r.currentNS = prevHydrating, prevNS
-}
-
-func (r *DOMRenderer) diffChildren(parentID int, old, new []core.Node, muts *[]core.Mutation) {
-	hasKeys := hasAnyKey(old) || hasAnyKey(new)
-	if hasKeys {
-		r.diffChildrenKeyed(parentID, old, new, muts)
-		return
+	r.recoveryScopes = r.recoveryScopes[:m.scopes]
+	r.recoveryDepth--
+	if owner != nil {
+		hooks.DisposeFrameTree(owner)
 	}
-	r.diffChildrenPositional(parentID, old, new, muts)
+	for id := m.startID; id < r.Walker.NextID(); id++ {
+		r.Bindings.Unbind(id)
+		r.Registry.Remove(id)
+	}
 }
 
-// keyOf returns a node's reconciliation key, if it carries one (elements and
-// components). Keyed matching therefore works uniformly whether list rows are
-// elements or components.
-func keyOf(n core.Node) (any, bool) {
-	var k any
+// contentList is a scope's content as a child list.
+func contentList(n core.Node) []core.Node {
 	switch v := n.(type) {
-	case *core.ElementNode:
-		if v != nil {
-			k = v.Key
-		}
-	case *core.ComponentNode:
-		if v != nil {
-			k = v.Key
-		}
-	}
-	if k == nil {
-		return nil, false
-	}
-	if !runtime.Comparable(k) {
-		// Keys index a map; an uncomparable key (slice, map, …) would panic.
-		// Treat the row as unkeyed instead and say so once per key type.
-		warnUncomparableKey(k)
-		return nil, false
-	}
-	return k, true
-}
-
-var warnedKeyTypes = map[string]bool{}
-
-func warnUncomparableKey(k any) {
-	t := fmt.Sprintf("%T", k)
-	if warnedKeyTypes[t] {
-		return
-	}
-	warnedKeyTypes[t] = true
-	core.Log(core.LogWarn, "uncomparable key; row matched positionally instead", map[string]any{
-		"keyType": t,
-	})
-}
-
-func hasAnyKey(nodes []core.Node) bool {
-	for _, n := range nodes {
-		if _, ok := keyOf(n); ok {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *DOMRenderer) diffChildrenPositional(parentID int, old, new []core.Node, muts *[]core.Mutation) {
-	var created []bool
-	var ids []int
-
-	maxLen := len(old)
-	if len(new) > maxLen {
-		maxLen = len(new)
-	}
-
-	// Pass 1: pair positionally. Surplus old children (i >= len(new)) are
-	// paired with nil, which makes diffNode remove them — so no separate
-	// removal pass is needed. A node is "created" when diffNode had to
-	// render it fresh (old was nil, or a type/tag mismatch forced a swap).
-	for i := 0; i < maxLen; i++ {
-		var oldChild, newChild core.Node
-		if i < len(old) {
-			oldChild = old[i]
-		}
-		if i < len(new) {
-			newChild = new[i]
-		}
-
-		oldID := nodeID(oldChild)
-		childID := r.diffNode(oldChild, newChild, muts)
-		created = append(created, newChild != nil && childID != oldID)
-		ids = append(ids, childID)
-	}
-
-	// Pass 2: place created children. Reused children keep their position
-	// under positional matching, so they never move.
-	refID := 0
-	for i := len(new) - 1; i >= 0; i-- {
-		if created[i] && ids[i] != 0 {
-			*muts = append(*muts, core.Mutation{
-				Type: core.MutInsertBefore, NodeID: parentID,
-				ChildID: ids[i], RefID: refID,
-			})
-		}
-		if ids[i] != 0 {
-			refID = ids[i]
-		}
-	}
-}
-
-func (r *DOMRenderer) diffChildrenKeyed(parentID int, old, new []core.Node, muts *[]core.Mutation) {
-	oldByKey := map[any]int{}
-	oldUnkeyed := []int{}
-	for i, n := range old {
-		if k, ok := keyOf(n); ok {
-			if _, dup := oldByKey[k]; dup {
-				core.Log(core.LogWarn, "duplicate key in keyed children; treating extra as unkeyed", map[string]any{
-					"key": k,
-				})
-				continue
-			}
-			oldByKey[k] = i
-		} else {
-			oldUnkeyed = append(oldUnkeyed, i)
-		}
-	}
-
-	paired := make([]bool, len(old))
-	oldIndexForNew := make([]int, len(new))
-	newIDs := make([]int, len(new))
-
-	unkeyedIdx := 0
-	for i, n := range new {
-		oldIndexForNew[i] = -1
-		if k, ok := keyOf(n); ok {
-			if oldIdx, ok := oldByKey[k]; ok {
-				if paired[oldIdx] {
-					core.Log(core.LogWarn, "duplicate key in keyed children; treating extra as unkeyed", map[string]any{
-						"key": k,
-					})
-					continue
-				}
-				paired[oldIdx] = true
-				oldIndexForNew[i] = oldIdx
-			}
-		} else {
-			for unkeyedIdx < len(oldUnkeyed) {
-				oi := oldUnkeyed[unkeyedIdx]
-				unkeyedIdx++
-				if !paired[oi] && typeCompatible(old[oi], n) {
-					paired[oi] = true
-					oldIndexForNew[i] = oi
-					break
-				}
-			}
-		}
-	}
-
-	for i := len(new) - 1; i >= 0; i-- {
-		var oldChild core.Node
-		if oldIndexForNew[i] >= 0 {
-			oldChild = old[oldIndexForNew[i]]
-		}
-		newIDs[i] = r.diffNode(oldChild, new[i], muts)
-	}
-
-	for i, n := range old {
-		if !paired[i] {
-			r.emitRemoveTree(n, muts)
-		}
-	}
-
-	// LIS optimisation: compute which existing elements already appear in the
-	// correct relative order and skip DOM moves for them. Only elements NOT in
-	// the LIS (plus new elements) need insertBefore mutations.
-	needsMove := computeNeedsMove(oldIndexForNew)
-
-	refID := 0
-	for i := len(new) - 1; i >= 0; i-- {
-		if newIDs[i] != 0 {
-			if needsMove[i] {
-				*muts = append(*muts, core.Mutation{
-					Type: core.MutInsertBefore, NodeID: parentID,
-					ChildID: newIDs[i], RefID: refID,
-				})
-			}
-			refID = newIDs[i]
-		}
-	}
-}
-
-// computeNeedsMove returns a boolean slice parallel to oldIndexForNew where
-// true means the element at that new position needs a DOM mutation. New
-// elements (oldIdx == -1) always need a move; existing elements whose old
-// index is NOT part of the longest increasing subsequence (by old index,
-// ordered by new position) need a move; the rest stay in place.
-func computeNeedsMove(oldIndexForNew []int) []bool {
-	n := len(oldIndexForNew)
-	needsMove := make([]bool, n)
-
-	// Extract kept (existing) old indices in new-list order.
-	kept := make([]int, 0, n)
-	keptPos := make([]int, 0, n)
-	for i, oldIdx := range oldIndexForNew {
-		if oldIdx >= 0 {
-			kept = append(kept, oldIdx)
-			keptPos = append(keptPos, i)
-		} else {
-			needsMove[i] = true // new element, always needs a move
-		}
-	}
-	if len(kept) == 0 {
-		return needsMove
-	}
-
-	// LIS over kept old indices: which are already in the correct order?
-	inLIS := lis(kept)
-
-	for i, in := range inLIS {
-		if !in {
-			needsMove[keptPos[i]] = true
-		}
-	}
-	return needsMove
-}
-
-// lis computes the longest increasing subsequence on arr (O(n²) DP).
-// Returns a boolean slice where true means the element at that index is
-// part of one longest increasing subsequence.
-func lis(arr []int) []bool {
-	n := len(arr)
-	if n == 0 {
+	case nil:
 		return nil
-	}
-
-	dp := make([]int, n)
-	maxLen := 0
-	for i := 0; i < n; i++ {
-		dp[i] = 1
-		for j := 0; j < i; j++ {
-			if arr[j] < arr[i] && dp[j]+1 > dp[i] {
-				dp[i] = dp[j] + 1
-			}
-		}
-		if dp[i] > maxLen {
-			maxLen = dp[i]
-		}
-	}
-
-	inLIS := make([]bool, n)
-	if maxLen == 0 {
-		return inLIS
-	}
-
-	// Reconstruct from the right: pick the rightmost element with dp = target
-	// and value < previously picked value (greedy backwards walk).
-	target := maxLen
-	prev := int(^uint(0) >> 1) // max int
-	for i := n - 1; i >= 0; i-- {
-		if dp[i] == target && arr[i] < prev {
-			inLIS[i] = true
-			target--
-			prev = arr[i]
-		}
-	}
-	return inLIS
-}
-
-func typeCompatible(a, b core.Node) bool {
-	if a == nil || b == nil {
-		return false
-	}
-	switch va := a.(type) {
-	case *core.ElementNode:
-		vb, ok := b.(*core.ElementNode)
-		return ok && va.Tag == vb.Tag
-	case *core.TextNode:
-		_, ok := b.(*core.TextNode)
-		return ok
-	case *core.RawNode:
-		_, ok := b.(*core.RawNode)
-		return ok
 	case *core.FragmentNode:
-		_, ok := b.(*core.FragmentNode)
-		return ok
-	case *core.ScopeNode:
-		_, ok := b.(*core.ScopeNode)
-		return ok
-	case *core.ComponentNode:
-		vb, ok := b.(*core.ComponentNode)
-		return ok && va.Name == vb.Name
+		return v.Children
+	default:
+		return []core.Node{n}
 	}
-	return false
 }
+
+// ---------------------------------------------------------------------------
+// Removal
+// ---------------------------------------------------------------------------
 
 func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 	r.disposeReactive(n)
@@ -1082,8 +600,8 @@ func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 }
 
 // disposeReactive tears down the reactive resources of a subtree being
-// removed: each component frame (its effects, and the Computed/Watch
-// subscriptions registered on it) and each scope's dep-subscriptions. It
+// removed: each component frame (its effects, and the Watch subscriptions
+// registered on it) and each scope's dep-subscriptions and render owner. It
 // walks the node tree so every frame is disposed exactly once
 // (RunFrameCleanup does not recurse into child frames).
 func (r *DOMRenderer) disposeReactive(n core.Node) {
@@ -1116,18 +634,126 @@ func (r *DOMRenderer) disposeReactive(n core.Node) {
 			hooks.RunFrameCleanup(v.Frame)
 		}
 	case *core.ScopeNode:
-		for _, u := range v.Unsubs {
-			if u != nil {
-				u()
-			}
-		}
-		v.Unsubs = nil
+		unsubscribeScope(v)
 		// Drop any pending re-render: this scope's subtree is being removed.
 		r.Scheduler.CancelDirty(v)
+		if info := r.scopes[v]; info != nil {
+			if info.owner != nil {
+				hooks.RunFrameCleanup(info.owner)
+			}
+			delete(r.scopes, v)
+		}
 		if v.Prev != nil {
 			r.disposeReactive(v.Prev)
 		}
 	case *core.RawNode:
 		// Leaf node — nothing to dispose.
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Roots
+// ---------------------------------------------------------------------------
+
+// rootIDs lists the DOM nodes n contributes to its parent, in document order:
+// an element/text/raw node itself; a fragment's, component's, or boundary's
+// content; a scope's content followed by its anchor. Portals and metadata
+// contribute nothing — their content lives in another container.
+func rootIDs(n core.Node) []int {
+	var out []int
+	appendRoots(n, &out)
+	return out
+}
+
+func appendRoots(n core.Node, out *[]int) {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		if v != nil && v.ID != 0 {
+			*out = append(*out, v.ID)
+		}
+	case *core.TextNode:
+		if v != nil && v.ID != 0 {
+			*out = append(*out, v.ID)
+		}
+	case *core.RawNode:
+		if v != nil && v.ID != 0 {
+			*out = append(*out, v.ID)
+		}
+	case *core.FragmentNode:
+		if v != nil {
+			for _, c := range v.Children {
+				appendRoots(c, out)
+			}
+		}
+	case *core.ComponentNode:
+		if v != nil {
+			appendRoots(v.Prev, out)
+		}
+	case *core.ErrorBoundaryNode:
+		if v != nil {
+			appendRoots(v.Prev, out)
+		}
+	case *core.ScopeNode:
+		if v != nil {
+			appendRoots(v.Prev, out)
+			if v.Anchor != 0 {
+				*out = append(*out, v.Anchor)
+			}
+		}
+	}
+}
+
+// firstRoot is rootIDs(n)[0] without allocating (0 when n has no roots).
+func firstRoot(n core.Node) int {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		if v != nil {
+			return v.ID
+		}
+	case *core.TextNode:
+		if v != nil {
+			return v.ID
+		}
+	case *core.RawNode:
+		if v != nil {
+			return v.ID
+		}
+	case *core.FragmentNode:
+		if v != nil {
+			for _, c := range v.Children {
+				if id := firstRoot(c); id != 0 {
+					return id
+				}
+			}
+		}
+	case *core.ComponentNode:
+		if v != nil {
+			return firstRoot(v.Prev)
+		}
+	case *core.ErrorBoundaryNode:
+		if v != nil {
+			return firstRoot(v.Prev)
+		}
+	case *core.ScopeNode:
+		if v != nil {
+			if id := firstRoot(v.Prev); id != 0 {
+				return id
+			}
+			return v.Anchor
+		}
+	}
+	return 0
+}
+
+var warnedKeyTypes = map[string]bool{}
+
+func warnUncomparableKey(k any) {
+	t := fmt.Sprintf("%T", k)
+	if warnedKeyTypes[t] {
+		return
+	}
+	warnedKeyTypes[t] = true
+	core.Log(core.LogWarn, "uncomparable key; row matched positionally instead", map[string]any{
+		"keyType": t,
+	})
 }

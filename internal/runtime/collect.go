@@ -40,6 +40,9 @@ func CollectIDs(n core.Node) []int {
 		if v.Prev != nil {
 			ids = append(ids, CollectIDs(v.Prev)...)
 		}
+		if v.Anchor > 0 {
+			ids = append(ids, v.Anchor)
+		}
 	}
 	return ids
 }

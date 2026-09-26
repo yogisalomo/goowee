@@ -300,7 +300,15 @@ func (v *ssrVisitor) VisitComponentLeave(cn *core.ComponentNode, innerID int) {}
 
 func (v *ssrVisitor) VisitScopeEnter(sn *core.ScopeNode) {}
 
-func (v *ssrVisitor) VisitScopeLeave(sn *core.ScopeNode, innerID int) {}
+// VisitScopeLeave writes the scope's end anchor as a <!--/{id}--> comment; the
+// client claims it on hydration and inserts re-rendered content before it.
+func (v *ssrVisitor) VisitScopeLeave(sn *core.ScopeNode, innerID int) int {
+	v.r.Meta.NodeMap[sn.Anchor] = v.path
+	if !v.silent {
+		fmt.Fprintf(v.buf, "<!--/%d-->", sn.Anchor)
+	}
+	return innerID
+}
 
 func (v *ssrVisitor) VisitRaw(id int, rn *core.RawNode) {
 	if rn == nil {
