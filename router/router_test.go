@@ -451,3 +451,76 @@ func TestBasePathLinkAndNavigate(t *testing.T) {
 		t.Fatalf("pushState url = %q, want /goowee/counter", pushed)
 	}
 }
+
+// SubRoute used to range over its routes map, so overlapping patterns matched
+// at random (#62). It must be as deterministic as Route: most specific wins.
+func TestSubRouteMatchingIsDeterministic(t *testing.T) {
+	for i := 0; i < 300; i++ {
+		r := New("/users/42")
+		var got string
+		sub := r.SubRoute("/users", map[string]func() core.Node{
+			"/:id":       func() core.Node { got = "param"; return &core.ElementNode{Tag: "p"} },
+			"/*":         func() core.Node { got = "wildcard"; return &core.ElementNode{Tag: "p"} },
+			"/:id/edit":  func() core.Node { got = "edit"; return &core.ElementNode{Tag: "p"} },
+			"/new/*":     func() core.Node { got = "new"; return &core.ElementNode{Tag: "p"} },
+			"/:a/:b/*":   func() core.Node { got = "deep"; return &core.ElementNode{Tag: "p"} },
+			"/:x/:y/:z/": func() core.Node { got = "three"; return &core.ElementNode{Tag: "p"} },
+		}).(*core.ScopeNode)
+		sub.Render()
+		if got != "param" {
+			t.Fatalf("run %d: /users/42 should match /:id, got %q", i, got)
+		}
+		if r.Param("id") != "42" {
+			t.Fatalf("run %d: want id=42, got %q", i, r.Param("id"))
+		}
+		r.Path.Set("/users/new/x")
+		sub.Render()
+		if got != "new" {
+			t.Fatalf("run %d: /users/new/x should match /new/* (a literal beats params), got %q", i, got)
+		}
+	}
+}
+
+// A sub-route's params merge into the parent route's instead of replacing them,
+// and a later render drops the keys it no longer matches.
+func TestSubRouteMergesAndClearsParams(t *testing.T) {
+	r := New("/org/acme/widgets")
+	var repo string
+	route := r.Route(map[string]func() core.Node{
+		"/org/:org/*": func() core.Node {
+			return r.SubRoute("/org/"+r.Param("org"), map[string]func() core.Node{
+				"/":      func() core.Node { repo = ""; return &core.ElementNode{Tag: "p"} },
+				"/:repo": func() core.Node { repo = r.Param("repo"); return &core.ElementNode{Tag: "p"} },
+			})
+		},
+	})
+	sub := route.Render().(*core.ScopeNode)
+	sub.Render()
+	if r.Param("org") != "acme" || repo != "widgets" {
+		t.Fatalf("want org=acme repo=widgets, got org=%q repo=%q", r.Param("org"), repo)
+	}
+
+	r.Path.Set("/org/acme")
+	sub = route.Render().(*core.ScopeNode)
+	sub.Render()
+	if r.Param("org") != "acme" || r.Param("repo") != "" {
+		t.Fatalf("after leaving /:repo want org=acme and no repo, got %v", r.Params().Get())
+	}
+
+	// Without a parent Route resetting params, the sub-route still drops its
+	// own stale keys.
+	r2 := New("/users/7")
+	s2 := r2.SubRoute("/users", map[string]func() core.Node{
+		"/":    func() core.Node { return &core.ElementNode{Tag: "p"} },
+		"/:id": func() core.Node { return &core.ElementNode{Tag: "p"} },
+	}).(*core.ScopeNode)
+	s2.Render()
+	if r2.Param("id") != "7" {
+		t.Fatalf("want id=7, got %q", r2.Param("id"))
+	}
+	r2.Path.Set("/users")
+	s2.Render()
+	if r2.Param("id") != "" {
+		t.Fatalf("stale sub-route param survived: %v", r2.Params().Get())
+	}
+}

@@ -164,24 +164,7 @@ func (r *Router) SetQueryParamPush(name, value string) {
 // deterministic regardless of Go's randomized map iteration. "/404" is the
 // fallback if present.
 func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
-	// Compile non-exact patterns (params or prefix wildcards) once, ordered
-	// most-specific-first.
-	var matchers []routeMatcher
-	for pattern, fn := range routes {
-		if strings.Contains(pattern, ":") || strings.HasSuffix(pattern, "/*") {
-			matchers = append(matchers, compileMatcher(pattern, fn))
-		}
-	}
-	sort.Slice(matchers, func(i, j int) bool {
-		if matchers[i].literals != matchers[j].literals {
-			return matchers[i].literals > matchers[j].literals
-		}
-		if matchers[i].wildcard != matchers[j].wildcard {
-			return !matchers[i].wildcard // non-wildcard is more specific
-		}
-		return len(matchers[i].segs) > len(matchers[j].segs)
-	})
-
+	matchers := compileRoutes(routes)
 	return &core.ScopeNode{
 		Deps: []core.SignalAccessor{r.Path},
 		Render: func() core.Node {
@@ -190,12 +173,9 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 				r.setParams(nil)
 				return fn()
 			}
-			pathSegs := segsOf(path)
-			for _, m := range matchers {
-				if params, ok := m.match(pathSegs); ok {
-					r.setParams(params)
-					return m.fn()
-				}
+			if fn, params, ok := matchCompiled(matchers, path); ok {
+				r.setParams(params)
+				return fn()
 			}
 			r.setParams(nil)
 			if fn, ok := routes["/404"]; ok {
@@ -208,9 +188,14 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 
 // SubRoute creates a nested route group under prefix. When the current path
 // starts with prefix, the prefix is stripped and routing continues against
-// the sub-routes. Returns nothing (empty FragmentNode) when the prefix doesn't
-// match, so it can be placed inside a parent route handler that provides the
-// surrounding layout.
+// the sub-routes, with the same deterministic most-specific-first matching as
+// Route. Returns nothing (empty FragmentNode) when the prefix doesn't match, so
+// it can be placed inside a parent route handler that provides the surrounding
+// layout.
+//
+// Params captured by a sub-route are merged into the parent route's params, so
+// under "/org/:org/*" a sub-route "/:repo" exposes both Param("org") and
+// Param("repo").
 //
 //	r.Route(map[string]func() core.Node{
 //	    "/dashboard/*": func() core.Node {
@@ -224,46 +209,95 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 //	    },
 //	})
 func (r *Router) SubRoute(prefix string, routes map[string]func() core.Node) core.Node {
+	matchers := compileRoutes(routes)
+	// Keys this sub-route contributed on its last render, so a later render
+	// can drop them before merging its own (no stale sub-params).
+	var lastKeys []string
+	merge := func(sub map[string]string) {
+		if len(sub) == 0 && len(lastKeys) == 0 {
+			return
+		}
+		merged := copyParams(r.params.Get())
+		for _, k := range lastKeys {
+			delete(merged, k)
+		}
+		lastKeys = lastKeys[:0]
+		for k, v := range sub {
+			merged[k] = v
+			lastKeys = append(lastKeys, k)
+		}
+		r.setParams(merged)
+	}
 	// A scope that re-matches the sub-routes whenever the path changes. It runs
 	// on the render loop, so no locking is needed (ADR-010).
 	return &core.ScopeNode{
 		Deps: []core.SignalAccessor{r.Path},
 		Render: func() core.Node {
 			path := r.Path.Get()
-			if path == prefix {
-				return matchRoute(r, "/", routes)
+			var sub string
+			switch {
+			case path == prefix:
+				sub = "/"
+			case strings.HasPrefix(path, prefix+"/"):
+				sub = path[len(prefix):]
+			default:
+				merge(nil)
+				return &core.FragmentNode{}
 			}
-			if strings.HasPrefix(path, prefix+"/") {
-				return matchRoute(r, path[len(prefix):], routes)
+			if fn, ok := routes[sub]; ok {
+				merge(nil)
+				return fn()
+			}
+			if fn, params, ok := matchCompiled(matchers, sub); ok {
+				merge(params)
+				return fn()
+			}
+			merge(nil)
+			if fn, ok := routes["/404"]; ok {
+				return fn()
 			}
 			return &core.FragmentNode{}
 		},
 	}
 }
 
-// matchRoute is like Route's internal dispatch but without the sticky params
-// and without compiling routes (SubRoute routes are already compiled).
-func matchRoute(r *Router, path string, routes map[string]func() core.Node) core.Node {
-	if fn, ok := routes[path]; ok {
-		return fn()
-	}
-
-	pathSegs := segsOf(path)
+// compileRoutes compiles the non-exact patterns (params or prefix wildcards)
+// once, ordered most-specific-first: more literal segments first, then
+// non-wildcard over wildcard, then longer patterns, then the pattern text as a
+// final tie-break — so matching never depends on Go's randomized map order.
+func compileRoutes(routes map[string]func() core.Node) []routeMatcher {
+	var matchers []routeMatcher
 	for pattern, fn := range routes {
-		if !strings.Contains(pattern, ":") && !strings.HasSuffix(pattern, "/*") {
-			continue
-		}
-		m := compileMatcher(pattern, fn)
-		if params, ok := m.match(pathSegs); ok {
-			r.setParams(params)
-			return fn()
+		if strings.Contains(pattern, ":") || strings.HasSuffix(pattern, "/*") {
+			matchers = append(matchers, compileMatcher(pattern, fn))
 		}
 	}
+	sort.Slice(matchers, func(i, j int) bool {
+		a, b := matchers[i], matchers[j]
+		if a.literals != b.literals {
+			return a.literals > b.literals
+		}
+		if a.wildcard != b.wildcard {
+			return !a.wildcard // non-wildcard is more specific
+		}
+		if len(a.segs) != len(b.segs) {
+			return len(a.segs) > len(b.segs)
+		}
+		return a.pattern < b.pattern
+	})
+	return matchers
+}
 
-	if fn, ok := routes["/404"]; ok {
-		return fn()
+// matchCompiled returns the handler and params of the first (most specific)
+// matcher that accepts path.
+func matchCompiled(matchers []routeMatcher, path string) (func() core.Node, map[string]string, bool) {
+	pathSegs := segsOf(path)
+	for _, m := range matchers {
+		if params, ok := m.match(pathSegs); ok {
+			return m.fn, params, true
+		}
 	}
-	return &core.FragmentNode{}
+	return nil, nil, false
 }
 
 // Guard wraps a route handler with an access check. If check returns true,
@@ -298,6 +332,7 @@ func Lazy(load func() func() core.Node) func() core.Node {
 }
 
 type routeMatcher struct {
+	pattern  string
 	segs     []string // pattern segments; a trailing "*" matches the rest
 	wildcard bool     // last segment is "*"
 	literals int      // count of fixed (non-param, non-wildcard) segments
@@ -305,7 +340,7 @@ type routeMatcher struct {
 }
 
 func compileMatcher(pattern string, fn func() core.Node) routeMatcher {
-	m := routeMatcher{segs: segsOf(pattern), fn: fn}
+	m := routeMatcher{pattern: pattern, segs: segsOf(pattern), fn: fn}
 	for _, s := range m.segs {
 		switch {
 		case s == "*":
