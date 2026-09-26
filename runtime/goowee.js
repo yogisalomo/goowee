@@ -389,7 +389,8 @@ window.applyMutations = function applyMutations(json) {
                 break;
             case 2: // SetAttribute
                 el = nodeMap[mut.nodeId];
-                if (el) el.setAttribute(mut.key, mut.value);
+                // Go validates names; a throw here must not abort the batch.
+                if (el) try { el.setAttribute(mut.key, mut.value); } catch (err) { console.error("goowee: setAttribute", mut.key, err); }
                 break;
             case 3: // SetProperty
                 el = nodeMap[mut.nodeId];
@@ -434,7 +435,7 @@ window.applyMutations = function applyMutations(json) {
             }
             case 6: { // RemoveAttribute
                 el = nodeMap[mut.nodeId];
-                if (el) el.removeAttribute(mut.key);
+                if (el) try { el.removeAttribute(mut.key); } catch (err) { console.error("goowee: removeAttribute", mut.key, err); }
                 break;
             }
             case 8: { // Invoke — call a method on a node (refs: focus/blur/…)

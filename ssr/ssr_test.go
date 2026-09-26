@@ -33,8 +33,10 @@ func TestSSRRender(t *testing.T) {
 	}
 }
 
-func TestSSRWithMeta(t *testing.T) {
-	count := core.NewSignal(0)
+// A bound textContent is rendered as the element's content (the client sets
+// it as a property; SSR used to leave the element empty until an update).
+func TestSSRBoundTextContent(t *testing.T) {
+	count := core.NewSignal(7)
 	n := &core.ElementNode{
 		Tag:   "button",
 		Attrs: []core.Attr{{Name: "class", Value: "btn"}},
@@ -42,21 +44,9 @@ func TestSSRWithMeta(t *testing.T) {
 			Target: core.BindToProp, Name: "textContent", Signal: count,
 		}},
 	}
-	r := New()
-	html, meta := r.RenderWithMeta(n, "root/0", []core.SignalAccessor{count})
-
-	if !strings.Contains(html, "data-node-id") {
-		t.Fatal("expected data-node-id")
-	}
-	if meta.NodeMap[1] != "root/0" {
-		t.Fatalf("expected NodeMap[1]=root/0, got %q", meta.NodeMap[1])
-	}
-	deps, ok := meta.Deps[1]
-	if !ok || len(deps) != 1 {
-		t.Fatal("expected Deps[1]")
-	}
-	if deps[0].ComponentPath != "root/0" {
-		t.Fatalf("expected path root/0, got %q", deps[0].ComponentPath)
+	html, _ := New().Render(n)
+	if html != `<button data-node-id="1" class="btn">7</button>` {
+		t.Fatalf("got %s", html)
 	}
 }
 
@@ -82,14 +72,9 @@ func TestSSRTextNodeSignal(t *testing.T) {
 			&core.TextNode{Value: label},
 		},
 	}
-	r := New()
-	html, meta := r.RenderWithMeta(n, "root/greeting", []core.SignalAccessor{label})
-
-	if !strings.Contains(html, "hello") {
-		t.Fatal("expected text")
-	}
-	if len(meta.NodeMap) < 2 {
-		t.Fatal("expected at least 2 nodes in NodeMap")
+	html, _ := New().Render(n)
+	if html != `<p data-node-id="1"><!--g2-->hello</p>` {
+		t.Fatalf("got %s", html)
 	}
 }
 

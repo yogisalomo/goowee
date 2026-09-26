@@ -151,12 +151,7 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 		})
 		dynamic := r.hydrateDynamic || el.Dynamic
 		if dynamic {
-			for _, a := range el.Attrs {
-				*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetAttribute, NodeID: id, Key: a.Name, Value: a.Value})
-			}
-			for _, p := range el.Props {
-				*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: p.Name, Value: p.Value})
-			}
+			r.emitAttrs(id, el)
 		}
 		for _, b := range el.Binds {
 			r.Bindings.Bind(id, b)
@@ -186,12 +181,7 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 		Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: el.Tag, NS: ns,
 	})
 
-	for _, a := range el.Attrs {
-		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetAttribute, NodeID: id, Key: a.Name, Value: a.Value})
-	}
-	for _, p := range el.Props {
-		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: p.Name, Value: p.Value})
-	}
+	r.emitAttrs(id, el)
 	for _, b := range el.Binds {
 		r.Bindings.Bind(id, b)
 		*r.muts = append(*r.muts, runtime.MutationForBind(id, b))
@@ -210,6 +200,22 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 	}
 	r.currentNS = prevNS
 	r.parentStack = r.parentStack[:len(r.parentStack)-1]
+}
+
+// emitAttrs emits an element's static attributes and properties — skipping
+// invalid attribute names (setAttribute would throw) and blocking script URLs,
+// with the same rules as SSR.
+func (r *DOMRenderer) emitAttrs(id int, el *core.ElementNode) {
+	for _, a := range el.Attrs {
+		if !runtime.ValidAttrName(a.Name) {
+			runtime.WarnInvalidAttr(a.Name)
+			continue
+		}
+		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetAttribute, NodeID: id, Key: a.Name, Value: runtime.SafeURL(a.Name, a.Value)})
+	}
+	for _, p := range el.Props {
+		*r.muts = append(*r.muts, core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: p.Name, Value: runtime.SafeURLValue(p.Name, p.Value)})
+	}
 }
 
 func (r *DOMRenderer) VisitText(id int, tn *core.TextNode) {

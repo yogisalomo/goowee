@@ -9,46 +9,30 @@ import (
 	"github.com/yogisalomo/goowee/internal/walker"
 )
 
-type SlotRef struct {
-	ComponentPath string
-	HookIndex     int
-}
-
-type HydrationMeta struct {
-	NodeMap map[int]string
-	Deps    map[int][]SlotRef
-}
-
+// Renderer renders a node tree to HTML. Use one Renderer per render (they are
+// cheap); separate renders may run concurrently (ADR-024).
 type Renderer struct {
 	walker.Walker
-	Meta    HydrationMeta
 	headBuf strings.Builder
 }
 
 func New() *Renderer {
-	return &Renderer{
-		Walker: *walker.New(),
-		Meta: HydrationMeta{
-			NodeMap: make(map[int]string),
-			Deps:    make(map[int][]SlotRef),
-		},
-	}
+	return &Renderer{Walker: *walker.New()}
 }
 
 func (r *Renderer) Reset() {
 	r.Walker.Reset()
-	r.Meta = HydrationMeta{
-		NodeMap: make(map[int]string),
-		Deps:    make(map[int][]SlotRef),
-	}
+	r.headBuf.Reset()
 }
 
+// Render returns the body HTML of n and the <head> HTML its Metadata produced.
+// Effects don't run on the server, and no lock is held: concurrent requests
+// render in parallel.
 func (r *Renderer) Render(n core.Node) (body, head string) {
-	r.headBuf.Reset()
-	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
+	runtime.ServerRender(func() {
 		r.Reset()
 		var buf strings.Builder
-		v := &ssrVisitor{r: r, buf: &buf, path: ""}
+		v := &ssrVisitor{r: r, buf: &buf}
 		r.Walker.Walk(n, v)
 		body = buf.String()
 		head = r.headBuf.String()
@@ -56,39 +40,60 @@ func (r *Renderer) Render(n core.Node) (body, head string) {
 	return
 }
 
-func (r *Renderer) RenderWithMeta(n core.Node, path string, hooks []core.SignalAccessor) (string, HydrationMeta) {
-	var out string
-	var meta HydrationMeta
-	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
-		r.Reset()
-		r.headBuf.Reset()
-		var buf strings.Builder
-		v := &ssrVisitor{r: r, buf: &buf, path: path, hooks: hooks}
-		r.Walker.Walk(n, v)
-		out = buf.String()
-		meta = r.Meta
-	})
-	return out, meta
-}
-
 // ssrVisitor implements walker.Visitor for the SSR renderer.
 type ssrVisitor struct {
-	r       *Renderer
-	buf     *strings.Builder
-	path    string
-	hooks   []core.SignalAccessor
-	hookIdx int
-	silent  bool // when true, VisitElement/VisitText don't write to buffer
+	r      *Renderer
+	buf    *strings.Builder
+	silent bool // when true, VisitElement/VisitText don't write to buffer
 }
 
 var _ walker.Visitor = (*ssrVisitor)(nil)
+
+// writeAttr writes one attribute, skipping invalid names and blocking script
+// URLs (shared with the DOM renderer, so both sides agree).
+func (v *ssrVisitor) writeAttr(name, value string) {
+	if !runtime.ValidAttrName(name) {
+		runtime.WarnInvalidAttr(name)
+		return
+	}
+	v.buf.WriteByte(' ')
+	v.buf.WriteString(name)
+	v.buf.WriteString(`="`)
+	v.buf.WriteString(escapeAttr(runtime.SafeURL(name, value)))
+	v.buf.WriteByte('"')
+}
+
+func (v *ssrVisitor) writeBoolAttr(name string) {
+	v.buf.WriteByte(' ')
+	v.buf.WriteString(name)
+}
+
+// writeProp renders a property that has an attribute form (value, checked,
+// disabled, …); other properties exist only on the live DOM node.
+func (v *ssrVisitor) writeProp(name string, value any) {
+	attrName, ok := propToAttr[name]
+	if !ok {
+		return
+	}
+	if attrName == "" {
+		attrName = name
+	}
+	switch val := value.(type) {
+	case bool:
+		if val {
+			v.writeBoolAttr(attrName)
+		}
+	case string:
+		v.writeAttr(attrName, val)
+	default:
+		v.writeAttr(attrName, fmt.Sprint(val))
+	}
+}
 
 func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(core.Node) int) {
 	if el == nil {
 		return
 	}
-	v.r.Meta.NodeMap[id] = v.path
-
 	if v.silent {
 		for _, child := range el.Children {
 			walkChild(child)
@@ -101,71 +106,16 @@ func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(c
 	fmt.Fprintf(v.buf, ` data-node-id="%d"`, id)
 
 	for _, a := range el.Attrs {
-		if a.Name == "" || !isValidAttrName(a.Name) {
-			core.Log(core.LogWarn, "skipping invalid attribute name", map[string]any{
-				"name": a.Name,
-			})
-			continue
-		}
-		fmt.Fprintf(v.buf, ` %s="%s"`, a.Name, escapeAttr(a.Value))
+		v.writeAttr(a.Name, a.Value)
 	}
-
 	for _, p := range el.Props {
-		attrName, ok := propToAttr[p.Name]
-		if !ok {
-			continue
-		}
-		switch p.Value.(type) {
-		case bool:
-			if p.Value.(bool) {
-				if attrName == "" {
-					fmt.Fprintf(v.buf, ` %s`, p.Name)
-				} else {
-					fmt.Fprintf(v.buf, ` %s`, attrName)
-				}
-			}
-		case string:
-			val := p.Value.(string)
-			if attrName == "" {
-				attrName = p.Name
-			}
-			fmt.Fprintf(v.buf, ` %s="%s"`, attrName, escapeAttr(val))
-		default:
-			if attrName == "" {
-				attrName = p.Name
-			}
-			fmt.Fprintf(v.buf, ` %s="%v"`, attrName, escapeAttr(fmt.Sprintf("%v", p.Value)))
-		}
+		v.writeProp(p.Name, p.Value)
 	}
-
 	for _, b := range el.Binds {
-		val := fmt.Sprintf("%v", b.Signal.Value())
-		v.r.Meta.Deps[id] = append(v.r.Meta.Deps[id], SlotRef{
-			ComponentPath: v.path,
-			HookIndex:     v.hookIdx + len(v.r.Meta.Deps[id]),
-		})
 		if b.Target == core.BindToAttr {
-			fmt.Fprintf(v.buf, ` %s="%s"`, b.Name, escapeAttr(val))
+			v.writeAttr(b.Name, fmt.Sprint(b.Signal.Value()))
 		} else {
-			attrName, ok := propToAttr[b.Name]
-			if !ok {
-				continue
-			}
-			switch b.Signal.Value().(type) {
-			case bool:
-				if b.Signal.Value().(bool) {
-					if attrName == "" {
-						fmt.Fprintf(v.buf, ` %s`, b.Name)
-					} else {
-						fmt.Fprintf(v.buf, ` %s`, attrName)
-					}
-				}
-			default:
-				if attrName == "" {
-					attrName = b.Name
-				}
-				fmt.Fprintf(v.buf, ` %s="%s"`, attrName, escapeAttr(val))
-			}
+			v.writeProp(b.Name, b.Signal.Value())
 		}
 	}
 
@@ -175,24 +125,48 @@ func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(c
 		return
 	}
 
-	oldPath := v.path
-	for i, child := range el.Children {
-		v.path = oldPath + "/" + itoa(i)
-		walkChild(child)
+	// A textContent property (static or bound) replaces the element's
+	// children on the client; render it as the content here too.
+	if text, ok := textContentOf(el); ok {
+		v.buf.WriteString(escapeHTML(text))
+		for _, child := range el.Children {
+			v.silentWalk(walkChild, child)
+		}
+	} else {
+		for _, child := range el.Children {
+			walkChild(child)
+		}
 	}
-	v.path = oldPath
 
 	v.buf.WriteString("</")
 	v.buf.WriteString(el.Tag)
 	v.buf.WriteString(">")
 }
 
-func (v *ssrVisitor) VisitText(id int, tn *core.TextNode) {
-	if tn == nil {
-		return
+func textContentOf(el *core.ElementNode) (string, bool) {
+	for _, b := range el.Binds {
+		if b.Target == core.BindToProp && b.Name == "textContent" {
+			return runtime.TextValue(b.Signal.Value()), true
+		}
 	}
-	v.r.Meta.NodeMap[id] = v.path
-	if v.silent {
+	for _, p := range el.Props {
+		if p.Name == "textContent" {
+			return runtime.TextValue(p.Value), true
+		}
+	}
+	return "", false
+}
+
+// silentWalk walks a child for id parity without writing it.
+func (v *ssrVisitor) silentWalk(walkChild func(core.Node) int, child core.Node) {
+	old := v.silent
+	v.silent = true
+	walkChild(child)
+	v.silent = old
+}
+
+func (v *ssrVisitor) VisitText(id int, tn *core.TextNode) {
+	if tn == nil || v.silent {
 		return
 	}
 	fmt.Fprintf(v.buf, "<!--g%d-->", id)
@@ -200,11 +174,7 @@ func (v *ssrVisitor) VisitText(id int, tn *core.TextNode) {
 	case string:
 		v.buf.WriteString(escapeHTML(val))
 	case core.SignalAccessor:
-		v.r.Meta.Deps[id] = append(v.r.Meta.Deps[id], SlotRef{
-			ComponentPath: v.path,
-			HookIndex:     v.hookIdx,
-		})
-		v.buf.WriteString(escapeHTML(fmt.Sprintf("%v", val.Value())))
+		v.buf.WriteString(escapeHTML(runtime.TextValue(val.Value())))
 	}
 }
 
@@ -212,12 +182,9 @@ func (v *ssrVisitor) VisitFragment(fn *core.FragmentNode, walkChild func(core.No
 	if fn == nil {
 		return
 	}
-	oldPath := v.path
 	for _, child := range fn.Children {
-		v.path = oldPath + "/frag"
 		walkChild(child)
 	}
-	v.path = oldPath
 }
 
 func (v *ssrVisitor) VisitPortal(pn *core.PortalNode, walkChild func(core.Node) int) {
@@ -259,7 +226,7 @@ func (v *ssrVisitor) renderHeadChildren(children []core.Node) {
 		case *core.ElementNode:
 			v.renderHeadElement(n)
 		case *core.TextNode:
-			fmt.Fprintf(v.buf, "%s", escapeHTML(fmt.Sprintf("%v", n.Value)))
+			v.buf.WriteString(escapeHTML(runtime.TextValue(textOf(n))))
 		case *core.FragmentNode:
 			// Flatten: metadata inside fragments (e.g. conditional groups).
 			v.renderHeadChildren(n.Children)
@@ -267,11 +234,18 @@ func (v *ssrVisitor) renderHeadChildren(children []core.Node) {
 	}
 }
 
+func textOf(n *core.TextNode) any {
+	if s, ok := n.Value.(core.SignalAccessor); ok {
+		return s.Value()
+	}
+	return n.Value
+}
+
 func (v *ssrVisitor) renderHeadElement(el *core.ElementNode) {
 	v.buf.WriteString("<")
 	v.buf.WriteString(el.Tag)
 	for _, a := range el.Attrs {
-		fmt.Fprintf(v.buf, ` %s="%s"`, a.Name, escapeAttr(a.Value))
+		v.writeAttr(a.Name, a.Value)
 	}
 	if core.VoidElements[el.Tag] {
 		v.buf.WriteString(">")
@@ -290,7 +264,7 @@ func (v *ssrVisitor) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner f
 	}
 	// Transparent on the server: render the child so IDs match the client's
 	// happy path. The boundary catches *client* render panics; server-side
-	// rendering is expected not to panic (recover at the HTTP layer).
+	// rendering is expected not to panic (ssr.Handler recovers per request).
 	return walkInner()
 }
 
@@ -303,7 +277,6 @@ func (v *ssrVisitor) VisitScopeEnter(sn *core.ScopeNode) {}
 // VisitScopeLeave writes the scope's end anchor as a <!--/{id}--> comment; the
 // client claims it on hydration and inserts re-rendered content before it.
 func (v *ssrVisitor) VisitScopeLeave(sn *core.ScopeNode, innerID int) int {
-	v.r.Meta.NodeMap[sn.Anchor] = v.path
 	if !v.silent {
 		fmt.Fprintf(v.buf, "<!--/%d-->", sn.Anchor)
 	}
@@ -311,29 +284,10 @@ func (v *ssrVisitor) VisitScopeLeave(sn *core.ScopeNode, innerID int) int {
 }
 
 func (v *ssrVisitor) VisitRaw(id int, rn *core.RawNode) {
-	if rn == nil {
-		return
-	}
-	v.r.Meta.NodeMap[id] = v.path
-	if v.silent {
+	if rn == nil || v.silent {
 		return
 	}
 	fmt.Fprintf(v.buf, `<div data-node-id="%d">%s</div>`, id, rn.HTML)
-}
-
-func isValidAttrName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for i, c := range name {
-		if i == 0 && !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
-			return false
-		}
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
-			return false
-		}
-	}
-	return true
 }
 
 var propToAttr = map[string]string{
@@ -344,6 +298,8 @@ var propToAttr = map[string]string{
 	"multiple": "",
 	"required": "",
 	"readOnly": "readonly",
+	"href":     "href",
+	"src":      "src",
 }
 
 func escapeAttr(s string) string {
@@ -359,18 +315,4 @@ func escapeHTML(s string) string {
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	return s
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }

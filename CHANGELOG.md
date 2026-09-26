@@ -49,6 +49,8 @@ time. The public surface freezes under semver at v1.
 - `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
 
 ### Changed
+- Removed the unused `ssr.HydrationMeta`, `ssr.SlotRef`, `Renderer.Meta` and
+  `Renderer.RenderWithMeta` (leftovers of the pre-ADR-008 design). (#79)
 - `focus`/`blur`/`scroll` handlers fire for the target element only (a
   container's `OnFocus` no longer fires for descendants; use `OnFocusIn`).
 - Removing a subtree sends one `RemoveNode` per DOM root (plus portal/head
@@ -89,6 +91,15 @@ time. The public surface freezes under semver at v1.
   the node is removed) and expose `goowee.readFile(handle)`.
 
 ### Fixed
+- SSR renders run concurrently: `ssr.Renderer.Render` no longer holds a
+  process-wide lock (server renders track no component frames; hooks see
+  `EnvServer` via `runtime.ServerRender`) (ADR-024). (#72)
+- `javascript:`/`vbscript:` URLs in URL attributes (`href`, `src`, `action`,
+  `xlink:href`, …) are replaced with `about:blank#blocked` on the server and
+  the client; attribute names are validated identically in body, head and DOM
+  (and `xlink:href`/`xml:lang`/`data-a_b` are now allowed). (#78)
+- A bound or static `textContent` property is rendered as the element's
+  content by SSR.
 - Event handlers bubble through ancestors, innermost first, until one stops
   propagation — they used to stop at the first handler, so a parent never saw
   a child's click and `StopPropagation()` did nothing (ADR-023). (#65)
