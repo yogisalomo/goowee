@@ -711,3 +711,23 @@ handlers — breaks every handler signature.
 longer fires for descendants (use `OnFocusIn`). Coalesced events can't be
 prevented (documented).
 
+---
+
+## ADR-024: Server renders are lock-free (supersedes ADR-007's serialization)
+
+**Status:** Accepted (2026-09-26)
+
+**Context.** ADR-007 serialized SSR behind a process-wide mutex to protect the
+ambient component-frame stack; 8 goroutines rendered 1.05× faster than one (#72).
+
+**Decision.** The server tracks no frames: effects/Watch/OnMount are skipped
+there and nothing is ever disposed (and lazy `Computed`, ADR-021, never
+subscribes). `runtime.ServerRender` marks a server render with an atomic
+counter; while it is set (and no explicit test context is installed),
+`PushComponent`/`PopComponent` don't touch the shared stack and `CurrentEnv`
+reports `EnvServer`. `UseContext` remains for tests.
+
+**Consequences.** SSR scales with cores. A process must not run the client
+renderer concurrently with server renders (it never does: the client renderer
+runs in the browser, and host tests are sequential).
+

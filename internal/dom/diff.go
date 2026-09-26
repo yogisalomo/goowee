@@ -152,14 +152,21 @@ func (r *DOMRenderer) diffElement(old, nw *core.ElementNode, muts *[]core.Mutati
 		oldAttrs[a.Name] = a.Value
 	}
 	for _, a := range nw.Attrs {
+		if !runtime.ValidAttrName(a.Name) {
+			runtime.WarnInvalidAttr(a.Name)
+			continue
+		}
 		if ov, ok := oldAttrs[a.Name]; !ok || ov != a.Value {
 			*muts = append(*muts, core.Mutation{
-				Type: core.MutSetAttribute, NodeID: old.ID, Key: a.Name, Value: a.Value,
+				Type: core.MutSetAttribute, NodeID: old.ID, Key: a.Name, Value: runtime.SafeURL(a.Name, a.Value),
 			})
 		}
 		delete(oldAttrs, a.Name)
 	}
 	for name := range oldAttrs {
+		if !runtime.ValidAttrName(name) {
+			continue // never set, so nothing to remove
+		}
 		*muts = append(*muts, core.Mutation{
 			Type: core.MutRemoveAttribute, NodeID: old.ID, Key: name,
 		})
@@ -174,7 +181,7 @@ func (r *DOMRenderer) diffElement(old, nw *core.ElementNode, muts *[]core.Mutati
 		// panic the differ (which would freeze the subtree).
 		if ov, ok := oldProps[p.Name]; !ok || !runtime.SafeEqual(ov, p.Value) {
 			*muts = append(*muts, core.Mutation{
-				Type: core.MutSetProperty, NodeID: old.ID, Key: p.Name, Value: p.Value,
+				Type: core.MutSetProperty, NodeID: old.ID, Key: p.Name, Value: runtime.SafeURLValue(p.Name, p.Value),
 			})
 		}
 		delete(oldProps, p.Name)

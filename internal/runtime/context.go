@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/yogisalomo/goowee/core"
 )
@@ -58,6 +59,30 @@ var (
 	defaultContext = NewRenderContext(EnvClient)
 )
 
+// serverRenders counts server renders in progress in this process.
+var serverRenders atomic.Int32
+
+// ServerRender runs fn as a server render. Hooks see EnvServer (effects,
+// Watch and OnMount are skipped) and no component frames are tracked — the
+// server never mounts or disposes anything, so there is nothing to own. It
+// takes no lock: concurrent SSR requests render in parallel (ADR-024). A
+// process that renders on the server doesn't also run the client renderer
+// (that only runs in the browser, and in sequential host tests).
+func ServerRender(fn func()) {
+	serverRenders.Add(1)
+	defer serverRenders.Add(-1)
+	fn()
+}
+
+// untracked reports whether frames are not tracked: a server render with no
+// explicit context installed.
+func untracked() bool { return ambientCtx() == nil && serverRenders.Load() > 0 }
+
+func ambientCtx() *RenderContext { return ambient }
+
+// UseContext runs fn with ctx as the ambient render context. It serializes
+// callers (the context is process-global); tests use it to render under an
+// explicit EnvServer/EnvClient. Production SSR uses ServerRender instead.
 func UseContext(ctx *RenderContext, fn func()) {
 	ambientMu.Lock()
 	defer ambientMu.Unlock()
@@ -74,8 +99,19 @@ func activeContext() *RenderContext {
 	return defaultContext
 }
 
-func PushComponent() *core.ComponentFrame { return activeContext().push() }
-func PopComponent()                       { activeContext().pop() }
+func PushComponent() *core.ComponentFrame {
+	if untracked() {
+		return &core.ComponentFrame{Path: "/"} // a throwaway: the server tracks nothing
+	}
+	return activeContext().push()
+}
+
+func PopComponent() {
+	if untracked() {
+		return
+	}
+	activeContext().pop()
+}
 
 // PushOwner pushes an owner frame: a frame that is not a component but owns
 // the hooks (Watch, UseEffect, OnMount, …) called while it is current — a
@@ -113,7 +149,12 @@ func CurrentComponent() *core.ComponentFrame {
 	return activeContext().currentFrame()
 }
 
-func CurrentEnv() Env { return activeContext().Env }
+func CurrentEnv() Env {
+	if untracked() {
+		return EnvServer
+	}
+	return activeContext().Env
+}
 
 // effectQueue is the active client renderer's Scheduler.QueueEffect while it
 // renders (set with SetEffectQueue around each walk); nil otherwise.
