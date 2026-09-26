@@ -269,7 +269,7 @@ count, setCount := hooks.UseState(0)          // (*core.Signal[T], func(T))
 total := hooks.UseComputed([]core.SignalAccessor{deps}, func() int)
 
 // Effects
-hooks.OnMount(func() func())                  // run once on mount, return cleanup
+hooks.OnMount(func() func())                  // run once after mount (DOM applied), return cleanup
 hooks.Watch([]core.SignalAccessor{deps}, func())  // react to signal changes
 hooks.UseEffect([]core.SignalAccessor{deps}, func() func())  // mount + deps + cleanup
 
@@ -356,6 +356,10 @@ and hydrates instead of rebuilding.
 import "github.com/yogisalomo/goowee/bridge"
 
 bridge.Run(app core.Node)
+
+// js/wasm only: the live DOM element a ref points at, for JS libraries.
+// js.Undefined() before render / after removal. Call from OnMount or later.
+bridge.Element(ref *core.Ref) js.Value
 ```
 
 `Run` mounts `app` into the page, hydrates it if the HTML was server-rendered,

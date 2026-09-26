@@ -54,8 +54,10 @@ Bind a signal instead.
 3. **Effects declare their deps explicitly** — there is no auto-tracking:
    - `hooks.UseEffect([]core.SignalAccessor{a, b}, func() func() { ...; return cleanup })`
    - `hooks.Watch([]core.SignalAccessor{a}, func() { ... })` (no cleanup)
-   - `hooks.OnMount(func() func() { ...; return cleanup })` (runs once on mount,
-     **client only** — never during SSR; use it for timers, subscriptions, fetches).
+   - `hooks.OnMount(func() func() { ...; return cleanup })` (runs once, **after**
+     mount — the DOM exists, refs are set; **client only** — never during SSR; use
+     it for timers, subscriptions, fetches, measuring, and JS-library setup via
+     `bridge.Element(ref)`). No `core.Schedule` needed to wait for the element.
 4. **Off the render loop → `core.Schedule`.** Any code running outside the render
    loop (a `time.Ticker`, `go func`, a fetch/network callback, a channel receive)
    **must not call a setter or `sig.Set` directly** — that races the renderer.

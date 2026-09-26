@@ -504,8 +504,22 @@ func dashboardPage(r *router.Router) core.Node {
 			return fmt.Sprintf("Selected: %s = %d%s", row.Label, row.Value, row.Unit)
 		})
 
+		// A <canvas> drawn from Go through bridge.Element: OnMount runs once
+		// the element is in the document; Watch redraws on every change.
+		chart := Ref()
+		values := func() []int {
+			var v []int
+			for _, row := range data.Get() {
+				v = append(v, row.Value)
+			}
+			return v
+		}
+		hooks.OnMount(func() func() { drawBars(chart, values()); return nil })
+		hooks.Watch([]core.SignalAccessor{data}, func() { drawBars(chart, values()) })
+
 		demo := Div(
 			P(Class("preview"), TextS(totalStr)),
+			Canvas(Class("bars"), RefTo(chart), Width("300"), Height("80"), AriaLabel("Values as bars")),
 			Table(
 				Style("border-collapse:collapse;width:100%;max-width:500px;"),
 				Thead(
@@ -535,6 +549,7 @@ func dashboardPage(r *router.Router) core.Node {
 				"core.Computed(deps, fn) is a read-only signal derived from others; it recomputes only when a listed dep changes.",
 				"selectedText depends on both selected and data, so it updates when either changes.",
 				"Clicking a row calls setSelected(i); Randomize replaces data immutably so dependents recompute.",
+				"The bars are drawn on a <canvas> from OnMount via bridge.Element(ref) — how you hand an element to a JavaScript library (a chart, a map, an editor).",
 			),
 			tutorialStepNav(r, "/dashboard"),
 		)

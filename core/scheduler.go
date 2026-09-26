@@ -38,6 +38,11 @@ type Scheduler struct {
 	// request id. The bridge answers each MutRead in a batch through Resolve.
 	reads    map[int]func(any)
 	nextRead int
+
+	// effects are effect first-runs (OnMount, UseEffect) waiting for the DOM
+	// their component rendered: the bridge runs them via RunEffects right
+	// after it applies the frame's mutations.
+	effects []func()
 }
 
 // Post queues fn to run on the render loop at the next flush. It is safe to
@@ -116,6 +121,33 @@ func (s *Scheduler) Resolve(id int, v any) {
 	}()
 	Batch(func() { fn(v) })
 }
+
+// QueueEffect defers fn until the mutations rendered so far are in the DOM.
+// Renderers queue effect first-runs here, so OnMount/UseEffect see the
+// component's elements (refs are set, the nodes are in the document).
+func (s *Scheduler) QueueEffect(fn func()) {
+	s.effects = append(s.effects, fn)
+	s.signalWork()
+}
+
+// RunEffects runs the queued effects, in queue order (parents before
+// children), as one batch; each is panic-contained. The bridge calls it after
+// applying a frame's mutations; headless tests call it after Flush.
+func (s *Scheduler) RunEffects() {
+	if len(s.effects) == 0 {
+		return
+	}
+	fx := s.effects
+	s.effects = nil
+	Batch(func() {
+		for _, fn := range fx {
+			Recover(LogRecoverEffect, "panic in effect", nil, fn)
+		}
+	})
+}
+
+// PendingEffects reports how many effects wait for RunEffects.
+func (s *Scheduler) PendingEffects() int { return len(s.effects) }
 
 // PendingReads reports how many reads await a reply.
 func (s *Scheduler) PendingReads() int { return len(s.reads) }

@@ -209,12 +209,15 @@ func mount(t *testing.T, n core.Node) *harness {
 	muts, _ := r.Render(n)
 	fd := newFakeDOM()
 	fd.apply(muts)
+	r.Scheduler.RunEffects() // like the bridge: effects run once the DOM is applied
 	return &harness{t: t, r: r, dom: fd}
 }
 
-// flush drains the scheduler (as the rAF loop does) into the fake DOM.
+// flush drains the scheduler (as the rAF loop does) into the fake DOM, then
+// runs the effects the frame queued.
 func (h *harness) flush() {
 	h.dom.apply(h.r.Scheduler.Flush())
+	h.r.Scheduler.RunEffects()
 }
 
 func (h *harness) dispatch(id int, event string, data map[string]any) {

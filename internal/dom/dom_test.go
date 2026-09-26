@@ -9,6 +9,20 @@ import (
 	"github.com/yogisalomo/goowee/hooks"
 )
 
+// renderFx and flushFx mirror the bridge's frame: render/flush, then run the
+// effects that frame queued (they wait for the DOM to be applied).
+func renderFx(r *DOMRenderer, n core.Node) ([]core.Mutation, int) {
+	muts, id := r.Render(n)
+	r.Scheduler.RunEffects()
+	return muts, id
+}
+
+func flushFx(r *DOMRenderer) []core.Mutation {
+	muts := r.Scheduler.Flush()
+	r.Scheduler.RunEffects()
+	return muts
+}
+
 func TestDOMRenderElement(t *testing.T) {
 	n := &core.ElementNode{
 		Tag:   "div",
@@ -18,7 +32,7 @@ func TestDOMRenderElement(t *testing.T) {
 		},
 	}
 	r := New()
-	muts, _ := r.Render(n)
+	muts, _ := renderFx(r, n)
 	if len(muts) == 0 {
 		t.Fatal("expected mutations")
 	}
@@ -41,7 +55,7 @@ func TestDOMRenderTypedFields(t *testing.T) {
 		}},
 	}
 	r := New()
-	muts, _ := r.Render(n)
+	muts, _ := renderFx(r, n)
 	if len(muts) < 4 {
 		t.Fatalf("expected at least 4 mutations, got %d", len(muts))
 	}
@@ -75,10 +89,10 @@ func TestDOMReactiveUpdate(t *testing.T) {
 		}},
 	}
 	r := New()
-	r.Render(n)
+	renderFx(r, n)
 
 	count.Set(1)
-	updates := r.Scheduler.Flush()
+	updates := flushFx(r)
 	if len(updates) != 1 {
 		t.Fatalf("expected 1 mutation, got %d", len(updates))
 	}
@@ -97,12 +111,12 @@ func TestDOMTextNodeSignal(t *testing.T) {
 		},
 	}
 	r := New()
-	muts, _ := r.Render(n)
+	muts, _ := renderFx(r, n)
 	if len(muts) == 0 {
 		t.Fatal("expected mutations")
 	}
 	name.Set("universe")
-	updates := r.Scheduler.Flush()
+	updates := flushFx(r)
 	if len(updates) != 1 || updates[0].Value != "universe" {
 		t.Fatalf("expected 'universe', got %v", updates)
 	}
@@ -116,7 +130,7 @@ func TestDOMFragment(t *testing.T) {
 		},
 	}
 	r := New()
-	muts, _ := r.Render(n)
+	muts, _ := renderFx(r, n)
 	if len(muts) != 6 {
 		t.Fatalf("expected 6 mutations (2 create + 2 attr + 2 append to root), got %d: %v", len(muts), muts)
 	}
@@ -130,7 +144,7 @@ func TestDOMComponentNode(t *testing.T) {
 		}
 	})
 	r := New()
-	muts, id := r.Render(greeting)
+	muts, id := renderFx(r, greeting)
 	if id != 1 {
 		t.Fatalf("expected root id 1, got %d", id)
 	}
@@ -153,7 +167,7 @@ func TestDOMNestedComponent(t *testing.T) {
 		}
 	})
 	r := New()
-	muts, _ := r.Render(outer)
+	muts, _ := renderFx(r, outer)
 	if len(muts) < 4 {
 		t.Fatalf("expected at least 4 mutations, got %d: %v", len(muts), muts)
 	}
@@ -177,7 +191,7 @@ func TestDOMScopeNodeFirstRender(t *testing.T) {
 		Deps: []core.SignalAccessor{signal},
 	}
 	r := New()
-	muts, id := r.Render(scope)
+	muts, id := renderFx(r, scope)
 	if id != 1 {
 		t.Fatalf("expected root id 1, got %d", id)
 	}
@@ -211,7 +225,7 @@ func TestDOMScopeReRender(t *testing.T) {
 	}
 
 	r := New()
-	initMuts, id := r.Render(scope)
+	initMuts, id := renderFx(r, scope)
 	if id != 1 {
 		t.Fatalf("expected root id 1, got %d", id)
 	}
@@ -226,7 +240,7 @@ func TestDOMScopeReRender(t *testing.T) {
 	}
 
 	show.Set(false)
-	diffMuts := r.Scheduler.Flush()
+	diffMuts := flushFx(r)
 	if len(diffMuts) == 0 {
 		t.Fatal("expected diff mutations after signal change")
 	}
@@ -269,13 +283,13 @@ func TestDOMScopeStructuralChange(t *testing.T) {
 	}
 
 	r := New()
-	initMuts, id := r.Render(scope)
+	initMuts, id := renderFx(r, scope)
 	if id != 1 || initMuts[0].Value != "div" {
 		t.Fatalf("expected div, got %v", initMuts[0])
 	}
 
 	show.Set(false)
-	diffMuts := r.Scheduler.Flush()
+	diffMuts := flushFx(r)
 	if len(diffMuts) == 0 {
 		t.Fatal("expected diff mutations")
 	}
@@ -327,14 +341,14 @@ func TestDOMScopeUnmountCleanup(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(scope)
+	renderFx(r, scope)
 
 	if cleanupCalled != 0 {
 		t.Fatalf("expected 0 cleanups before unmount, got %d", cleanupCalled)
 	}
 
 	toggle.Set(false)
-	diffMuts := r.Scheduler.Flush()
+	diffMuts := flushFx(r)
 	if len(diffMuts) == 0 {
 		t.Fatal("expected diff mutations")
 	}
@@ -343,7 +357,7 @@ func TestDOMScopeUnmountCleanup(t *testing.T) {
 	}
 
 	toggle.Set(true)
-	_ = r.Scheduler.Flush()
+	_ = flushFx(r)
 	if cleanupCalled != 1 {
 		t.Fatalf("expected still 1 cleanup (no extra call on re-create), got %d", cleanupCalled)
 	}
@@ -388,7 +402,7 @@ func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 	}
 
 	r := New()
-	initMuts, rootID := r.Render(outerScope)
+	initMuts, rootID := renderFx(r, outerScope)
 	if rootID == 0 {
 		t.Fatal("expected non-zero root ID")
 	}
@@ -404,7 +418,7 @@ func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 	}
 
 	name.Set("World")
-	innerMuts := r.Scheduler.Flush()
+	innerMuts := flushFx(r)
 	if len(innerMuts) == 0 {
 		t.Fatal("expected mutations when inner scope dep changes")
 	}
@@ -425,7 +439,7 @@ func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 	}
 
 	show.Set(false)
-	outerMuts := r.Scheduler.Flush()
+	outerMuts := flushFx(r)
 	if len(outerMuts) == 0 {
 		t.Fatal("expected mutations when outer scope changes")
 	}
@@ -458,10 +472,10 @@ func TestDOMDiffRemovesStaleAttrsAndProps(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(scope)
+	renderFx(r, scope)
 
 	show.Set("b")
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 	if len(muts) == 0 {
 		t.Fatal("expected mutations")
 	}
@@ -496,9 +510,9 @@ func TestDiffTypeChangeNoPanic(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(scope)
+	renderFx(r, scope)
 	sig.Set(false)
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 	if len(muts) == 0 {
 		t.Fatal("expected mutations after type change")
 	}
@@ -532,7 +546,7 @@ func TestDOMFragmentInsideElement(t *testing.T) {
 		Children: []core.Node{frag},
 	}
 	r := New()
-	muts, _ := r.Render(n)
+	muts, _ := renderFx(r, n)
 	if len(muts) == 0 {
 		t.Fatal("expected mutations")
 	}
@@ -583,19 +597,19 @@ func TestDOMDeepNestedScopes(t *testing.T) {
 	}
 
 	r := New()
-	initMuts, _ := r.Render(outer)
+	initMuts, _ := renderFx(r, outer)
 	if len(initMuts) == 0 {
 		t.Fatal("expected mutations")
 	}
 
 	outerSig.Set(1)
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 	if len(muts) == 0 {
 		t.Fatal("expected mutations after outerSig change")
 	}
 
 	innerSig.Set("hello")
-	muts2 := r.Scheduler.Flush()
+	muts2 := flushFx(r)
 	if len(muts2) == 0 {
 		t.Fatal("expected mutations after innerSig change")
 	}
@@ -609,7 +623,7 @@ func TestDOMEventNotEmitted(t *testing.T) {
 		}},
 	}
 	r := New()
-	muts, _ := r.Render(n)
+	muts, _ := renderFx(r, n)
 	for _, m := range muts {
 		if m.Key == "click" && m.Type != core.MutInsertBefore {
 			t.Fatal("event handlers should not be emitted as mutations")
@@ -632,10 +646,10 @@ func TestDOMDiffRebindsSignals(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(scope)
+	renderFx(r, scope)
 
 	sig.Set("b")
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 	if len(muts) == 0 {
 		t.Fatal("expected mutations after signal change")
 	}
@@ -670,10 +684,10 @@ func TestDOMDiffReplacesHandlers(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(scope)
+	renderFx(r, scope)
 
 	sig.Set(1)
-	_ = r.Scheduler.Flush()
+	_ = flushFx(r)
 
 	r.Registry.Dispatch(1, "click", `{}`)
 	if !called {
@@ -694,7 +708,7 @@ func TestDOMDispatchReturnsOptionsAndRecovers(t *testing.T) {
 			},
 		}},
 	}
-	r.Render(n)
+	renderFx(r, n)
 
 	opts, handled := r.Registry.Dispatch(1, "click", `{}`)
 	if !handled {
@@ -732,12 +746,12 @@ func TestUnbindCancelsSubscription(t *testing.T) {
 		}},
 	}
 	r := New()
-	r.Render(n)
+	renderFx(r, n)
 
 	r.Bindings.Unbind(1)
 
 	sig.Set(42)
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 	for _, m := range muts {
 		if m.Type == core.MutSetProperty {
 			t.Fatal("expected no mutations after unbind")
@@ -748,7 +762,7 @@ func TestUnbindCancelsSubscription(t *testing.T) {
 func TestDOMRootMounting(t *testing.T) {
 	n := &core.ElementNode{Tag: "div"}
 	r := New()
-	muts, _ := r.Render(n)
+	muts, _ := renderFx(r, n)
 	hasAppend := false
 	for _, m := range muts {
 		if m.Type == core.MutAppendChild && m.NodeID == 0 && m.ChildID == 1 {
@@ -777,11 +791,11 @@ func TestDOMScopeStructuralChangeWithParent(t *testing.T) {
 		Tag:      "main",
 		Children: []core.Node{scope},
 	}
-	initMuts, _ := r.Render(parent)
+	initMuts, _ := renderFx(r, parent)
 	_ = initMuts
 
 	sig.Set(false)
-	diffMuts := r.Scheduler.Flush()
+	diffMuts := flushFx(r)
 	if len(diffMuts) == 0 {
 		t.Fatal("expected diff mutations")
 	}
@@ -815,13 +829,13 @@ func TestDOMScopeEmptyToElementReattaches(t *testing.T) {
 
 	r := New()
 	parent := &core.ElementNode{Tag: "div", Children: []core.Node{scope}}
-	r.Render(parent)
+	renderFx(r, parent)
 
 	sig.Set(false) // hide
-	_ = r.Scheduler.Flush()
+	_ = flushFx(r)
 
 	sig.Set(true) // show again
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 
 	var createdID int
 	for _, m := range muts {
@@ -873,10 +887,10 @@ func TestDOMChildrenInsertBeforeRefID(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(scope)
+	renderFx(r, scope)
 
 	sig.Set(1)
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 	foundInsert := false
 	for _, m := range muts {
 		if m.Type == core.MutInsertBefore {
@@ -914,7 +928,7 @@ func TestKeyedReorderReusesIDs(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	renderFx(r, &core.ElementNode{Tag: "div", Children: old})
 	parentID := 1
 	var muts []core.Mutation
 	r.diffChildren(parentID, old, rev, 0, &muts)
@@ -946,7 +960,7 @@ func TestKeyedRemoveFirst(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	renderFx(r, &core.ElementNode{Tag: "div", Children: old})
 	parentID := 1
 	var muts []core.Mutation
 	r.diffChildren(parentID, old, new, 0, &muts)
@@ -981,7 +995,7 @@ func TestKeyedInsertMiddle(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	renderFx(r, &core.ElementNode{Tag: "div", Children: old})
 	parentID := 1
 	var muts []core.Mutation
 	r.diffChildren(parentID, old, new, 0, &muts)
@@ -1020,7 +1034,7 @@ func TestKeyedAndUnkeyedMix(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	renderFx(r, &core.ElementNode{Tag: "div", Children: old})
 	parentID := 1
 	var muts []core.Mutation
 	r.diffChildren(parentID, old, new, 0, &muts)
@@ -1157,7 +1171,7 @@ func TestFakeDOMKeyedProperty(t *testing.T) {
 		}
 
 		r := New()
-		r.Render(&core.ElementNode{Tag: "div", Children: oldNodes})
+		renderFx(r, &core.ElementNode{Tag: "div", Children: oldNodes})
 
 		parentID := 1
 		var muts []core.Mutation
@@ -1228,7 +1242,7 @@ func TestDuplicateKeysLoggedNotPanic(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(&core.ElementNode{Tag: "div", Children: old})
+	renderFx(r, &core.ElementNode{Tag: "div", Children: old})
 	var muts []core.Mutation
 	r.diffChildren(1, old, new, 0, &muts)
 
@@ -1253,7 +1267,7 @@ func TestPositionalShrinkRemovesOnce(t *testing.T) {
 	}
 	r := New()
 	parent := &core.ElementNode{Tag: "ul", Children: old}
-	r.Render(parent)
+	renderFx(r, parent)
 
 	newKids := []core.Node{
 		&core.ElementNode{Tag: "li", Children: []core.Node{&core.TextNode{Value: "a"}}},
@@ -1301,19 +1315,19 @@ func TestComponentPreservedAcrossScopeReRender(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(scope)
+	renderFx(r, scope)
 	if setups != 1 || effectRuns != 1 || cleanups != 0 {
 		t.Fatalf("after mount want 1/1/0, got setups=%d effectRuns=%d cleanups=%d", setups, effectRuns, cleanups)
 	}
 
 	other.Set(1) // re-render the scope for an unrelated reason
-	r.Scheduler.Flush()
+	flushFx(r)
 	if setups != 1 || effectRuns != 1 || cleanups != 0 {
 		t.Fatalf("component churned on unrelated re-render: setups=%d effectRuns=%d cleanups=%d, want 1/1/0", setups, effectRuns, cleanups)
 	}
 
 	other.Set(2)
-	r.Scheduler.Flush()
+	flushFx(r)
 	if setups != 1 || effectRuns != 1 || cleanups != 0 {
 		t.Fatalf("component churned on 2nd re-render: setups=%d effectRuns=%d cleanups=%d, want 1/1/0", setups, effectRuns, cleanups)
 	}
@@ -1340,19 +1354,19 @@ func TestComponentMountUnmountInScope(t *testing.T) {
 	}
 
 	r := New()
-	r.Render(scope)
+	renderFx(r, scope)
 	if setups != 1 || cleanups != 0 {
 		t.Fatalf("after mount want 1/0, got %d/%d", setups, cleanups)
 	}
 
 	shown.Set(false) // unmount
-	r.Scheduler.Flush()
+	flushFx(r)
 	if setups != 1 || cleanups != 1 {
 		t.Fatalf("after unmount want 1/1, got %d/%d", setups, cleanups)
 	}
 
 	shown.Set(true) // remount, fresh instance
-	r.Scheduler.Flush()
+	flushFx(r)
 	if setups != 2 || cleanups != 1 {
 		t.Fatalf("after remount want 2/1, got %d/%d", setups, cleanups)
 	}
@@ -1375,7 +1389,7 @@ func TestFragmentListAttachesToParent(t *testing.T) {
 	}
 	ul := &core.ElementNode{Tag: "ul", Children: []core.Node{scope}}
 	r := New()
-	initMuts, _ := r.Render(ul)
+	initMuts, _ := renderFx(r, ul)
 
 	appended := 0
 	for _, m := range initMuts {
@@ -1388,7 +1402,7 @@ func TestFragmentListAttachesToParent(t *testing.T) {
 	}
 
 	order.Set([]int{1, 2, 3}) // append a third
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 	insertedUnderUl := false
 	for _, m := range muts {
 		if m.Type == core.MutInsertBefore && m.NodeID == ul.ID {
@@ -1430,7 +1444,7 @@ func TestKeyedComponentListReorderPreservesIdentity(t *testing.T) {
 	}
 	ul := &core.ElementNode{Tag: "ul", Children: []core.Node{scope}}
 	r := New()
-	initMuts, _ := r.Render(ul)
+	initMuts, _ := renderFx(r, ul)
 
 	outID := map[int]int{}
 	for _, n := range scope.Prev.(*core.FragmentNode).Children {
@@ -1455,7 +1469,7 @@ func TestKeyedComponentListReorderPreservesIdentity(t *testing.T) {
 	}
 
 	order.Set([]int{3, 1, 2}) // reorder
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 
 	for id := 1; id <= 3; id++ {
 		if setups[id] != 1 {
@@ -1513,11 +1527,11 @@ func TestForRowComponentStateSurvivesListChanges(t *testing.T) {
 	}}
 
 	r := New()
-	r.Render(tree)
+	renderFx(r, tree)
 	counts[2].Set(42) // give row 2 some state to lose
 
 	items.Set([]int{1, 2, 3, 4}) // append
-	r.Scheduler.Flush()
+	flushFx(r)
 	for _, id := range []int{1, 2, 3} {
 		if setups[id] != 1 || cleanups[id] != 0 {
 			t.Fatalf("append churned row %d: setups=%d cleanups=%d, want 1/0", id, setups[id], cleanups[id])
@@ -1528,7 +1542,7 @@ func TestForRowComponentStateSurvivesListChanges(t *testing.T) {
 	}
 
 	items.Set([]int{1, 3, 4}) // remove the middle row
-	r.Scheduler.Flush()
+	flushFx(r)
 	if cleanups[2] != 1 {
 		t.Fatalf("removed row 2 disposed %d times, want 1", cleanups[2])
 	}
@@ -1539,7 +1553,7 @@ func TestForRowComponentStateSurvivesListChanges(t *testing.T) {
 	}
 
 	items.Set([]int{4, 1, 3}) // reorder
-	r.Scheduler.Flush()
+	flushFx(r)
 	for _, id := range []int{1, 3, 4} {
 		if setups[id] != 1 || cleanups[id] != 0 {
 			t.Fatalf("reorder churned row %d: setups=%d cleanups=%d, want 1/0", id, setups[id], cleanups[id])
@@ -1571,12 +1585,12 @@ func TestForRowInnerScopeStateSurvivesListChanges(t *testing.T) {
 	}}
 
 	r := New()
-	r.Render(tree)
+	renderFx(r, tree)
 	open[1].Set(true) // expand row 1
-	r.Scheduler.Flush()
+	flushFx(r)
 
 	items.Set([]int{1, 2, 3})
-	r.Scheduler.Flush()
+	flushFx(r)
 	if setups[1] != 1 {
 		t.Fatalf("row 1 setup re-ran on append: %d", setups[1])
 	}
@@ -1605,11 +1619,11 @@ func TestNestedComponentInKeyedRowPreserved(t *testing.T) {
 	}}
 
 	r := New()
-	r.Render(tree)
+	renderFx(r, tree)
 	items.Set([]int{1, 2, 3, 4})
-	r.Scheduler.Flush()
+	flushFx(r)
 	items.Set([]int{4, 2, 1}) // drops 3, reorders the rest
-	r.Scheduler.Flush()
+	flushFx(r)
 
 	for _, id := range []int{1, 2, 4} {
 		if setups[id] != 1 || cleanups[id] != 0 {
@@ -1637,7 +1651,7 @@ func TestSchedulerBatchesScopeReRenders(t *testing.T) {
 		},
 	}
 	r := New()
-	r.Render(scope)
+	renderFx(r, scope)
 	if renders != 1 {
 		t.Fatalf("initial renders=%d, want 1", renders)
 	}
@@ -1649,7 +1663,7 @@ func TestSchedulerBatchesScopeReRenders(t *testing.T) {
 		t.Fatalf("re-render happened before flush (not batched): renders=%d", renders)
 	}
 
-	muts := r.Scheduler.Flush()
+	muts := flushFx(r)
 	if renders != 2 {
 		t.Fatalf("3 writes should batch into 1 re-render (renders=2), got renders=%d", renders)
 	}
@@ -1695,7 +1709,7 @@ func TestParentReRenderCancelsDirtyChild(t *testing.T) {
 	}
 	root := &core.ElementNode{Tag: "main", Children: []core.Node{parent}}
 	r := New()
-	r.Render(root)
+	renderFx(r, root)
 	if childRenders != 1 {
 		t.Fatalf("initial child renders=%d, want 1", childRenders)
 	}
@@ -1703,7 +1717,7 @@ func TestParentReRenderCancelsDirtyChild(t *testing.T) {
 	// Same frame: dirty the child, and remove it via the parent.
 	inner.Set(1)
 	show.Set(false)
-	r.Scheduler.Flush()
+	flushFx(r)
 
 	if childRenders != 1 {
 		t.Fatalf("child re-rendered after parent removed it: childRenders=%d, want 1", childRenders)
@@ -1779,7 +1793,7 @@ func TestPortalRendersFreshDuringHydration(t *testing.T) {
 	}}
 	r := New()
 	r.SetHydrating(true)
-	muts, _ := r.Render(portal)
+	muts, _ := renderFx(r, portal)
 	sawCreate, sawHydrate := false, false
 	for _, m := range muts {
 		switch m.Type {
@@ -1853,12 +1867,12 @@ func TestReRenderPanicIsContained(t *testing.T) {
 		},
 	}
 	r := New()
-	r.Render(scope) // initial render OK
+	renderFx(r, scope) // initial render OK
 	trigger.Set(true)
 	defer func() {
 		if rec := recover(); rec != nil {
 			t.Fatalf("Flush should contain the re-render panic, but it propagated: %v", rec)
 		}
 	}()
-	r.Scheduler.Flush() // must not panic — contained + logged
+	flushFx(r) // must not panic — contained + logged
 }

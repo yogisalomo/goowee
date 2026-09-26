@@ -6,12 +6,18 @@ import (
 )
 
 type effectState struct {
-	Deps    []core.SignalAccessor
-	Cleanup func()
-	Fn      func() func()
-	Unsubs  []func()
+	Deps     []core.SignalAccessor
+	Cleanup  func()
+	Fn       func() func()
+	Unsubs   []func()
+	disposed bool // unmounted (possibly before the first run)
 }
 
+// UseEffect runs fn once the component is mounted — after its DOM has been
+// applied to the document, so refs are set and elements can be measured or
+// handed to a JavaScript library — and again whenever a dep changes. If fn
+// returns a cleanup, it runs before each re-run and on unmount. Client only:
+// never runs during SSR.
 func UseEffect(deps []core.SignalAccessor, fn func() func()) {
 	// Effects are lifecycle side-effects; they must not run during a server
 	// render (no mount/unmount there, and RunFrameCleanup is never called
@@ -26,16 +32,23 @@ func UseEffect(deps []core.SignalAccessor, fn func() func()) {
 		frame.Hooks = append(frame.Hooks, state)
 	}
 
-	state.Cleanup = fn()
-	exec := func() {
-		if state.Cleanup != nil {
-			state.Cleanup()
+	// The first run waits for the DOM (see runtime.QueueEffect); deps are
+	// subscribed then, so a change before mount can't run the effect early.
+	runtime.QueueEffect(func() {
+		if state.disposed {
+			return // unmounted before it ever ran
 		}
 		state.Cleanup = fn()
-	}
-	for _, dep := range deps {
-		state.Unsubs = append(state.Unsubs, dep.Subscribe(exec))
-	}
+		exec := func() {
+			if state.Cleanup != nil {
+				state.Cleanup()
+			}
+			state.Cleanup = fn()
+		}
+		for _, dep := range deps {
+			state.Unsubs = append(state.Unsubs, dep.Subscribe(exec))
+		}
+	})
 }
 
 // DisposeFrameTree disposes f and every frame below it, children first. Used
@@ -64,6 +77,7 @@ func RunFrameCleanup(frame *core.ComponentFrame) {
 	frame.Disposers = nil
 	for _, hook := range frame.Hooks {
 		if es, ok := hook.(*effectState); ok {
+			es.disposed = true
 			for _, unsub := range es.Unsubs {
 				if unsub != nil {
 					unsub()
