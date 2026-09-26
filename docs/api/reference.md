@@ -159,21 +159,40 @@ OnClick(func())                           // click
 OnInput(func(string))                     // element value on each keystroke
 OnChange(func(string))                    // element value on commit
 OnSubmit(func(map[string]string))         // form values keyed by Name
-OnFocus(func()), OnBlur(func())
-OnKeyDown(func()), OnKeyUp(func())
+OnFocus(func()), OnBlur(func())         // target only (don't bubble)
+OnKeyDown(func(key string)), OnKeyUp(func(key string))
 OnPaste(func(string)), OnCut(func(string)), OnCopy(func(string))
-OnFocusIn(func()), OnFocusOut(func())
+OnFocusIn(func()), OnFocusOut(func())   // bubble
 OnReset(func()), OnInvalid(func())
+OnMouseEnter(func()), OnMouseLeave(func())   // target only
+OnLoad(func()), OnError(func())              // <img>, <script>, media; target only
+OnPointerDown/OnPointerMove/OnPointerUp(func(core.EventData))
+OnWheel(func(core.EventData)), OnContextMenu(func(core.EventData))
+On("type", func(core.EventData))             // any event type
 ```
+
+Handlers bubble through ancestors, innermost first; non-bubbling events
+(focus, blur, mouseenter/leave, invalid, load, error, media) reach the target
+only.
 
 **Full event data** — receive `core.EventData` with position, key, target, etc.:
 
 ```go
 OnClickE(func(core.EventData), ...options)
 
+// Decide while handling (dispatch is synchronous):
+e.PreventDefault(), e.StopPropagation()
+
 // Accessors on core.EventData:
-e.Value() string, e.Checked() bool, e.Key() string
-e.ClientX(), e.ClientY(), e.ScrollTop(), e.ScrollLeft() float64
+e.Value() string, e.Checked() bool, e.InputType() string
+e.Key(), e.Code() string, e.Repeat(), e.IsComposing() bool
+e.CtrlKey(), e.ShiftKey(), e.AltKey(), e.MetaKey() bool
+e.ClientX(), e.ClientY(), e.OffsetX(), e.OffsetY() float64
+e.Button(), e.Buttons() int             // 0 primary, 1 middle, 2 secondary
+e.PointerID() int, e.PointerType() string, e.Pressure() float64
+e.DeltaX(), e.DeltaY(), e.DeltaZ() float64, e.DeltaMode() int   // wheel
+e.Touches(), e.ChangedTouches() []core.Touch
+e.ScrollTop(), e.ScrollLeft() float64
 e.FormValues() map[string]string        // submit
 e.Files() []core.File                   // change/input on <input type="file">
 
@@ -181,10 +200,8 @@ e.Files() []core.File                   // change/input on <input type="file">
 f.Bytes() ([]byte, error)               // blocks — call from a goroutine, apply via core.Schedule
 ```
 
-Options: `PreventDefault()`, `StopPropagation()`, `Once()`, `Passive()`.
-
-Available on all DOM event types (keyboard, mouse, pointer, focus, etc.)
-via the `E` suffix pattern.
+Options (static, apply to every event): `PreventDefault()`,
+`StopPropagation()`, `SelectOnFocus()`.
 
 ### Two-way bindings
 
@@ -325,7 +342,9 @@ r.Navigate(path string)
 r.NavigateReplace(path string)
 r.Back()
 r.Forward()
-r.Link(path, text string) core.Node            // renders an <a>
+r.Link(path, text string, items ...core.Item) *core.ElementNode // <a>; plain clicks navigate in-app,
+                                              // modifier/middle clicks go to the browser
+router.InAppClick(e core.EventData) bool     // the same test, for custom link handlers
 
 // Nested routing.
 r.SubRoute(prefix string, routes map[string]func() core.Node)

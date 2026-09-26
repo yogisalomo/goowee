@@ -1,8 +1,11 @@
 package router
 
 import (
-	"github.com/yogisalomo/goowee/core"
 	"testing"
+
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/h"
+	"github.com/yogisalomo/goowee/internal/dom"
 )
 
 func TestNewRouter(t *testing.T) {
@@ -86,14 +89,52 @@ func TestRouterIntegration(t *testing.T) {
 	}
 }
 
-func TestLinkHasPreventDefault(t *testing.T) {
-	r := New("/")
-	link := r.Link("/counter", "Counter")
-	if len(link.Handlers) == 0 {
-		t.Fatal("expected handler on link")
+// #67: a plain primary click navigates in-app and prevents the browser's
+// navigation; a modifier or non-primary click is left to the browser (open in
+// a new tab/window).
+func TestLinkNavigatesOnlyOnPlainClick(t *testing.T) {
+	cases := []struct {
+		name     string
+		data     string
+		navigate bool
+	}{
+		{"plain", `{"button":0}`, true},
+		{"meta", `{"button":0,"metaKey":true}`, false},
+		{"ctrl", `{"button":0,"ctrlKey":true}`, false},
+		{"shift", `{"button":0,"shiftKey":true}`, false},
+		{"alt", `{"button":0,"altKey":true}`, false},
+		{"middle", `{"button":1}`, false},
 	}
-	if !link.Handlers[0].Options.PreventDefault {
-		t.Fatal("expected PreventDefault on link handler")
+	for _, c := range cases {
+		r := New("/")
+		rd := dom.New()
+		rd.Render(r.Link("/counter", "Counter", h.Class("nav")))
+		opts, handled := rd.Registry.Dispatch(1, "click", c.data)
+		if !handled {
+			t.Fatalf("%s: click not handled", c.name)
+		}
+		if got := r.Path.Get() == "/counter"; got != c.navigate {
+			t.Fatalf("%s: navigated=%v, want %v", c.name, got, c.navigate)
+		}
+		if opts.PreventDefault != c.navigate {
+			t.Fatalf("%s: preventDefault=%v, want %v", c.name, opts.PreventDefault, c.navigate)
+		}
+	}
+}
+
+func TestLinkAcceptsExtraItems(t *testing.T) {
+	link := New("/").Link("/about", "About", h.Class("nav"), h.AriaCurrent("page"))
+	var class, current string
+	for _, a := range link.Attrs {
+		switch a.Name {
+		case "class":
+			class = a.Value
+		case "aria-current":
+			current = a.Value
+		}
+	}
+	if class != "nav" || current != "page" {
+		t.Fatalf("extra items not applied: %+v", link.Attrs)
 	}
 }
 

@@ -299,3 +299,9 @@ pre, code { font-family: var(--mono); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* Events lesson */
+.event-card { padding: 12px; border: 1px solid #d6dbe1; border-radius: 8px; cursor: pointer; }
+.hover-zone, .wheel-zone { padding: 14px; border: 1px dashed #9aa9b8; border-radius: 8px; margin: 8px 0; }
+.enter-send { width: 100%; min-height: 3.2em; box-sizing: border-box; margin-top: 8px; }
+

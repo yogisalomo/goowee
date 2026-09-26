@@ -166,6 +166,47 @@ async function main() {
   await send("Page.navigate", { url: URL + "/dashboard" });
   await waitFor(`document.querySelector('canvas.bars')?.dataset.sum === '215'`, "OnMount on an SSR-loaded page sees its element");
 
+  // --- Events: bubbling, StopPropagation, non-bubbling, dynamic preventDefault ---
+  await clickText("a", "goowee");
+  await clickText("a", "Tutorial");
+  await clickLinkContaining("Events");
+  await waitFor(`!!document.querySelector('.event-card')`, "events page");
+  const counts = () => evalJS(`document.querySelector('.event-counts').textContent`);
+  await clickText("button", "Inner button");
+  await waitFor(`/Card clicks: 1 · inner: 1/.test(document.querySelector('.event-counts').textContent)`, "a click bubbles from the inner button to the card");
+  await clickText("button", "Stops propagation");
+  await waitFor(`/stopped: 1/.test(document.querySelector('.event-counts').textContent)`, "stopper handler ran");
+  check(/Card clicks: 1 ·/.test(await counts()), "StopPropagation kept the click from the card: " + (await counts()));
+  // Real pointer input (CDP) — mouseenter doesn't bubble.
+  const center = async (sel) => evalJS(`(()=>{const el=document.querySelector('${sel}');el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+  const hz = await center(".hover-zone");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: hz.x, y: hz.y });
+  await waitFor(`/Pointer inside: yes/.test(document.body.innerText)`, "mouseenter reached its handler");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 });
+  await waitFor(`/Pointer inside: no/.test(document.body.innerText)`, "mouseleave reached its handler");
+  // (CDP's mouseWheel doesn't produce a DOM wheel event headless; a real
+  // WheelEvent exercises the same listener → Go path.)
+  await evalJS(`document.querySelector('.wheel-zone').dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:120}))`);
+  await waitFor(`/Wheel deltaY: 120/.test(document.body.innerText)`, "wheel deltaY reached Go");
+  // invalid doesn't bubble: submitting with an empty required field fires it.
+  await clickText("button", "Submit");
+  await waitFor(`/Invalid events: [1-9]/.test(document.body.innerText)`, "invalid reached OnInvalid");
+  // Enter sends (default prevented per keystroke), so no newline is inserted.
+  await evalJS(`document.querySelector('.enter-send').focus()`);
+  await send("Input.insertText", { text: "hello" });
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+  await waitFor(`/Sent: hello/.test(document.body.innerText)`, "Enter sent the draft");
+  check(!(await evalJS(`document.querySelector('.enter-send').value.includes("\\n")`)), "Enter inserted a newline despite e.PreventDefault()");
+  // A cmd-click on a router.Link is left to the browser (new tab), not hijacked.
+  const before = await evalJS(`location.pathname`);
+  // A window listener (runs after goowee's document listener) records whether
+  // goowee prevented the click, then cancels the browser's own navigation.
+  const prevented = await evalJS(`(()=>{let seen=null;window.addEventListener('click',(ev)=>{seen=ev.defaultPrevented;ev.preventDefault();},{once:true});const a=[...document.querySelectorAll('a')].find(a=>a.textContent.trim()==='← Back to tutorial');a.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,metaKey:true}));return seen;})()`);
+  await sleep(200);
+  check(prevented === false, "router.Link prevented a cmd-click");
+  check(await evalJS(`location.pathname`) === before, "router.Link navigated in-app on a cmd-click");
+
   // --- Async data (hooks.UseResource): loading → loaded via a goroutine ---
   await clickText("a", "goowee");
   await clickText("a", "Tutorial");

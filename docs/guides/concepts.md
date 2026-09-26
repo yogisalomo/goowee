@@ -380,7 +380,8 @@ Use `r.Param("id")` for a one-shot read inside a handler. Navigation:
 r.Navigate("/about")
 r.NavigateReplace("/redirect")
 r.Back()
-r.Link("/about", "About") // renders an <a> that navigates without page reload
+r.Link("/about", "About", Class("nav")) // an <a> that navigates without a page reload;
+                                        // cmd/ctrl/middle-click still opens a new tab
 ```
 
 ### Sub-routes, guards, lazy loading
@@ -492,15 +493,45 @@ OnInput(func(val string) { handleInput(val) })
 OnChange(func(val string) { handleChange(val) })
 OnSubmit(func(vals map[string]string) { submit(vals) })
 
-// Full event data and options:
+// Full event data:
 OnClickE(func(e core.EventData) {
-    fmt.Println("click at", e.X, e.Y)
-}, PreventDefault(), StopPropagation())
+    fmt.Println("click at", e.ClientX(), e.ClientY())
+})
 ```
 
-All standard events are available: `OnFocus`, `OnBlur`, `OnKeyDown`,
-`OnKeyUp`, `OnPaste`, `OnCut`, `OnCopy`, `OnFocusIn`, `OnFocusOut`,
-`OnReset`, `OnInvalid`, and more.
+Helpers cover the common events — `OnFocus`, `OnBlur`, `OnKeyDown`, `OnKeyUp`,
+`OnPaste`, `OnCut`, `OnCopy`, `OnFocusIn`, `OnFocusOut`, `OnReset`,
+`OnInvalid`, `OnMouseEnter`, `OnMouseLeave`, `OnPointerDown/Move/Up`,
+`OnWheel`, `OnContextMenu`, `OnLoad`, `OnError` — and `On("type", fn)` takes any
+other.
+
+**Propagation works like the DOM.** A handler runs, then the handlers of the
+element's ancestors, innermost first. Events that don't bubble — `focus`,
+`blur`, `mouseenter`, `mouseleave`, `invalid`, `load`, `error`, media events —
+reach only the element's own handler.
+
+**Handlers decide while they run:**
+
+```go
+Textarea(OnKeyDownE(func(e core.EventData) {
+    if e.Key() == "Enter" && !e.ShiftKey() {
+        e.PreventDefault()  // no newline — this keystroke sends
+        e.StopPropagation() // ancestors don't see it
+        send()
+    }
+}))
+```
+
+The static options `PreventDefault()` / `StopPropagation()` do the same for
+every event. `scroll` and `pointermove` are coalesced to the latest event per
+element per frame, and arrive after the fact (they can't be prevented).
+
+`core.EventData` has typed accessors for the payload: `Value`, `Checked`,
+`Key`, `Code`, `Repeat`, `CtrlKey`/`ShiftKey`/`AltKey`/`MetaKey`,
+`ClientX/Y`, `OffsetX/Y`, `Button`, `Buttons`, `PointerID`, `PointerType`,
+`DeltaX/Y/Z`, `DeltaMode`, `Touches`, `ScrollTop/Left`, `FormValues`, `Files`.
+
+The tutorial's **Events** lesson shows all of this live.
 
 ### File inputs
 

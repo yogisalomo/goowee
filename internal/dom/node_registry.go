@@ -23,8 +23,20 @@ type NodeRegistry struct {
 	OnNewEventType func(eventType string, capture bool)
 }
 
-var eventUsesCapture = map[string]bool{
-	"focus": true, "blur": true, "scroll": true,
+// nonBubbling lists the events that don't bubble. The runtime listens for
+// them in the capture phase (otherwise they never reach the document-level
+// listener) and dispatches them to the target's handler only, like the DOM.
+var nonBubbling = map[string]bool{
+	"focus": true, "blur": true, "scroll": true, "scrollend": true,
+	"mouseenter": true, "mouseleave": true, "pointerenter": true, "pointerleave": true,
+	"load": true, "error": true, "abort": true, "invalid": true, "toggle": true,
+	"cancel": true, "close": true,
+	// media
+	"play": true, "pause": true, "playing": true, "ended": true, "waiting": true,
+	"seeking": true, "seeked": true, "timeupdate": true, "volumechange": true,
+	"ratechange": true, "durationchange": true, "loadeddata": true,
+	"loadedmetadata": true, "canplay": true, "canplaythrough": true,
+	"emptied": true, "stalled": true, "suspend": true, "progress": true,
 }
 
 func NewNodeRegistry() *NodeRegistry {
@@ -44,7 +56,7 @@ func (r *NodeRegistry) RegisterHandler(nodeID int, event string, fn func(core.Ev
 	if !r.announced[event] {
 		r.announced[event] = true
 		if r.OnNewEventType != nil {
-			r.OnNewEventType(event, eventUsesCapture[event])
+			r.OnNewEventType(event, nonBubbling[event])
 		}
 	}
 }
@@ -67,8 +79,10 @@ func (r *NodeRegistry) EventTypes() []string {
 	return types
 }
 
+// EventCapture reports whether event doesn't bubble, i.e. must be listened
+// for in the capture phase and dispatched to its target only.
 func EventCapture(event string) bool {
-	return eventUsesCapture[event]
+	return nonBubbling[event]
 }
 
 func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts core.HandlerOptions, handled bool) {
@@ -85,6 +99,8 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 	_ = json.Unmarshal([]byte(dataJSON), &data)
 
 	handled = true
+	opts = entry.Options
+	ev := core.NewEventData(event, nodeID, data)
 	defer func() {
 		if rec := recover(); rec != nil {
 			core.Log(core.LogRecoverEventHandler, "panic in event handler", map[string]any{
@@ -93,12 +109,13 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 				"panic":  rec,
 			})
 		}
+		// Static options plus whatever the handler decided while running.
+		pd, sp := ev.Decisions()
+		opts.PreventDefault = opts.PreventDefault || pd
+		opts.StopPropagation = opts.StopPropagation || sp
 	}()
 	// Batched: a handler that writes several signals notifies each once, after
 	// it returns, so derived state never sees a half-applied update.
-	core.Batch(func() {
-		entry.Fn(core.EventData{Type: event, Target: nodeID, Data: data})
-	})
-	opts = entry.Options
+	core.Batch(func() { entry.Fn(ev) })
 	return
 }

@@ -674,3 +674,40 @@ setup. Headless tests call `Scheduler.RunEffects()` after `Render`/`Flush` (the
 test harnesses do). `UseResource`'s first fetch starts one frame later
 (after mount).
 
+---
+
+## ADR-023: DOM event semantics — bubbling, target-only non-bubbling events, per-event decisions
+
+**Status:** Accepted (2026-09-26)
+
+**Context.** One `document` listener per event type (ADR-005's thin bridge)
+dispatched to the *first* ancestor with a handler and stopped, so Go handlers
+never bubbled and `StopPropagation` did nothing (#65). Non-bubbling events
+were listened for in the bubble phase and never arrived — `h.OnInvalid` was
+dead (#66). `PreventDefault` was fixed at registration, so `router.Link`
+hijacked cmd/ctrl-click (#67). Coalescing kept one event per *type*, dropping
+other targets' scrolls, and the payload lacked wheel/pointer/touch data (#68).
+
+**Decision.**
+- **Bubbling:** dispatch walks from the target through every ancestor with a
+  handler (innermost first) until a handler stops propagation.
+- **Non-bubbling events** (one list, `internal/dom` `nonBubbling`) are listened
+  for in the capture phase and dispatched to the target's handler only.
+- **Per-event decisions:** dispatch is synchronous, so `EventData` carries a
+  control block; `e.PreventDefault()` / `e.StopPropagation()` are OR-ed with the
+  static options and returned to the runtime. `router.Link` navigates in-app
+  only for a plain primary click (`router.InAppClick`).
+- **Coalescing** (`scroll`, `pointermove`) keeps the latest event per (type,
+  target). **Payload**: modifiers, positions, buttons, pointer id/type/pressure,
+  wheel deltas, touch lists, key repeat/composition, input type — with typed
+  accessors on `EventData`.
+
+**Alternatives.** One listener per element (native bubbling for free) — many
+more bridge registrations and teardown; the delegated walk gives the same
+semantics with one listener per type. Returning `(preventDefault bool)` from
+handlers — breaks every handler signature.
+
+**Consequences.** Handler order matches the DOM. A container's `OnFocus` no
+longer fires for descendants (use `OnFocusIn`). Coalesced events can't be
+prevented (documented).
+
