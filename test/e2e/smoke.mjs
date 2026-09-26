@@ -232,6 +232,10 @@ async function main() {
   // should advance past 00:00.0 within a couple of seconds.
   await waitFor(`(${disp}) !== '' && (${disp}) !== '00:00.0'`, "stopwatch advanced via goroutine (core.Schedule)");
 
+  // --- SSR handler: real status codes, param routes rendered on the server ---
+  check(await evalJS(`fetch('/definitely-missing').then(r=>r.status)`) === 404, "unknown path is not a 404");
+  check(await evalJS(`fetch('/greet/zed').then(r=>r.text()).then(t=>t.includes('Hello, zed!'))`), "param route not server-rendered");
+
   // --- No stale nodes: after all that navigation, every node the runtime still
   // tracks is live in the document (removed subtrees are forgotten).
   const tracked = await evalJS(`goowee.nodeCount()`);

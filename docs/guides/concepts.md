@@ -326,9 +326,22 @@ The same component tree renders to HTML on the server:
 ```go
 import "github.com/yogisalomo/goowee/ssr"
 
-body := ssr.New().Render(App(r))
-// serve <div id="root">{body}</div> + the WASM entry
+http.Handle("/", ssr.Handler(ssr.HandlerOptions{
+    Page:     ssr.RoutedPage(App), // App(r *router.Router) core.Node
+    Document: func(w io.Writer, head, body string) {
+        fmt.Fprintf(w, `<!DOCTYPE html><html><head>%s
+<script src="wasm_exec.js"></script><script src="goowee.js"></script></head>
+<body><div id="root">%s</div><script>goowee.boot()</script></body></html>`, head, body)
+    },
+    Fallback: http.FileServer(http.Dir("web")), // client-rendered shell, used if a render panics
+}))
 ```
+
+`ssr.Handler` renders each request concurrently, answers **404** when the
+router falls through to its not-found route (`router.NotFound`), serves
+`Fallback` (typically your client-only `index.html`) when a render panics or
+for paths you mark `ClientOnly`, and gzips the HTML. Lower level:
+`body, head := ssr.New().Render(node)`.
 
 SSR emits `data-node-id` attributes, `<!--g{id}-->` text markers, and a
 `<!--/{id}-->` end anchor after each reactive region (`Show`, `For`, `Switch`,

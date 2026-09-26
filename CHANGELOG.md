@@ -12,6 +12,13 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- `ssr.Handler(ssr.HandlerOptions{Page, Document, Fallback, ClientOnly})` —
+  serve server-rendered documents: concurrent renders, the page's status (404
+  when the router falls through), the client-rendered fallback when a render
+  panics or a path is client-only, gzip. `ssr.RoutedPage(app)`,
+  `router.NewURL`, `Router.NotFound`. The reference server uses it and no
+  longer hard-codes its SSR routes (param routes like `/greet/:name` are now
+  server-rendered, unknown paths get 404). (#77)
 - `e.PreventDefault()` / `e.StopPropagation()` on `core.EventData`, decided per
   event while the handler runs; typed accessors `Code`, `Repeat`,
   `IsComposing`, `InputType`, `CtrlKey`/`ShiftKey`/`AltKey`/`MetaKey`,
@@ -91,6 +98,9 @@ time. The public surface freezes under semver at v1.
   the node is removed) and expose `goowee.readFile(handle)`.
 
 ### Fixed
+- Router query params decode `%XX` escapes (`?q=go%20wasm` → `go wasm`), via
+  `net/url`.
+- The reference server's static-file path is cleaned (no `..` escapes).
 - SSR renders run concurrently: `ssr.Renderer.Render` no longer holds a
   process-wide lock (server renders track no component frames; hooks see
   `EnvServer` via `runtime.ServerRender`) (ADR-024). (#72)

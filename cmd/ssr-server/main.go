@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
+	"io"
 	"log"
 	"mime"
 	"net/http"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/yogisalomo/goowee/examples/counter/app"
-	"github.com/yogisalomo/goowee/router"
 	"github.com/yogisalomo/goowee/ssr"
 )
 
@@ -122,61 +122,18 @@ func serveStatic(w http.ResponseWriter, r *http.Request, path string, fi os.File
 	http.ServeFile(w, r, path)
 }
 
-// writeMaybeGzip writes a generated (dynamic) response, gzipping on the fly when
-// the client accepts it. Uses fast compression since the body — SSR HTML — is
-// produced fresh per request and is small.
-func writeMaybeGzip(w http.ResponseWriter, r *http.Request, ct string, body []byte) {
-	h := w.Header()
-	h.Set("Content-Type", ct)
-	if acceptsGzip(r) && compressible(ct) {
-		var buf bytes.Buffer
-		zw, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
-		zw.Write(body)
-		zw.Close()
-		h.Set("Content-Encoding", "gzip")
-		h.Set("Vary", "Accept-Encoding")
-		h.Set("Content-Length", strconv.Itoa(buf.Len()))
-		w.Write(buf.Bytes())
-		return
-	}
-	h.Set("Content-Length", strconv.Itoa(len(body)))
-	w.Write(body)
-}
-
-func main() {
-	staticDir := "examples/counter"
-	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
-		staticDir = filepath.Join("..", "..", "examples", "counter")
-	}
-	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
-		log.Fatalf("static directory not found at examples/counter/")
-	}
-
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Route known paths through SSR
-		switch r.URL.Path {
-		// "/error" (its demo panics during render) and "/ai" (its <textarea>
-		// content would be corrupted by SSR text-hydration markers — a raw-text
-		// element can't hold comment markers) are intentionally omitted: they're
-		// client-only, served via the index.html fallback and rendered fresh.
-		case "/", "/tutorial", "/counter", "/about", "/form", "/todos", "/stopwatch", "/dashboard", "/async", "/events":
-			rtr := router.New(r.URL.Path)
-			renderer := ssr.New()
-			body, head := renderer.Render(app.App(rtr))
-
-			// head holds the page's Metadata (title/description/OG/…). site.css
-			// and the scripts are app-shell infrastructure, not page metadata, so
-			// they live in the shell unconditionally — keeping them out of the
-			// app's Metadata avoids double-emitting them on the pure-client route
-			// (which loads its own index.html shell).
-			if head == "" {
-				head = `    <meta charset="utf-8">
+// shell writes the HTML document around the server-rendered head and body.
+// site.css and the scripts are app-shell infrastructure, not page metadata, so
+// they live here unconditionally — keeping them out of the app's Metadata
+// avoids double-emitting them on the pure-client route (which loads its own
+// index.html shell).
+func shell(w io.Writer, head, body string) {
+	if head == "" {
+		head = `    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>goowee — reactive Go UIs in WebAssembly</title>`
-			}
-			html := fmt.Sprintf(`<!DOCTYPE html>
+	}
+	fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head>
 %s
@@ -190,25 +147,48 @@ func main() {
     <script>goowee.boot();</script>
 </body>
 </html>`, head, body)
-			writeMaybeGzip(w, r, "text/html; charset=utf-8", []byte(html))
-			return
-		}
+}
 
-		// Static files: serve from examples/counter if they exist
-		staticPath := filepath.Join(staticDir, r.URL.Path)
-		if fi, err := os.Stat(staticPath); err == nil && !fi.IsDir() {
-			serveStatic(w, r, staticPath, fi)
-			return
-		}
-
-		// Unknown paths: serve index.html so the WASM app can handle routing client-side
+// newServer serves static assets from staticDir and server-renders every
+// other path through ssr.Handler: the router decides the page (and a 404 for
+// unknown paths), a render that panics falls back to the client-rendered
+// shell, and /ai — whose <textarea> text can't carry SSR hydration markers
+// (ADR-009) — is always client-rendered.
+func newServer(staticDir string) http.Handler {
+	indexHTML := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		idx := filepath.Join(staticDir, "index.html")
 		if fi, err := os.Stat(idx); err == nil && !fi.IsDir() {
 			serveStatic(w, r, idx, fi)
 			return
 		}
-		http.ServeFile(w, r, idx)
+		http.NotFound(w, r)
 	})
+	pages := ssr.Handler(ssr.HandlerOptions{
+		Page:       ssr.RoutedPage(app.App),
+		Document:   shell,
+		Fallback:   indexHTML,
+		ClientOnly: func(r *http.Request) bool { return r.URL.Path == "/ai" },
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			staticPath := filepath.Join(staticDir, filepath.FromSlash(filepath.Clean("/"+r.URL.Path)))
+			if fi, err := os.Stat(staticPath); err == nil && !fi.IsDir() {
+				serveStatic(w, r, staticPath, fi)
+				return
+			}
+		}
+		pages.ServeHTTP(w, r)
+	})
+}
+
+func main() {
+	staticDir := "examples/counter"
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		staticDir = filepath.Join("..", "..", "examples", "counter")
+	}
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		log.Fatalf("static directory not found at examples/counter/")
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -216,5 +196,5 @@ func main() {
 	}
 	addr := ":" + port
 	log.Printf("SSR server listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, newServer(staticDir)))
 }
