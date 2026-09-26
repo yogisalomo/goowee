@@ -1173,7 +1173,16 @@ Extend `diffChildren` (§3.6.5):
    - *Optimization (optional, later):* compute the longest increasing subsequence of matched-old positions and skip the emit for children on it. Do **not** attempt this in the first implementation; correctness first.
 5. **Duplicate keys** are a programming error: log once per diff (`log.Printf("goowee: duplicate key %v", k)`) and treat the second occurrence as unkeyed. Do not panic.
 
-**Frame cleanup note:** `ScopeNode` re-render currently tears down *all* old component frames (review §1 consequences). Keyed `For` rows that contain `ComponentNode`s will therefore lose component state across re-renders until the ownership redesign (review P0) lands. Document this limitation in `For`'s doc comment; the keyed diff itself is still worth having (correct DOM reuse, correct focus/scroll preservation on plain elements).
+**Frame cleanup note (SUPERSEDED — no longer true):** this section predicted that
+`ScopeNode` re-render would tear down *all* old component frames, so keyed `For`
+rows containing `ComponentNode`s would lose component state until an "ownership
+redesign" landed. That redesign effectively landed as component reconciliation
+(#6) plus keyed matching for component rows (#7): a matched component keeps its
+frame across a scope re-render, and `SetKey` keys `ComponentNode`s as well as
+`ElementNode`s. Row state and effects now survive appends, removals, and
+reorders — see `TestForRowComponentStateSurvivesListChanges` and friends in
+`internal/dom/dom_test.go`. The stale limitation in `For`'s doc comment has been
+removed; do not reintroduce it.
 
 ### 4.3 `VirtualList` rebuilt
 
