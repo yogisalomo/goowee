@@ -106,6 +106,8 @@ import (
 - `hooks.UseResource(deps, fetch) *Resource[T]` — async load (`Data`/`Loading`/`Err` + `Refetch`)
 - `hooks.UseComputed(deps, compute) *Signal[T]` — re-export of `core.Computed`
 - `core.Schedule(func())` — run an update on the render loop from off-loop code
+- `core.Batch(func())` — group signal writes so dependents run once (handlers,
+  `Schedule` callbacks and effects are already batched)
 
 **Elements & content** (`h`, dot-imported)
 - Elements: `Div`, `Span`, `P`, `H1`–`H6`, `Button`, `Input`, `Form`, `Label`,

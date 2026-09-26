@@ -150,3 +150,25 @@ func TestBoundTextFormattedLikeSSR(t *testing.T) {
 		}
 	}
 }
+
+// #73: event handlers run inside core.Batch, so derived state never observes a
+// handler's half-applied writes.
+func TestEventHandlerWritesAreBatched(t *testing.T) {
+	x, y := core.NewSignal(0), core.NewSignal(0)
+	var seen []string
+	core.Computed([]core.SignalAccessor{x, y}, func() int {
+		seen = append(seen, fmt.Sprintf("(%d,%d)", x.Get(), y.Get()))
+		return 0
+	})
+	seen = nil
+	r := New()
+	r.Render(h.Button(h.OnClick(func() { x.Set(1); y.Set(1) })))
+	if _, handled := r.Registry.Dispatch(1, "click", "{}"); !handled {
+		t.Fatal("click not handled")
+	}
+	for _, s := range seen {
+		if s != "(1,1)" {
+			t.Fatalf("computed saw an intermediate state: %v", seen)
+		}
+	}
+}

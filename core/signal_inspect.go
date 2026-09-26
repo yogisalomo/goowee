@@ -6,7 +6,7 @@ func (s *Signal[T]) SubscriberCount() int {
 	if s == nil {
 		return 0
 	}
-	return len(s.subs)
+	return len(s.subs) - s.deadSubs
 }
 
 // InspectID returns the devtools inspector id when devtools are enabled and

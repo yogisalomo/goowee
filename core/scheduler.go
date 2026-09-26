@@ -57,9 +57,15 @@ func (s *Scheduler) drainPosted() {
 	posted := s.posted
 	s.posted = nil
 	s.postMu.Unlock()
-	for _, fn := range posted {
-		fn() // runs on the flush goroutine; may Set signals → dirty/enqueue
-	}
+	// One batch for the whole inbox: several goroutines' results landing in
+	// the same frame notify each written signal once. Each callback is
+	// contained, so one panicking callback can't abort the flush (and crash
+	// the render loop) or starve the others.
+	Batch(func() {
+		for _, fn := range posted {
+			Recover(LogRecoverScheduled, "panic in core.Schedule callback", nil, fn)
+		}
+	})
 }
 
 func NewScheduler() *Scheduler {
@@ -108,7 +114,7 @@ func (s *Scheduler) Resolve(id int, v any) {
 			})
 		}
 	}()
-	fn(v)
+	Batch(func() { fn(v) })
 }
 
 // PendingReads reports how many reads await a reply.
