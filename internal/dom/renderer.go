@@ -507,7 +507,7 @@ func (r *DOMRenderer) updateScope(sn *core.ScopeNode, info *scopeInfo, muts *[]c
 			panic(rec)
 		}
 	}()
-	newTree := core.FlatTree(sn.Render())
+	newTree := core.FlatTree(core.RenderScope(sn))
 	r.parentStack = append(r.parentStack, info.parentID)
 	r.diffChildren(info.parentID, contentList(sn.Prev), contentList(newTree), sn.Anchor, muts)
 	r.parentStack = r.parentStack[:len(r.parentStack)-1]

@@ -185,6 +185,24 @@ VirtualList(items, 48 /* row height in px */, func(i int, item Item) core.Node {
 
 ---
 
+### Checking dependencies in dev mode
+
+Dependencies are declared by hand, so a missing one is a silent bug — the
+region just doesn't update. In dev mode (`?goowee-dev`), goowee records the
+signals a `Show`/`For`/`Switch`/`Route`/`UseScope` render or a `Computed`
+reads and warns — once per read site, with its `file:line` — about any that
+isn't declared:
+
+```go
+For(todos, key, func(t Todo) core.Node {
+    return Li(Class(ifElse(selected.Get() == t.ID, "on", ""))) // ⚠ selected isn't a dep of For
+})
+```
+
+Fix it by binding the value (`ClassS(…)` over a `Computed`), adding the dep,
+or — for a deliberate snapshot — reading with `sig.Peek()`, which is never
+counted.
+
 ## Effects — lifecycle and side effects
 
 All effects declare their dependencies explicitly — there is no auto-tracking.

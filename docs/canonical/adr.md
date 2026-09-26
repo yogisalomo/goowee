@@ -71,6 +71,14 @@ it hides the dependency graph. Manual deps are explicit and simple.
 trade for simplicity and no magic. Could be revisited if a safe auto-tracking
 design emerges (would be a new ADR).
 
+**Amended 2026-09-26 (#74).** Dev mode now *checks* the declarations: reads
+made while a scope renders (`core.RenderScope`) or a `Computed` computes are
+recorded and any signal not among the deps is reported once per read site
+(`file:line`). Nested Computed evaluation and subscriber callbacks are
+excluded; `Signal.Peek` reads without being counted. Production cost: one nil
+check in `Get`. Auto-tracking stays out: the checker gives most of its safety
+without changing semantics.
+
 ---
 
 ## ADR-003: Typed Go DSL (`h` package) is the authoring API; templates are deferred

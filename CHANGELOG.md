@@ -12,6 +12,12 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- Dev-mode dependency checking (`?goowee-dev` → `core.SetDevChecks`): a
+  signal read while a `Show`/`For`/`Switch`/`Route`/`UseScope` renders or a
+  `Computed` computes, but not declared as a dep, is reported once per read
+  site with its `file:line`. `Signal.Peek()` reads without being counted;
+  `core.RenderScope` for renderers. The example app is audited clean by a
+  test. (#74)
 - `ssr.Handler(ssr.HandlerOptions{Page, Document, Fallback, ClientOnly})` —
   serve server-rendered documents: concurrent renders, the page's status (404
   when the router falls through), the client-rendered fallback when a render

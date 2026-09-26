@@ -51,7 +51,9 @@ Bind a signal instead.
 2. **Read/write signals** with `sig.Get()` / `setter(v)` (from `UseState`) or
    `sig.Set(v)`. In markup, pass the **signal itself** to reactive helpers
    (`Textf("%d", count)`), not `count.Get()` (which captures a one-time value).
-3. **Effects declare their deps explicitly** — there is no auto-tracking:
+3. **Effects declare their deps explicitly** — there is no auto-tracking (dev
+   mode, `?goowee-dev`, warns about signals read in a region/Computed but not
+   declared; use `sig.Peek()` for an intentional snapshot):
    - `hooks.UseEffect([]core.SignalAccessor{a, b}, func() func() { ...; return cleanup })`
    - `hooks.Watch([]core.SignalAccessor{a}, func() { ... })` (no cleanup)
    - `hooks.OnMount(func() func() { ...; return cleanup })` (runs once, **after**

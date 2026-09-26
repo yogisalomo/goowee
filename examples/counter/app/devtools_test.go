@@ -1,11 +1,13 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/devtools"
+	"github.com/yogisalomo/goowee/router"
 )
 
 func TestLandingDevtoolsSnapshot(t *testing.T) {
@@ -56,5 +58,32 @@ func TestErrorPageBoundaryAndStructuredLog(t *testing.T) {
 	}
 	if entry.Kind != core.LogRecoverErrorBoundary {
 		t.Fatalf("kind = %q, want %q", entry.Kind, core.LogRecoverErrorBoundary)
+	}
+}
+
+// #74: the example app itself must declare every dependency — render every
+// page and walk the router through them with dev checks on, and expect no
+// undeclared-read warnings.
+func TestExampleAppDeclaresItsDependencies(t *testing.T) {
+	var warns []string
+	core.SetDevChecks(true)
+	core.SetLogSink(func(e core.LogEntry) {
+		if strings.Contains(e.Message, "declared dependency") {
+			warns = append(warns, fmt.Sprint(e.Fields))
+		}
+	})
+	defer func() {
+		core.SetDevChecks(false)
+		core.SetLogSink(nil)
+	}()
+	r := router.New("/")
+	h := mount(t, App(r))
+	for _, path := range []string{"/tutorial", "/counter", "/form", "/todos", "/dashboard", "/stopwatch",
+		"/async", "/greet/alice", "/greet/bob", "/events", "/getting-started", "/about", "/nope", "/"} {
+		r.Navigate(path)
+		h.flush()
+	}
+	if len(warns) != 0 {
+		t.Fatalf("undeclared dependencies in the example app:\n%s", strings.Join(warns, "\n"))
 	}
 }

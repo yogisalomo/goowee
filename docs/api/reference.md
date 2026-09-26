@@ -27,6 +27,7 @@ s := core.NewSignal(0)                    // *core.Signal[int]
 s.Get() int
 s.Set(v T)
 s.WithEquals(func(a, b T) bool)          // custom equality (default: ==)
+s.Peek() T                               // read without counting as a dependency (dev checks)
 
 // Group writes: each written signal notifies once, when fn returns. Event
 // handlers, Schedule callbacks, ref reads and effects are batched already.
