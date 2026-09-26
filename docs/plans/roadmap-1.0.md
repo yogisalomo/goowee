@@ -23,7 +23,9 @@ usability** — do them top to bottom. Effort tags are rough (S/M/L).
 (`github.com/yogisalomo/goowee`), semver adopted, the v0 stability/deprecation
 policy written (`docs/api-stability.md`), and a `CHANGELOG.md` covering the
 first-release surface. `v0.1.0` is the first tagged release, so downstreams (the
-personal site, `goowee-markdown`) can now pin a version instead of a commit. **S**
+personal site, `goowee-markdown`) can now pin a version instead of a commit.
+`v0.2.0` (2026-09-26) ships the second review, with an "Upgrading from 0.1"
+guide in the CHANGELOG for its breaking changes. **S**
 
 **0.2 User-facing documentation.** ✅ **Done** (#39). Getting Started, a
 Concepts guide, and an API reference, kept current with each change (the second
