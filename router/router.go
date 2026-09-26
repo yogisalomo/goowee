@@ -1,11 +1,13 @@
 package router
 
 import (
-	"github.com/yogisalomo/goowee/core"
-	"github.com/yogisalomo/goowee/h"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/h"
 )
 
 type Router struct {
@@ -22,6 +24,10 @@ type Router struct {
 	// for the browser URL (Link hrefs, pushState) and stripped from it
 	// (CurrentPath, popstate). Set by BindHistory from the page's <base>.
 	base string
+
+	// notFound is set by the last Route/SubRoute render that matched no
+	// pattern (see NotFound).
+	notFound bool
 }
 
 func New(initial string) *Router {
@@ -31,6 +37,20 @@ func New(initial string) *Router {
 		params: core.NewSignal(map[string]string{}).WithEquals(sameParams),
 	}
 }
+
+// NewURL creates a router positioned at u's path and query — what a server
+// renders for a request: router.NewURL(req.URL).
+func NewURL(u *url.URL) *Router {
+	r := New(u.Path)
+	r.Query.Set(parseQuery(u.RawQuery))
+	return r
+}
+
+// NotFound reports whether the most recent Route render matched no pattern
+// and fell through to the "/404" route (or the built-in not-found text), or a
+// SubRoute under a matched prefix matched nothing. Servers use it after
+// rendering to answer with HTTP 404 (see ssr.RoutedPage).
+func (r *Router) NotFound() bool { return r.notFound }
 
 // SetNavFn sets the browser-history callback for Navigate. Kept for backward
 // compatibility; prefer BindHistory which sets all callbacks at once.
@@ -188,6 +208,7 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 		Deps: []core.SignalAccessor{r.Path},
 		Render: func() core.Node {
 			path := r.Path.Get()
+			r.notFound = false
 			if fn, ok := routes[path]; ok {
 				r.setParams(nil)
 				return fn()
@@ -197,6 +218,7 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 				return fn()
 			}
 			r.setParams(nil)
+			r.notFound = true
 			if fn, ok := routes["/404"]; ok {
 				return fn()
 			}
@@ -272,6 +294,7 @@ func (r *Router) SubRoute(prefix string, routes map[string]func() core.Node) cor
 				return fn()
 			}
 			merge(nil)
+			r.notFound = true
 			if fn, ok := routes["/404"]; ok {
 				return fn()
 			}
@@ -472,18 +495,13 @@ func encodeQuery(m map[string]string) string {
 	return buf.String()
 }
 
-func escapeQuery(s string) string {
-	s = strings.ReplaceAll(s, "&", "%26")
-	s = strings.ReplaceAll(s, "=", "%3D")
-	s = strings.ReplaceAll(s, "+", "%2B")
-	s = strings.ReplaceAll(s, " ", "+")
-	return s
-}
+func escapeQuery(s string) string { return url.QueryEscape(s) }
 
+// unescapeQuery decodes a query component (%XX escapes and '+' as space); a
+// malformed escape falls back to the raw text.
 func unescapeQuery(s string) string {
-	s = strings.ReplaceAll(s, "+", " ")
-	s = strings.ReplaceAll(s, "%26", "&")
-	s = strings.ReplaceAll(s, "%3D", "=")
-	s = strings.ReplaceAll(s, "%2B", "+")
+	if u, err := url.QueryUnescape(s); err == nil {
+		return u
+	}
 	return s
 }

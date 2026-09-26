@@ -3,7 +3,7 @@ package ssr
 import (
 	"fmt"
 	"github.com/yogisalomo/goowee/core"
-	. "github.com/yogisalomo/goowee/h"
+	"github.com/yogisalomo/goowee/h"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/internal/dom"
 	"strings"
@@ -301,13 +301,13 @@ func TestServerRenderSkipsEffects(t *testing.T) {
 
 func TestSSRMetadata(t *testing.T) {
 	body, head := New().Render(
-		Div(
-			Metadata(
-				Title("Test Page"),
-				Meta(Name("description"), Content("A test page")),
-				Link(Rel("canonical"), Href("https://example.com")),
+		h.Div(
+			h.Metadata(
+				h.Title("Test Page"),
+				h.Meta(h.Name("description"), h.Content("A test page")),
+				h.Link(h.Rel("canonical"), h.Href("https://example.com")),
 			),
-			P(Text("hello")),
+			h.P(h.Text("hello")),
 		),
 	)
 	if !strings.Contains(head, `<title>Test Page</title>`) {
@@ -329,10 +329,10 @@ func TestSSRMetadata(t *testing.T) {
 
 func TestSSRMetadataLLM(t *testing.T) {
 	_, head := New().Render(
-		Div(
-			Metadata(
-				LLM("home page", "Welcome page of the Goowee framework", "go", "wasm", "ui"),
-				JSONLD(map[string]any{"@context": "https://schema.org", "@type": "WebPage"}),
+		h.Div(
+			h.Metadata(
+				h.LLM("home page", "Welcome page of the Goowee framework", "go", "wasm", "ui"),
+				h.JSONLD(map[string]any{"@context": "https://schema.org", "@type": "WebPage"}),
 			),
 		),
 	)
@@ -349,9 +349,9 @@ func TestSSRMetadataLLM(t *testing.T) {
 
 func TestSSRMetadataPage(t *testing.T) {
 	_, head := New().Render(
-		Div(
-			Metadata(
-				Page(PageMeta{
+		h.Div(
+			h.Metadata(
+				h.Page(h.PageMeta{
 					Title:       "My Page",
 					Description: "A test page",
 					Canonical:   "https://example.com",
@@ -398,8 +398,8 @@ func TestSSRMetadataPage(t *testing.T) {
 
 func TestSSRMetadataPageMinimal(t *testing.T) {
 	_, head := New().Render(
-		Div(
-			Metadata(Page(PageMeta{Title: "Minimal"})),
+		h.Div(
+			h.Metadata(h.Page(h.PageMeta{Title: "Minimal"})),
 		),
 	)
 	if !strings.Contains(head, `<title>Minimal</title>`) {
@@ -419,9 +419,9 @@ func TestSSRMetadataPageMinimal(t *testing.T) {
 func TestSSRMetadataMultiple(t *testing.T) {
 	// Multiple Metadata blocks accumulate.
 	_, head := New().Render(
-		Div(
-			Metadata(Title("Page")),
-			Metadata(Meta(Name("description"), Content("Desc"))),
+		h.Div(
+			h.Metadata(h.Title("Page")),
+			h.Metadata(h.Meta(h.Name("description"), h.Content("Desc"))),
 		),
 	)
 	if !strings.Contains(head, `<title>Page</title>`) {

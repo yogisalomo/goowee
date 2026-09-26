@@ -198,8 +198,10 @@ cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/ 
 # and has a <div id="root"></div>. (See goowee's examples/counter for a template.)
 ```
 
-For **SSR + hydration**: on the server, `body := ssr.New().Render(App(r))`, wrap it in
-`<div id="root">{body}</div>`, and serve the same wasm loader. The client detects the
+For **SSR + hydration**: on the server, serve pages with
+`ssr.Handler(ssr.HandlerOptions{Page: ssr.RoutedPage(App), Document: shell, Fallback: indexHTML})`
+(concurrent renders, real 404s via `router.NotFound`, panic → client fallback, gzip);
+`Document` wraps the body in `<div id="root">…</div>` and loads the same wasm loader. The client detects the
 server DOM (via `data-node-id`) and hydrates it. Keep server and client markup identical
 (rule 8).
 

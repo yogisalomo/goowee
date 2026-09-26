@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -111,33 +112,6 @@ func TestGzipStaticCachesAndInvalidates(t *testing.T) {
 	}
 }
 
-func TestWriteMaybeGzipHTML(t *testing.T) {
-	html := bytes.Repeat([]byte("<div>hello goowee</div>"), 200)
-
-	// Accepted -> gzip.
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	rec := httptest.NewRecorder()
-	writeMaybeGzip(rec, req, "text/html; charset=utf-8", html)
-	if got := rec.Result().Header.Get("Content-Encoding"); got != "gzip" {
-		t.Fatalf("Content-Encoding = %q, want gzip", got)
-	}
-	if !bytes.Equal(gunzip(t, rec.Body.Bytes()), html) {
-		t.Fatal("gzipped HTML does not round-trip")
-	}
-
-	// Not accepted -> plain.
-	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec2 := httptest.NewRecorder()
-	writeMaybeGzip(rec2, req2, "text/html; charset=utf-8", html)
-	if got := rec2.Result().Header.Get("Content-Encoding"); got != "" {
-		t.Fatalf("Content-Encoding = %q, want empty", got)
-	}
-	if !bytes.Equal(rec2.Body.Bytes(), html) {
-		t.Fatal("plain HTML body mismatch")
-	}
-}
-
 func TestCompressibleAndContentType(t *testing.T) {
 	cases := map[string]bool{
 		"application/wasm":               true,
@@ -153,5 +127,40 @@ func TestCompressibleAndContentType(t *testing.T) {
 	}
 	if got := contentType("x/main.wasm"); got != "application/wasm" {
 		t.Errorf("contentType(.wasm) = %q", got)
+	}
+}
+
+// #77: the reference server renders every route (params included) through
+// ssr.Handler — no hard-coded list — with real 404s and a client fallback.
+func TestServerRoutes(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html>client shell"), 0o644)
+	os.WriteFile(filepath.Join(dir, "site.css"), []byte("body{}"), 0o644)
+	srv := newServer(dir)
+	get := func(path string) (int, string) {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		return rec.Code, rec.Body.String()
+	}
+	if code, body := get("/"); code != 200 || !strings.Contains(body, "data-node-id") {
+		t.Fatalf("/ should be server-rendered: %d", code)
+	}
+	if code, body := get("/greet/bob"); code != 200 || !strings.Contains(body, "Hello, bob!") {
+		t.Fatalf("param routes are SSR'd now: %d", code)
+	}
+	if code, body := get("/definitely-not-a-page"); code != 404 || !strings.Contains(body, "page not found") {
+		t.Fatalf("unknown path must be a 404 page, got %d", code)
+	}
+	if code, body := get("/error"); code != 200 || !strings.Contains(body, "client shell") {
+		t.Fatalf("a panicking page falls back to the client shell: %d %s", code, body)
+	}
+	if code, body := get("/ai"); code != 200 || !strings.Contains(body, "client shell") {
+		t.Fatalf("/ai is client-only: %d", code)
+	}
+	if code, body := get("/site.css"); code != 200 || body != "body{}" {
+		t.Fatalf("static files: %d %s", code, body)
+	}
+	if code, body := get("/../main.go"); code == 200 && strings.Contains(body, "package main") {
+		t.Fatal("path traversal escaped the static dir")
 	}
 }

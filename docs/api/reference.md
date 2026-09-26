@@ -366,8 +366,21 @@ router.CurrentPath() string
 ```go
 import "github.com/yogisalomo/goowee/ssr"
 
-renderer := ssr.New()
-html := renderer.Render(node core.Node)        // string
+body, head := ssr.New().Render(node core.Node)  // body HTML + <head> HTML from Metadata
+
+// A net/http handler for whole documents: concurrent renders, gzip,
+// status from the page (404 via the router), fallback on panic/ClientOnly.
+ssr.Handler(ssr.HandlerOptions{
+    Page       func(*http.Request) ssr.Page      // ssr.Page{Node, Status func() int}
+    Document   func(w io.Writer, head, body string)
+    Fallback   http.Handler                     // e.g. the client-only index.html
+    ClientOnly func(*http.Request) bool
+}) http.Handler
+ssr.RoutedPage(app func(*router.Router) core.Node) func(*http.Request) ssr.Page
+
+// router, for servers:
+router.NewURL(u *url.URL) *router.Router   // path + query from a request URL
+r.NotFound() bool                          // last Route render hit the 404 fallback
 ```
 
 The SSR renderer produces HTML with `data-node-id` attributes and text

@@ -152,9 +152,22 @@ The same component tree can render to HTML on the server:
 ```go
 import "github.com/yogisalomo/goowee/ssr"
 
-body := ssr.New().Render(App(r))
-// wrap in <div id="root">{body}</div> and serve with the WASM loader
+http.Handle("/", ssr.Handler(ssr.HandlerOptions{
+    Page:     ssr.RoutedPage(App), // App(r *router.Router) core.Node
+    Document: func(w io.Writer, head, body string) {
+        fmt.Fprintf(w, `<!DOCTYPE html><html><head>%s
+<script src="wasm_exec.js"></script><script src="goowee.js"></script></head>
+<body><div id="root">%s</div><script>goowee.boot()</script></body></html>`, head, body)
+    },
+    Fallback: http.FileServer(http.Dir("web")), // client-rendered shell, used if a render panics
+}))
 ```
+
+`ssr.Handler` renders each request concurrently, answers **404** when the
+router falls through to its not-found route (`router.NotFound`), serves
+`Fallback` (typically your client-only `index.html`) when a render panics or
+for paths you mark `ClientOnly`, and gzips the HTML. Lower level:
+`body, head := ssr.New().Render(node)`.
 
 The client detects the server-rendered DOM (via `data-node-id` attributes) and
 **hydrates** — claiming existing nodes and wiring up handlers instead of
