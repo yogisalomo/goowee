@@ -17,6 +17,7 @@ import (
 var (
 	reElemID = regexp.MustCompile(`<([a-z0-9]+) data-node-id="(\d+)"`)
 	reTextID = regexp.MustCompile(`<!--g(\d+)-->`)
+	reAnchor = regexp.MustCompile(`<!--/(\d+)-->`) // scope end anchors
 )
 
 // ssrIDKinds parses the id -> kind map the SSR walker produced: elements carry
@@ -30,6 +31,10 @@ func ssrIDKinds(html string) map[int]string {
 	for _, m := range reTextID.FindAllStringSubmatch(html, -1) {
 		id, _ := strconv.Atoi(m[1])
 		out[id] = "#text"
+	}
+	for _, m := range reAnchor.FindAllStringSubmatch(html, -1) {
+		id, _ := strconv.Atoi(m[1])
+		out[id] = "#comment"
 	}
 	return out
 }

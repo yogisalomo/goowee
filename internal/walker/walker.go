@@ -26,6 +26,10 @@ func (w *Walker) AllocID() int {
 	return id
 }
 
+// NextID returns the id the next AllocID will hand out. Ids are sequential, so
+// the ids allocated by a walk are exactly [NextID before, NextID after).
+func (w *Walker) NextID() int { return w.nextID }
+
 // Visitor is implemented by DOM and SSR renderers. Each method receives the
 // node (with its ID already set for element/text nodes) and a walkChild func
 // that walks a single child node and returns its root ID.
@@ -39,7 +43,10 @@ type Visitor interface {
 	VisitComponentEnter(cn *core.ComponentNode)
 	VisitComponentLeave(cn *core.ComponentNode, innerID int)
 	VisitScopeEnter(sn *core.ScopeNode)
-	VisitScopeLeave(sn *core.ScopeNode, innerID int)
+	// VisitScopeLeave runs after the scope's content is walked and its end
+	// anchor id (sn.Anchor) allocated; its return value is the scope's id as
+	// seen by the parent (0 when the visitor attached the content itself).
+	VisitScopeLeave(sn *core.ScopeNode, innerID int) int
 	VisitRaw(id int, rn *core.RawNode)
 }
 
@@ -100,8 +107,10 @@ func (w *Walker) Walk(n core.Node, v Visitor) int {
 		inner := core.FlatTree(node.Render())
 		id := w.Walk(inner, v)
 		node.Prev = inner
-		v.VisitScopeLeave(node, id)
-		return id
+		// The end anchor is allocated after the content, in both renderers, so
+		// SSR and client ids stay in parity.
+		node.Anchor = w.AllocID()
+		return v.VisitScopeLeave(node, id)
 
 	case *core.PortalNode:
 		if node == nil {

@@ -244,6 +244,10 @@ type ScopeNode struct {
 	Deps   []SignalAccessor
 	Prev   Node
 	Unsubs []func()
+	// Anchor is the id of the scope's end marker — an empty comment node the
+	// renderer keeps right after the scope's content, so re-rendered content
+	// (even several roots, or none) is always inserted in the right place.
+	Anchor int
 }
 
 func (s *ScopeNode) nodeMarker() {}

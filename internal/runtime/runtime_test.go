@@ -63,37 +63,41 @@ func TestComponentTreeNesting(t *testing.T) {
 	}
 }
 
-func TestComputedRecomputesAndDisposes(t *testing.T) {
+// Computed is lazy (#58): it tracks its deps while observed and holds no
+// subscriptions otherwise, so there is nothing to dispose with the frame — and
+// reads are always current.
+func TestComputedRecomputesAndReleases(t *testing.T) {
 	a := core.NewSignal(1)
 	b := core.NewSignal(2)
 
 	PushComponent()
 	comp := core.Computed([]core.SignalAccessor{a, b}, func() int { return a.Get() + b.Get() })
+	frame := CurrentComponent()
+	PopComponent()
 
 	if comp.Get() != 3 {
 		t.Fatalf("expected 3, got %d", comp.Get())
 	}
-
+	unsub := comp.Subscribe(func() {})
 	a.Set(10)
 	if comp.Get() != 12 {
 		t.Fatalf("expected 12 after a change, got %d", comp.Get())
 	}
-
 	b.Set(20)
 	if comp.Get() != 30 {
 		t.Fatalf("expected 30 after b change, got %d", comp.Get())
 	}
-
-	frame := CurrentComponent()
-	PopComponent()
-
-	for _, d := range frame.Disposers {
-		d()
+	if len(frame.Disposers) != 0 {
+		t.Fatalf("a lazy computed registers no disposers, got %d", len(frame.Disposers))
 	}
 
+	unsub()
+	if a.SubscriberCount() != 0 || b.SubscriberCount() != 0 {
+		t.Fatalf("unobserved computed must release deps: a=%d b=%d", a.SubscriberCount(), b.SubscriberCount())
+	}
 	a.Set(100)
 	b.Set(200)
-	if got := comp.Get(); got != 30 {
-		t.Fatalf("after disposal, expected last cached value 30, got %d", got)
+	if got := comp.Get(); got != 300 {
+		t.Fatalf("reads stay current, want 300, got %d", got)
 	}
 }

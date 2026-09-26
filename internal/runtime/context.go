@@ -77,6 +77,30 @@ func activeContext() *RenderContext {
 func PushComponent() *core.ComponentFrame { return activeContext().push() }
 func PopComponent()                       { activeContext().pop() }
 
+// PushOwner pushes an owner frame: a frame that is not a component but owns
+// the hooks (Watch, UseEffect, OnMount, …) called while it is current — a
+// scope's render function, or an error boundary's subtree. It is linked into
+// the current frame's Children, so disposing an enclosing frame tree reaches
+// it. Pop it with PopComponent.
+func PushOwner() *core.ComponentFrame { return activeContext().push() }
+
+// NewOwner creates an owner frame under parent without linking it into
+// parent.Children (a scope re-render replaces its owner every time; linking
+// would grow the parent's list forever). Enter it with PushFrame.
+func NewOwner(parent *core.ComponentFrame) *core.ComponentFrame {
+	path := "/"
+	if parent != nil {
+		path = parent.Path
+	}
+	return &core.ComponentFrame{Path: path, Parent: parent}
+}
+
+// PushFrame makes an existing frame current; pop it with PopComponent.
+func PushFrame(f *core.ComponentFrame) {
+	c := activeContext()
+	c.stack = append(c.stack, f)
+}
+
 func SaveFrameStack() int { return len(activeContext().stack) }
 func RestoreFrameStack(depth int) {
 	c := activeContext()

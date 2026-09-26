@@ -32,6 +32,17 @@ time. The public surface freezes under semver at v1.
 - `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
 
 ### Changed
+- Reactive regions get an end anchor: SSR emits `<!--/{id}-->` after each
+  region's content and the client keeps an empty comment there; node ids after
+  a region shift by one (ADR-021).
+- `core.Computed` is lazy: it subscribes to its deps only while observed and
+  recomputes on `Get` when unobserved (reads are always current). It no longer
+  registers a disposer on the current component.
+- A panic while a re-render diffs through an `h.ErrorBoundary` now renders the
+  fallback (it used to keep a half-updated subtree); a later successful render
+  restores the child (amends ADR-018).
+- `runtime/goowee.js`: an `InsertBefore` goes to its reference node's actual
+  parent.
 - Signal notification no longer allocates or looks subscribers up by id:
   `Set` is O(N) in subscribers (was O(N²)) and unsubscribe is O(1) — 1,000
   subscribers: ~505 µs → ~1 µs per `Set`. A panicking `core.Schedule` callback
@@ -50,6 +61,20 @@ time. The public surface freezes under semver at v1.
   the node is removed) and expose `goowee.readFile(handle)`.
 
 ### Fixed
+- Content a reactive region renders as several roots (a `For` list, a
+  multi-root `Show` branch) is placed before the region's following siblings
+  — appended rows used to land after a trailing footer — and a region
+  replaced by a plain element is rendered (it used to render nothing). (#83)
+- A nested `Show`/`For`/`Switch` inside a subtree that re-renders is adopted
+  instead of torn down and rebuilt: components inside keep their state, and
+  toggled content stays under its real parent. (#59)
+- `h.Textf`/`core.Computed` created inside a re-rendering region no longer
+  leak a subscription per re-render, and `Watch`/`UseEffect`/`OnMount` called
+  in a region's render function are disposed with that render. (#58)
+- `h.ErrorBoundary` releases the effects, bindings, handlers and scope
+  subscriptions of whatever its child mounted before panicking. (#61)
+- Hydrating an SSR'd `h.Raw` node claims its `<div>` wrapper instead of logging
+  a mismatch and dropping the node.
 - A prop whose value is a slice, map, or func no longer panics the differ
   ("comparing uncomparable type") and freezes the subtree; it is treated as
   changed and re-set. An uncomparable key falls back to positional matching

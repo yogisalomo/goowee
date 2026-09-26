@@ -36,6 +36,7 @@ const chrome = spawn(chromePath(), [
 let ws, nextId = 1;
 const pending = new Map();
 const logs = [];
+const consoleLines = []; // console.* output, for assertions (not printed)
 const send = (method, params = {}) => {
   const id = nextId++;
   ws.send(JSON.stringify({ id, method, params }));
@@ -58,6 +59,8 @@ async function main() {
     if (m.id && pending.has(m.id)) {
       const p = pending.get(m.id); pending.delete(m.id);
       m.error ? p.rej(new Error(m.error.message)) : p.res(m.result);
+    } else if (m.method === "Runtime.consoleAPICalled") {
+      consoleLines.push(m.params.type + ": " + m.params.args.map((a) => a.value ?? a.description ?? "").join(" "));
     } else if (m.method === "Runtime.exceptionThrown") {
       logs.push("exception: " + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text));
     }
@@ -99,6 +102,11 @@ async function main() {
   await waitFor(hydrationReady, "landing hydration complete");
   check(await evalJS(`(document.body.innerText.match(/Reactive web UIs, written in Go\\./g)||[]).length`) === 1, "landing headline duplicated (hydration)");
   check(await evalJS(`document.querySelectorAll('.count').length`) === 1, "hero demo duplicated");
+  // Every server node — elements, text, scope anchors — must be claimed: the
+  // runtime logs a mismatch or a missing server node otherwise.
+  const hydrationErrors = consoleLines.filter((l) => /hydration mismatch|no server node/.test(l));
+  check(hydrationErrors.length === 0, "hydration logged mismatches:\n" + hydrationErrors.join("\n"));
+  check(await evalJS(`(()=>{let n=0;const w=document.createTreeWalker(document.getElementById('root'),NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^\\/\\d+$/.test(w.currentNode.data))n++;return n;})()`) > 0, "scope anchors missing after hydration");
   // Inline SVG (h.Svg) must carry the SVG namespace end-to-end, root and descendants.
   check(await evalJS(`(()=>{const s=document.querySelector('.logo');const ns='http://www.w3.org/2000/svg';return !!s && s.namespaceURI===ns && s.querySelector('rect')?.namespaceURI===ns;})()`), "inline SVG logo namespaced correctly");
 

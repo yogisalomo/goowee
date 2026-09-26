@@ -10,10 +10,11 @@ import (
 func TestBatchDerivedStateSeesOnlyFinalValues(t *testing.T) {
 	x, y := NewSignal(0), NewSignal(0)
 	var seen []string
-	Computed([]SignalAccessor{x, y}, func() int {
+	c := Computed([]SignalAccessor{x, y}, func() int {
 		seen = append(seen, fmt.Sprintf("(%d,%d)", x.Get(), y.Get()))
 		return x.Get() + y.Get()
 	})
+	c.Subscribe(func() {}) // observed, so it recomputes on dep changes
 	seen = nil
 	Batch(func() {
 		x.Set(1)
@@ -101,10 +102,11 @@ func TestScheduledCallbacksAreBatchedAndContained(t *testing.T) {
 	s := NewScheduler()
 	x, y := NewSignal(0), NewSignal(0)
 	var seen []string
-	Computed([]SignalAccessor{x, y}, func() int {
+	c := Computed([]SignalAccessor{x, y}, func() int {
 		seen = append(seen, fmt.Sprintf("(%d,%d)", x.Get(), y.Get()))
-		return 0
+		return x.Get() + y.Get()
 	})
+	c.Subscribe(func() {})
 	seen = nil
 	var captured LogEntry
 	SetLogSink(func(e LogEntry) { captured = e })
@@ -114,6 +116,9 @@ func TestScheduledCallbacksAreBatchedAndContained(t *testing.T) {
 	s.Post(func() { panic("bad callback") })
 	s.Post(func() { y.Set(1) })
 	s.Flush()
+	if len(seen) == 0 {
+		t.Fatal("computed never re-evaluated")
+	}
 	for _, v := range seen {
 		if v != "(1,1)" {
 			t.Fatalf("posted callbacks should land as one batch, saw %v", seen)

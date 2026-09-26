@@ -143,12 +143,16 @@ function hydrateOnce() {
 
     // Text nodes can't carry attributes; SSR marks each with a preceding
     // <!--g{id}--> comment. Claim the comment's next sibling, then drop the
-    // marker so the live DOM matches the client tree.
+    // marker so the live DOM matches the client tree. Scope end anchors are
+    // <!--/{id}--> comments that stay in the DOM: claim the comment itself.
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
     const markers = [];
     while (walker.nextNode()) {
-        const m = /^g(\d+)$/.exec(walker.currentNode.data);
-        if (m) markers.push([parseInt(m[1], 10), walker.currentNode]);
+        const data = walker.currentNode.data;
+        let m = /^g(\d+)$/.exec(data);
+        if (m) { markers.push([parseInt(m[1], 10), walker.currentNode]); continue; }
+        m = /^\/(\d+)$/.exec(data);
+        if (m) preexistingNodes[parseInt(m[1], 10)] = walker.currentNode;
     }
     for (const [id, comment] of markers) {
         const next = comment.nextSibling;
@@ -308,6 +312,8 @@ window.applyMutations = function applyMutations(json) {
                     delete preexistingNodes[mut.nodeId];
                 } else if (mut.value === "#text") {
                     el = document.createTextNode("");
+                } else if (mut.value === "#comment") {
+                    el = document.createComment(""); // a scope's end anchor
                 } else if (mut.ns) {
                     el = document.createElementNS(mut.ns, mut.value); // SVG etc.
                 } else {
@@ -354,11 +360,16 @@ window.applyMutations = function applyMutations(json) {
                 break;
             }
             case 5: { // InsertBefore
-                const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
+                // The reference node's actual parent wins: a scope's content is
+                // inserted before its anchor wherever the anchor lives (inside a
+                // portal target, the root container, …).
                 const child = nodeMap[mut.childId];
                 const ref = mut.refId ? nodeMap[mut.refId] : null;
+                const parent = ref && ref.parentNode ? ref.parentNode
+                    : (mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId]);
                 if (parent && child) {
-                    parent.insertBefore(child, ref);
+                    if (ref && ref.parentNode === parent) parent.insertBefore(child, ref);
+                    else parent.appendChild(child);
                 }
                 break;
             }
@@ -386,10 +397,11 @@ window.applyMutations = function applyMutations(json) {
             case 7: { // Hydrate — claim a server-rendered node by id
                 const pre = preexistingNodes[mut.nodeId];
                 const wantText = mut.value === "#text";
+                const wantComment = mut.value === "#comment";
                 // The claimed node must match what the client expects; a wrong
                 // tag/type means the server and client rendered different trees.
-                const matches = pre && (wantText
-                    ? pre.nodeType === 3
+                const matches = pre && (wantText ? pre.nodeType === 3
+                    : wantComment ? pre.nodeType === 8
                     : pre.nodeType === 1 && pre.nodeName.toLowerCase() === mut.value);
                 if (matches) {
                     el = pre;
@@ -408,7 +420,9 @@ window.applyMutations = function applyMutations(json) {
                             ">). SSR/client structure diverged; creating it bare.");
                     }
                     // Best-effort recovery so the app keeps running.
-                    el = wantText ? document.createTextNode("") : document.createElement(mut.value);
+                    el = wantText ? document.createTextNode("")
+                        : wantComment ? document.createComment("")
+                        : document.createElement(mut.value);
                 }
                 el._nodeID = mut.nodeId;
                 nodeMap[mut.nodeId] = el;

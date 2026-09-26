@@ -38,6 +38,20 @@ func UseEffect(deps []core.SignalAccessor, fn func() func()) {
 	}
 }
 
+// DisposeFrameTree disposes f and every frame below it, children first. Used
+// when a subtree is abandoned without a node tree to walk — an error boundary
+// discarding the part of its child that rendered before a panic.
+func DisposeFrameTree(f *core.ComponentFrame) {
+	if f == nil {
+		return
+	}
+	for _, c := range f.Children {
+		DisposeFrameTree(c)
+	}
+	f.Children = nil
+	RunFrameCleanup(f)
+}
+
 // RunFrameCleanup disposes a single frame's own resources: registered
 // disposers (signal subscriptions from Computed/Watch, scope teardowns) and
 // effect cleanups. It does not recurse into child frames — the renderer walks
