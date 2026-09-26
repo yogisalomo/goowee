@@ -390,6 +390,24 @@ and hydrates instead of rebuilding.
 
 ---
 
+## `gooweetest` — headless component tests
+
+```go
+import "github.com/yogisalomo/goowee/gooweetest"
+
+s := gooweetest.Render(t, node)       // mount; flushed; unmounted when the test ends
+s.Find(sel) / s.Query(sel) / s.FindAll(sel) / s.FindByText(text) *Element
+s.Click(el), s.Input(el, v), s.Change(el, v), s.Check(el, bool), s.Focus(el)
+s.Submit(form) bool, s.KeyDown(el, key) bool, s.Dispatch(el, event, data) bool  // true = prevented
+s.Flush(), s.WaitFor(func() bool), s.WaitForText(text)
+s.Text(), s.HTML(), s.Head(), s.Portal(selector), s.Focused(), s.Unmount()
+el.Text(), el.HTML(), el.Attr(name), el.HasAttr(name), el.Value(), el.Checked(), el.Prop(name), el.Children(), el.Find(sel)
+```
+
+Selectors: tag, `#id`, `.class`, `[attr]`, `[attr=value]`, descendant (space).
+
+---
+
 ## `bridge` — WASM entry point
 
 ```go

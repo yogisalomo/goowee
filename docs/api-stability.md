@@ -23,9 +23,10 @@ These are the supported API. Import them freely.
 | `h`       | The typed DSL: elements, attributes, events, control flow (`Show`/`For`/`Switch`), `Svg`, `Ref`/`Portal`, `ErrorBoundary`. |
 | `hooks`   | `UseState`, `UseEffect`, `Watch`, `OnMount`, `UseResource`, `UseScope`. |
 | `router`  | `Route`, params (`ParamSignal`), navigation, guards, sub-routes, base path. |
-| `ssr`     | Server-side rendering: `ssr.New().Render(node)`. |
+| `ssr`     | Server-side rendering: `ssr.Handler`, `ssr.RoutedPage`, `ssr.New().Render(node)`. |
 | `bridge`  | The client entry point: `bridge.Run(node)`. |
 | `devtools`| Optional dev-mode inspector: `devtools.Enable()`, `devtools.Snapshot()`. |
+| `gooweetest` | Headless component tests: `gooweetest.Render(t, node)` → a `Screen` to find, click, type, flush. |
 | `core`    | **Only the subset listed below.** |
 
 ### The public subset of `core`
@@ -34,10 +35,11 @@ These are the supported API. Import them freely.
 internals (the renderer contract, scheduler, mutation types, component-frame
 stack, node structs). Only these identifiers are public:
 
-- **Reactivity:** `Signal[T]`, `NewSignal`, `Computed`, `SignalAccessor`,
-  `Schedule` (off-loop updates).
-- **Composition:** `Node`, `Component`, `ComponentNode`.
-- **Events / misc:** `EventData`, `Ref`, `SVGNamespace`.
+- **Reactivity:** `Signal[T]` (incl. `Peek`), `NewSignal`, `Computed`,
+  `SignalAccessor`, `Batch`, `Schedule` (off-loop updates).
+- **Composition:** `Node`, `Component`, `ComponentWithProps`, `ComponentNode`,
+  `SetKey`.
+- **Events / misc:** `EventData` (+ `Touch`, `File`), `Ref`, `SVGNamespace`.
 
 Everything else exported from `core` — `Scheduler`, `RenderContext`,
 `BindingRegistry`, `Mutation`/`MutationType`, `ComponentFrame`, `PushComponent`/
@@ -55,7 +57,8 @@ refactor tracked separately.)
 `internal/dom` (the DOM renderer, diff/reconciliation, hydration, and event
 registry) is under `internal/`, so the Go toolchain **prevents** any module
 outside goowee from importing it. There is no supported way to drive the renderer
-directly; go through `bridge.Run` on the client and `ssr` on the server.
+directly; go through `bridge.Run` on the client, `ssr` on the server, and
+`gooweetest` in tests.
 
 `runtime/goowee.js` is the JS bridge that applies mutations and forwards events.
 It is an implementation detail of the client and not a stable interface.

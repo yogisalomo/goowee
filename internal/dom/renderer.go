@@ -41,9 +41,10 @@ type DOMRenderer struct {
 	scopeSeq       int // monotonic mount order
 	scopeStack     []scopeState
 	scopes         map[*core.ScopeNode]*scopeInfo
-	hydrating      bool   // initial render claims server-rendered nodes
-	hydrateDynamic bool   // within a Dynamic subtree: re-apply values so client wins
-	currentNS      string // XML namespace inherited by the subtree being rendered (SVG)
+	root           core.Node // the tree Render mounted (for Unmount)
+	hydrating      bool      // initial render claims server-rendered nodes
+	hydrateDynamic bool      // within a Dynamic subtree: re-apply values so client wins
+	currentNS      string    // XML namespace inherited by the subtree being rendered (SVG)
 	muts           *[]core.Mutation
 
 	// Recovery bookkeeping. While a walk that may be abandoned is in progress
@@ -100,6 +101,7 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 	var muts []core.Mutation
 	r.muts = &muts
 	n = core.FlatTree(n)
+	r.root = n
 	rootID := r.Walker.Walk(n, r)
 	r.muts = nil
 	if rootID != 0 && !hydrating {
@@ -110,6 +112,19 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 		})
 	}
 	return muts, firstRoot(n)
+}
+
+// Unmount removes the tree Render mounted: every component's effects are
+// cleaned up and every subscription released, and the removals are queued on
+// the scheduler (the next Flush returns them).
+func (r *DOMRenderer) Unmount() {
+	if r.root == nil {
+		return
+	}
+	var muts []core.Mutation
+	r.emitRemoveTree(r.root, &muts)
+	r.root = nil
+	r.Scheduler.Enqueue(muts...)
 }
 
 // renderFresh walks n as a brand-new subtree inside a diff. Its top-level

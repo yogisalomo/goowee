@@ -269,6 +269,18 @@ as `/todos/1` → `/todos/2` (bind `ParamSignal`, don't read `Param` once in set
 - Typed data: `e.Key()`, `e.CtrlKey()`, `e.ClientX()`, `e.DeltaY()`,
   `e.PointerType()`, `e.Touches()`, … — see `core.EventData`.
 
+## Testing
+
+Unit-test components with `gooweetest` (no browser):
+
+```go
+s := gooweetest.Render(t, Counter())
+s.Click(s.FindByText("Increment"))
+if got := s.Find("p.count").Text(); got != "Count: 1" { t.Fatalf("got %q", got) }
+s.Input(s.Find("input[name=title]"), "milk"); s.Submit(s.Find("form"))
+s.WaitForText("Loaded")   // async UseResource results
+```
+
 ## Anti-patterns (do NOT do these)
 
 - ❌ Expecting the component body to re-run on state change. It runs once.

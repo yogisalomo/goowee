@@ -146,6 +146,16 @@ func (s *Scheduler) RunEffects() {
 	})
 }
 
+// HasWork reports whether a Flush or RunEffects would do anything: queued
+// mutations, dirty scopes, callbacks posted by goroutines, or effects waiting
+// to run. Test harnesses use it to flush until quiescent.
+func (s *Scheduler) HasWork() bool {
+	s.postMu.Lock()
+	posted := len(s.posted)
+	s.postMu.Unlock()
+	return len(s.queue) > 0 || len(s.dirty) > 0 || posted > 0 || len(s.effects) > 0
+}
+
 // PendingEffects reports how many effects wait for RunEffects.
 func (s *Scheduler) PendingEffects() int { return len(s.effects) }
 

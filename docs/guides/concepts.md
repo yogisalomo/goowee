@@ -596,3 +596,38 @@ Input(Type("file"), Accept("audio/*"), OnChangeE(func(e core.EventData) {
 A file stays readable until the input's selection changes or the element is
 removed. Calling `Bytes()` inline in the handler would block the WASM event
 loop, which is what the read needs to complete — hence the goroutine.
+
+---
+
+## Testing — gooweetest
+
+`gooweetest` renders components headlessly: an in-memory DOM applies the same
+mutation stream the browser runtime does, events go through the real handlers
+(with DOM bubbling), effects run after each frame, and `core.Schedule` works —
+no browser needed.
+
+```go
+func TestCounter(t *testing.T) {
+    s := gooweetest.Render(t, Counter())
+    s.Click(s.FindByText("Increment"))
+    if got := s.Find("p.count").Text(); got != "Count: 1" {
+        t.Fatalf("got %q", got)
+    }
+}
+```
+
+- Find elements with `Find`/`Query`/`FindAll` (CSS subset: tag, `#id`,
+  `.class`, `[attr]`, `[attr=value]`, descendants) or `FindByText`.
+- Interact with `Click`, `Input`, `Change`, `Check`, `Submit`, `KeyDown`,
+  `Focus`, or any event via `Dispatch`; each flushes, so assertions see the
+  updated DOM. `Submit`/`KeyDown`/`Dispatch` report whether the default action
+  was prevented.
+- Read with `Text`, `HTML`, `Head`, `Portal(selector)`, `Focused`, and per
+  element `Text`, `Attr`, `Value`, `Checked`, `Prop`.
+- Async work (`UseResource`, goroutines + `Schedule`): `WaitFor(cond)` /
+  `WaitForText(s)`.
+- `Unmount` runs every cleanup (Render does it at the end of the test).
+
+There's no layout: `ref.Get` of sizes and positions returns `nil`. For real
+browser behavior, see the headless-Chrome E2E harness in `test/e2e`.
+
