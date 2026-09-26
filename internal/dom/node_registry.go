@@ -94,7 +94,11 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 			})
 		}
 	}()
-	entry.Fn(core.EventData{Type: event, Target: nodeID, Data: data})
+	// Batched: a handler that writes several signals notifies each once, after
+	// it returns, so derived state never sees a half-applied update.
+	core.Batch(func() {
+		entry.Fn(core.EventData{Type: event, Target: nodeID, Data: data})
+	})
 	opts = entry.Options
 	return
 }

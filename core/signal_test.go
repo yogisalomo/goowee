@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 )
@@ -237,5 +238,74 @@ func TestSignalAccessorValue(t *testing.T) {
 	var acc SignalAccessor = s
 	if acc.Value() != "hello" {
 		t.Fatalf("SignalAccessor.Value() failed")
+	}
+}
+
+// #69: unsubscribe marks subscribers dead and compacts lazily; the survivors
+// must keep running, in subscription order.
+func TestUnsubscribeCompactionKeepsOrder(t *testing.T) {
+	s := NewSignal(0)
+	var order []int
+	unsubs := make([]func(), 10)
+	for i := 0; i < 10; i++ {
+		i := i
+		unsubs[i] = s.Subscribe(func() { order = append(order, i) })
+	}
+	for _, i := range []int{7, 0, 3, 9, 1, 5} {
+		unsubs[i]()
+		unsubs[i]() // idempotent
+	}
+	if s.SubscriberCount() != 4 {
+		t.Fatalf("want 4 live subscribers, got %d", s.SubscriberCount())
+	}
+	s.Set(1)
+	want := []int{2, 4, 6, 8}
+	if fmt.Sprint(order) != fmt.Sprint(want) {
+		t.Fatalf("want %v, got %v", want, order)
+	}
+	// A subscriber removed and one added mid-notify.
+	order = nil
+	var late func()
+	s.Subscribe(func() {
+		order = append(order, 100)
+		unsubs[8]()
+		if late == nil {
+			late = s.Subscribe(func() { order = append(order, 200) })
+		}
+	})
+	s.Set(2)
+	// 8 was already notified before the removal (it precedes 100), the late
+	// subscriber waits for the next Set.
+	if fmt.Sprint(order) != fmt.Sprint([]int{2, 4, 6, 8, 100}) {
+		t.Fatalf("mid-notify changes: got %v", order)
+	}
+	order = nil
+	s.Set(3)
+	if fmt.Sprint(order) != fmt.Sprint([]int{2, 4, 6, 100, 200}) {
+		t.Fatalf("after mid-notify changes: got %v", order)
+	}
+}
+
+// #69: notification used to look every subscriber up by id with a linear scan
+// (O(N²) per Set). 16× the subscribers must cost roughly 16× the time, not 256×.
+func TestSignalNotifyScalesLinearly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing test")
+	}
+	cost := func(n int) float64 {
+		s := NewSignal(0)
+		for i := 0; i < n; i++ {
+			s.Subscribe(func() {})
+		}
+		res := testing.Benchmark(func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				s.Set(i)
+			}
+		})
+		return float64(res.NsPerOp())
+	}
+	small, large := cost(1000), cost(16000)
+	if ratio := large / small; ratio > 64 {
+		t.Fatalf("16× subscribers cost %.0f× the time — notification is not linear", ratio)
 	}
 }

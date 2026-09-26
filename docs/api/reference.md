@@ -28,6 +28,10 @@ s.Get() int
 s.Set(v T)
 s.WithEquals(func(a, b T) bool)          // custom equality (default: ==)
 
+// Group writes: each written signal notifies once, when fn returns. Event
+// handlers, Schedule callbacks, ref reads and effects are batched already.
+core.Batch(func())
+
 // Derived signal that recomputes when deps change.
 total := core.Computed([]core.SignalAccessor{items}, func() int {
     return sum(items.Get())

@@ -34,6 +34,23 @@ total := core.Computed([]core.SignalAccessor{items}, func() string {
 `Computed` recomputes only when a listed dependency changes. It is read-only:
 `total.Get()`.
 
+### Batching
+
+Writes inside an **event handler**, a `core.Schedule` callback, a `ref.Get`
+reply, or an effect are batched: each written signal notifies **once, after the
+handler returns**, so a `Computed`/`Watch` over several signals never sees a
+half-applied update. Outside those paths, wrap related writes yourself:
+
+```go
+core.Batch(func() {
+    first.Set("Ada")
+    last.Set("Lovelace") // fullName (Computed over both) recomputes once
+})
+```
+
+Values written inside a batch are readable immediately; only notification is
+deferred.
+
 ### Static vs reactive binding
 
 - `Text("hello")`, `Class("active")`, `Value("x")` — **static**, never update.

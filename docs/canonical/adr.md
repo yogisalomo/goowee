@@ -522,3 +522,40 @@ happens off the event loop, documented on the method. Fake DOMs in tests ignore
 `MutRead` like any unknown mutation; pure-Go tests exercise `Get`/`Resolve`
 and `Files`/`Bytes` through the `SetFileReader` hook, and the E2E smoke test
 covers the runtime with a real Chrome (`DOM.setFileInputFiles`).
+
+---
+
+## ADR-020: Signal writes are batched per handler; subscribers are dead-flagged
+
+**Status:** Accepted (2026-09-26)
+
+**Context.** ADR-006 batches *DOM* work per frame, but signal notification was
+synchronous per `Set`: a `Computed`, `Watch` or effect over several signals ran
+once per write and observed intermediate states that never existed from the
+app's point of view (`x.Set(1); y.Set(1)` → a computed saw `(1,0)`) (#73).
+Separately, `Set` looked every subscriber up by id with a linear scan, making
+notification O(N²) in subscribers, and allocating per call (#69).
+
+**Decision.**
+- `core.Batch(fn)`: values are stored immediately; each written signal is
+  queued once and notified when the outermost batch ends (also on panic).
+  Event dispatch, `Scheduler` posted callbacks (one batch per drain, each
+  callback panic-contained), `Ref.Get` replies and effect runs are batched
+  automatically, so the common paths are glitch-free with no user code.
+- Subscribers are pointers with a `dead` flag. Notify iterates the live slice
+  bounded by its length at pass start (appends land beyond it; removals are
+  flagged) — no snapshot, no lookup, no allocation. Unsubscribe is O(1) and
+  idempotent; dead entries are compacted when they reach half the slice, never
+  mid-pass.
+
+**Alternatives.** Microtask/rAF-deferred notification for all writes —
+changes the synchronous `Set`→`Get` contract everywhere. Deduplicating
+subscribers across the signals of a batch (one Computed run instead of one per
+written dep) — needs subscriber identity across signals; the values are already
+consistent, so the extra run is only redundant work. Keep for later if it shows
+up in profiles.
+
+**Consequences.** A glitch-free default for handlers and async results;
+`Batch` is render-loop only, like signals (ADR-010). `Set` with 1,000
+subscribers: ~505 µs → ~1 µs, 0 allocations.
+

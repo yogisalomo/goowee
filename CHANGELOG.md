@@ -12,6 +12,10 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- `core.Batch(fn)` — group signal writes so each written signal notifies once,
+  after `fn` returns; derived state never observes a half-applied update. Event
+  handlers, `core.Schedule` callbacks, `ref.Get` replies (and effects) are
+  batched automatically (ADR-020). (#73)
 - `ref.Get(prop, fn)` — read a value back from a ref'd node (`offsetWidth`,
   `scrollTop`, `selectionStart`, `getBoundingClientRect`, …). The read is
   answered after the next frame's DOM updates apply and `fn` runs on the render
@@ -28,6 +32,11 @@ time. The public surface freezes under semver at v1.
 - `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
 
 ### Changed
+- Signal notification no longer allocates or looks subscribers up by id:
+  `Set` is O(N) in subscribers (was O(N²)) and unsubscribe is O(1) — 1,000
+  subscribers: ~505 µs → ~1 µs per `Set`. A panicking `core.Schedule` callback
+  is now contained and logged (`recover.scheduled`) instead of aborting the
+  frame. (#69)
 - Bound text (`TextS`, `Textf`, `BindProp("textContent", …)`) is formatted in Go
   with `%v` and sent as a string, the same format SSR uses — floats no longer
   change format after hydration (`1e+08` vs JS's `100000000`). (#64)

@@ -13,7 +13,7 @@ import "testing"
 // A regression to per-subscriber allocation shows up as this scaling with the
 // subscriber count.
 func TestAllocBudgetSignalNotifyConstant(t *testing.T) {
-	const budget = 3
+	const budget = 1 // 0 today: notify indexes the live slice, no snapshot
 	for _, subs := range []int{100, 2000} {
 		s := NewSignal(0)
 		for i := 0; i < subs; i++ {
