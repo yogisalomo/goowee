@@ -93,6 +93,9 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 	r.currentNS = ""
 	r.hydrateDynamic = false
 
+	// Effect first-runs wait on this renderer's scheduler for the DOM.
+	defer runtime.SetEffectQueue(runtime.SetEffectQueue(r.Scheduler.QueueEffect))
+
 	var muts []core.Mutation
 	r.muts = &muts
 	n = core.FlatTree(n)
@@ -453,6 +456,7 @@ func (r *DOMRenderer) reRenderScope(sn *core.ScopeNode) {
 	if info == nil {
 		return // removed or adopted since it was marked dirty
 	}
+	defer runtime.SetEffectQueue(runtime.SetEffectQueue(r.Scheduler.QueueEffect))
 	baseStack := len(r.parentStack)
 	frameDepth := runtime.SaveFrameStack()
 	mark := r.beginRecoverable()

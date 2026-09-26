@@ -112,6 +112,9 @@ func startScheduler(sched *core.Scheduler) {
 		if len(muts) > 0 {
 			sendMutations(sched, muts)
 		}
+		// Effects queued by this frame's renders (OnMount, UseEffect) run now
+		// that their DOM is in the document.
+		sched.RunEffects()
 		return nil
 	})
 	// Schedule exactly one frame when work appears, instead of waking the
@@ -183,4 +186,25 @@ func readFile(handle int) ([]byte, error) {
 	promise.Call("then", onOK, onErr)
 	<-done
 	return out, readErr
+}
+
+// Element returns the DOM element ref is attached to, for handing to a
+// JavaScript library that draws into or manages it — a map, a chart, a code
+// editor, a <canvas> context:
+//
+//	hooks.OnMount(func() func() {
+//	    m := js.Global().Get("L").Call("map", bridge.Element(mapRef))
+//	    return func() { m.Call("remove") }
+//	})
+//
+// Call it from OnMount (the element is in the document by then) or later; it
+// returns js.Undefined() before the element has rendered or after it has been
+// removed. Give the library an element whose children goowee doesn't manage
+// (render it empty), so the library and the renderer never edit the same
+// nodes. Only available in js/wasm builds.
+func Element(ref *core.Ref) js.Value {
+	if ref == nil || ref.ID == 0 {
+		return js.Undefined()
+	}
+	return js.Global().Get("goowee").Call("node", ref.ID)
 }

@@ -155,6 +155,17 @@ async function main() {
   await send("DOM.setFileInputFiles", { nodeId: fileInput, files: [filePath] });
   await waitFor(`/note\\.txt: read 14 bytes: "hello from e2e"/.test(document.body.innerText)`, "File.Bytes delivered the picked file's contents");
 
+  // --- OnMount after mount + bridge.Element: Go draws on a <canvas> ---
+  await clickText("a", "goowee");
+  await clickText("a", "Tutorial");
+  await clickLinkContaining("Dashboard");
+  await waitFor(`document.querySelector('canvas.bars')?.dataset.sum === '215'`, "OnMount drew the chart through bridge.Element");
+  await clickText("button", "Randomize Values");
+  await waitFor(`document.querySelector('canvas.bars')?.dataset.sum === '170'`, "chart redrawn after the data changed");
+  // Direct (SSR) load: OnMount on the first screen runs after hydration too.
+  await send("Page.navigate", { url: URL + "/dashboard" });
+  await waitFor(`document.querySelector('canvas.bars')?.dataset.sum === '215'`, "OnMount on an SSR-loaded page sees its element");
+
   // --- Async data (hooks.UseResource): loading → loaded via a goroutine ---
   await clickText("a", "goowee");
   await clickText("a", "Tutorial");

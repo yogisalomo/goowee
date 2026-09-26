@@ -625,3 +625,42 @@ each). Node ids after a scope shift by one relative to before. Hooks called in
 a region's render function behave as that render's, not the enclosing
 component's.
 
+---
+
+## ADR-022: Effects run after their DOM is applied; `bridge.Element` for JS interop
+
+**Status:** Accepted (2026-09-26). Supersedes the "No `ref.Node() js.Value`"
+clause of ADR-019.
+
+**Context.** `UseEffect`'s first run — and so `OnMount` — executed during
+component setup, before the component's tree was walked: refs had no id and no
+element existed, so `ref.Focus()`/`ref.Get()` in `OnMount` were silent no-ops
+and third-party mounts needed `core.Schedule` (twice, on the first screen) to
+wait for the element (#60, #53, #56). And apps integrating Leaflet/Chart.js had
+no supported way to reach the element at all (#53).
+
+**Decision.**
+- Effect first-runs are queued on the rendering scheduler
+  (`Scheduler.QueueEffect`, reached through `runtime.QueueEffect` while a
+  renderer walks) and run by `Scheduler.RunEffects` — the bridge calls it right
+  after `applyMutations` each frame. Effects run in queue order (parents before
+  children), batched and panic-contained. Deps are subscribed at the first run;
+  an effect whose component unmounted first never runs. Without a client
+  renderer (bare hooks in unit tests) the first run is immediate. Dep-triggered
+  re-runs stay synchronous with the change (after the change's batch).
+- `bridge.Element(ref) js.Value` (js/wasm only) returns the live element via
+  `goowee.node(id)`. ADR-019 rejected `ref.Node()` because it can't exist in
+  native/SSR builds and puts `syscall/js` in component code; living in `bridge`
+  keeps `core` portable, and code that drives a JS library already imports
+  `syscall/js` behind a build tag.
+
+**Alternatives.** Keep setup-time effects and document `Schedule` — the
+"two frames" workaround was the bug. Run effects inside `Flush` — too early,
+the batch isn't applied yet. A `useLayoutEffect`-style second hook — unneeded;
+nothing in goowee needs pre-apply effects.
+
+**Consequences.** `OnMount` is safe for measuring, focusing, and JS-library
+setup. Headless tests call `Scheduler.RunEffects()` after `Render`/`Flush` (the
+test harnesses do). `UseResource`'s first fetch starts one frame later
+(after mount).
+

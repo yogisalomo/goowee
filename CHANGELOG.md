@@ -12,6 +12,12 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- `bridge.Element(ref) js.Value` (js/wasm): the live DOM element behind a ref,
+  for handing to a JavaScript library (maps, charts, editors, `<canvas>`) from
+  `OnMount` (ADR-022). The dashboard example draws a canvas chart with it.
+  (#53)
+- `Scheduler.QueueEffect` / `RunEffects` / `PendingEffects`, and
+  `core.LogRecoverEffect` for a panicking effect.
 - `core.Batch(fn)` — group signal writes so each written signal notifies once,
   after `fn` returns; derived state never observes a half-applied update. Event
   handlers, `core.Schedule` callbacks, `ref.Get` replies (and effects) are
@@ -61,6 +67,10 @@ time. The public surface freezes under semver at v1.
   the node is removed) and expose `goowee.readFile(handle)`.
 
 ### Fixed
+- `OnMount` (and `UseEffect`'s first run) runs after the component's DOM is in
+  the document — refs are set, so `ref.Focus()`/`ref.Get()` work directly and
+  no `core.Schedule` is needed to wait for an element; an effect whose
+  component unmounts before it runs never runs (ADR-022). (#60)
 - Content a reactive region renders as several roots (a `For` list, a
   multi-root `Show` branch) is placed before the region's following siblings
   — appended rows used to land after a trailing footer — and a region

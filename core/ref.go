@@ -35,11 +35,11 @@ func (r *Ref) ScrollIntoView() { r.invoke("scrollIntoView") }
 //	    setWidth(int(w))
 //	})
 //
-// To measure right after mount, defer the read past setup — the element has
-// no id until the component's tree is walked:
+// To measure right after mount, read from OnMount — it runs once the
+// component's DOM is in the document:
 //
 //	hooks.OnMount(func() func() {
-//	    core.Schedule(func() { ref.Get("offsetHeight", …) })
+//	    ref.Get("offsetHeight", func(v any) { … })
 //	    return nil
 //	})
 //

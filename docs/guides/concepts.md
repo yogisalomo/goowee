@@ -163,7 +163,8 @@ All effects declare their dependencies explicitly — there is no auto-tracking.
 
 ```go
 hooks.OnMount(func() func() {
-    // Runs once on mount (client only — never during SSR).
+    // Runs once, after mount — the component's DOM is in the document, so
+    // refs are set (client only — never during SSR).
     ticker := time.NewTicker(time.Second)
     stop := make(chan struct{})
     go func() {
@@ -399,15 +400,36 @@ A `prop` naming a method (`getBoundingClientRect`, `checkValidity`) is called
 with no arguments. `v` is `nil` if the property is undefined or the node is
 gone.
 
-To measure right after mount, defer past setup — the element has no id until
-the component's tree is walked:
+`OnMount` runs once the component's DOM is in the document, so measuring
+right after mount is direct:
 
 ```go
 hooks.OnMount(func() func() {
-    core.Schedule(func() { listRef.Get("clientHeight", func(v any) { ... }) })
+    listRef.Get("clientHeight", func(v any) { ... })
     return nil
 })
 ```
+
+### Handing an element to a JavaScript library
+
+A map, a chart, a rich-text editor, a `<canvas>` context: get the live element
+with `bridge.Element(ref)` (js/wasm builds only) from `OnMount`, and tear the
+library down in the cleanup:
+
+```go
+//go:build js && wasm
+
+mapRef := Ref()
+hooks.OnMount(func() func() {
+    m := js.Global().Get("L").Call("map", bridge.Element(mapRef))
+    return func() { m.Call("remove") }
+})
+return Div(RefTo(mapRef), Style("height:320px")) // no goowee children
+```
+
+Give the library an element whose children goowee doesn't manage (render it
+empty), so the library and the renderer never edit the same nodes. The
+dashboard example draws its bar chart on a `<canvas>` this way.
 
 Render outside the current subtree — modals, tooltips, dropdowns — with
 portals:

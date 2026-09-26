@@ -26,6 +26,12 @@ goowee.devEnabled = function devEnabled() {
     return goowee._dev;
 };
 
+// node returns the live DOM node for a goowee node id (bridge.Element), or
+// undefined when it doesn't exist (not rendered yet, or removed).
+goowee.node = function node(id) {
+    return nodeMap[id];
+};
+
 goowee.log = function log(entryJSON) {
     let entry;
     try {

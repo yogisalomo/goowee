@@ -36,10 +36,14 @@ func mount(t *testing.T, n core.Node) (*DOMRenderer, *fakeDOM) {
 	d := newFakeDOM()
 	muts, _ := r.Render(n)
 	d.apply(muts)
+	r.Scheduler.RunEffects()
 	return r, d
 }
 
-func flush(r *DOMRenderer, d *fakeDOM) { d.apply(r.Scheduler.Flush()) }
+func flush(r *DOMRenderer, d *fakeDOM) {
+	d.apply(r.Scheduler.Flush())
+	r.Scheduler.RunEffects()
+}
 
 // #58: Textf inside a re-rendering scope used to leave its Computed subscribed
 // to b forever — one more subscriber per re-render.
@@ -214,9 +218,9 @@ func TestKeyedListBetweenSiblingsProperty(t *testing.T) {
 // mounted before the panic.
 func TestErrorBoundaryReleasesPartialMount(t *testing.T) {
 	g := core.NewSignal("x")
-	cleaned := 0
+	mounted, cleaned := 0, 0
 	sib := core.Component("Sib", func() core.Node {
-		hooks.OnMount(func() func() { return func() { cleaned++ } })
+		hooks.OnMount(func() func() { mounted++; return func() { cleaned++ } })
 		return h.Span(h.TextS(g), h.Show(core.NewSignal(true), func() core.Node { return h.I() }))
 	})
 	bad := core.Component("Bad", func() core.Node { panic("boom") })
@@ -227,8 +231,8 @@ func TestErrorBoundaryReleasesPartialMount(t *testing.T) {
 		}
 		return h.Span()
 	}, show)))
-	if cleaned != 1 {
-		t.Fatalf("the abandoned sibling's effect must be cleaned up at once, got %d", cleaned)
+	if mounted != cleaned {
+		t.Fatalf("the abandoned sibling's effect must not stay live: mounted=%d cleaned=%d", mounted, cleaned)
 	}
 	if g.SubscriberCount() != 0 {
 		t.Fatalf("the abandoned sibling's binding must be released, got %d subscribers", g.SubscriberCount())
@@ -238,8 +242,8 @@ func TestErrorBoundaryReleasesPartialMount(t *testing.T) {
 	}
 	show.Set(false)
 	flush(r, d)
-	if cleaned != 1 {
-		t.Fatalf("no double cleanup, got %d", cleaned)
+	if mounted != cleaned || cleaned > 1 {
+		t.Fatalf("no double cleanup: mounted=%d cleaned=%d", mounted, cleaned)
 	}
 }
 

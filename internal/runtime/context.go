@@ -115,6 +115,29 @@ func CurrentComponent() *core.ComponentFrame {
 
 func CurrentEnv() Env { return activeContext().Env }
 
+// effectQueue is the active client renderer's Scheduler.QueueEffect while it
+// renders (set with SetEffectQueue around each walk); nil otherwise.
+var effectQueue func(func())
+
+// QueueEffect hands an effect's first run to the rendering scheduler, so it
+// runs once the component's DOM exists. With no client renderer rendering —
+// hooks used bare, in unit tests — it runs fn immediately.
+func QueueEffect(fn func()) {
+	if effectQueue != nil {
+		effectQueue(fn)
+		return
+	}
+	fn()
+}
+
+// SetEffectQueue installs q as the effect queue and returns the previous one,
+// for the renderer to restore when its walk ends.
+func SetEffectQueue(q func(func())) func(func()) {
+	prev := effectQueue
+	effectQueue = q
+	return prev
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"
