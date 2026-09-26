@@ -41,6 +41,10 @@ type Resource[T any] struct {
 //	})
 //
 // A superseded or cancelled fetch's result is ignored, whatever it returns.
+//
+// For HTTP in the browser, prefer the browser's fetch over net/http, which
+// adds ~7 MB to the WASM binary — see docs/guides/serving.md for a
+// context-aware helper.
 func UseResource[T any](deps []core.SignalAccessor, fetch func(ctx context.Context) (T, error)) *Resource[T] {
 	var zero T
 	r := &Resource[T]{

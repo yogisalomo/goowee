@@ -67,6 +67,14 @@ time. The public surface freezes under semver at v1.
 
 - `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
 
+### Documentation
+- `docs/guides/serving.md`: "What not to import" — `net/http` adds ~7 MB to
+  the WASM binary (10.0 MB vs 2.7 MB for a minimal program, Go 1.25), with a
+  context-aware `fetch` helper to use instead; `UseResource` points at it.
+  (#54)
+- `docs/plans/roadmap-1.0.md` refreshed to the current state, with a summary of
+  the second review and what's left before 1.0.
+
 ### Changed
 - **Breaking:** `hooks.UseResource`'s fetch takes a `context.Context`
   (`func(ctx context.Context) (T, error)`), cancelled when a newer load starts
