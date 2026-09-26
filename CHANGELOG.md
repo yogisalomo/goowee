@@ -35,6 +35,13 @@ time. The public surface freezes under semver at v1.
   park their `File` objects by handle (released when the selection changes or
   the node is removed) and expose `goowee.readFile(handle)`.
 
+### Fixed
+- `router.SubRoute` matching is deterministic: it now compiles and orders its
+  patterns most-specific-first like `Route`, instead of ranging over the
+  routes map (overlapping patterns used to match at random). A sub-route's
+  params are merged into the parent route's params rather than replacing them,
+  and keys it no longer matches are dropped. (#62)
+
 ## [0.1.0] — 2026-07-23
 
 First tagged release. goowee is a reactive UI framework in pure Go that compiles
