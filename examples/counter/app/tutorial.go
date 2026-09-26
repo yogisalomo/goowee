@@ -10,9 +10,7 @@ import (
 // live demo card, the code that produces it, and "how it works" notes.
 func lessonLayout(r *router.Router, title, intro string, demo core.Node, filename, code string, notes ...core.Node) core.Node {
 	body := []core.Node{
-		A(Class("backlink"), Href("/tutorial"),
-			OnClickE(func(core.EventData) { r.Navigate("/tutorial") }, PreventDefault()),
-			Text("← Back to tutorial")),
+		r.Link("/tutorial", "← Back to tutorial", Class("backlink")),
 		H1(Text(title)),
 		P(Class("lead"), Text(intro)),
 		Div(Class("demo-card"),

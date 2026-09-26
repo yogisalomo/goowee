@@ -70,12 +70,31 @@ func (r *Router) Forward() {
 	}
 }
 
-func (r *Router) Link(to, text string) *core.ElementNode {
-	return h.A(
-		h.Href(r.base+to), // real URL carries the base; internal nav is base-relative
-		h.OnClickE(func(core.EventData) { r.Navigate(to) }, h.PreventDefault()),
+// Link renders an <a> that navigates in-app on a plain click. A click with a
+// modifier key (cmd/ctrl/shift/alt) or a non-primary button is left to the
+// browser, so "open in new tab/window" keeps working. items add attributes
+// (Class, AriaCurrent, …) or children after the text.
+func (r *Router) Link(to, text string, items ...core.Item) *core.ElementNode {
+	all := []core.Item{
+		h.Href(r.base + to), // real URL carries the base; internal nav is base-relative
+		h.OnClickE(func(e core.EventData) {
+			if !InAppClick(e) {
+				return
+			}
+			e.PreventDefault()
+			r.Navigate(to)
+		}),
 		h.Text(text),
-	)
+	}
+	return h.A(append(all, items...)...)
+}
+
+// InAppClick reports whether a click on a link should be handled as in-app
+// navigation: the primary button, with no modifier key. Other clicks mean
+// "open in a new tab/window" (cmd/ctrl/middle-click) or "download" (alt) and
+// belong to the browser. Use it in custom link handlers.
+func InAppClick(e core.EventData) bool {
+	return e.Button() == 0 && !e.CtrlKey() && !e.MetaKey() && !e.ShiftKey() && !e.AltKey()
 }
 
 // BasePath returns the URL prefix the app is served under ("" at the root).

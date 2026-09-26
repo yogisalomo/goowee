@@ -157,7 +157,7 @@ import (
 - Query params: `r.QueryParam("tag")` (snapshot), `r.QueryParamSignal("tag")` (reactive),
   `r.SetQueryParam("tag", "value")` (replaceState), `r.SetQueryParamPush("tag", "value")` (pushState).
 - Navigation: `r.Navigate(path)`, `r.NavigateReplace(path)`, `r.Back()`, `r.Forward()`,
-  `r.Link(to, text)`.
+  `r.Link(to, text, items...)` (cmd/ctrl/middle-click still opens a new tab).
 - Nesting/util: `r.SubRoute(prefix, routes)`, `router.Guard(check, fallback, route)`,
   `router.Lazy(load)`.
 
@@ -254,6 +254,15 @@ For(todos, func(t Todo) int { return t.ID }, func(t Todo) core.Node {
 as `/todos/1` → `/todos/2` (bind `ParamSignal`, don't read `Param` once in setup).
 
 ---
+
+## Events
+
+- Handlers bubble through ancestors (innermost first); `focus`, `blur`,
+  `mouseenter`, `mouseleave`, `invalid`, `load`, `error` reach the target only.
+- Decide per event inside the handler: `e.PreventDefault()`, `e.StopPropagation()`
+  (e.g. Enter-to-send in a textarea).
+- Typed data: `e.Key()`, `e.CtrlKey()`, `e.ClientX()`, `e.DeltaY()`,
+  `e.PointerType()`, `e.Touches()`, … — see `core.EventData`.
 
 ## Anti-patterns (do NOT do these)
 

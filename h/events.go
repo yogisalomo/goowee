@@ -4,10 +4,15 @@ import "github.com/yogisalomo/goowee/core"
 
 type HandlerOption func(*core.HandlerOptions)
 
+// PreventDefault always cancels the event's default action. To decide per
+// event, call e.PreventDefault() inside the handler instead.
 func PreventDefault() HandlerOption {
 	return func(o *core.HandlerOptions) { o.PreventDefault = true }
 }
 
+// StopPropagation always stops the event from reaching ancestors' handlers
+// (handlers run innermost first). To decide per event, call
+// e.StopPropagation() inside the handler instead.
 func StopPropagation() HandlerOption {
 	return func(o *core.HandlerOptions) { o.StopPropagation = true }
 }
@@ -122,4 +127,51 @@ func OnFocusOut(fn func(), opts ...HandlerOption) core.Item {
 // element receives focus — a common UX pattern for input and textarea fields.
 func SelectOnFocus() HandlerOption {
 	return func(o *core.HandlerOptions) { o.SelectOnFocus = true }
+}
+
+// OnMouseEnter / OnMouseLeave fire when the pointer enters or leaves the
+// element itself (they don't bubble — moving between its children doesn't
+// fire them).
+func OnMouseEnter(fn func(), opts ...HandlerOption) core.Item {
+	return On("mouseenter", func(core.EventData) { fn() }, opts...)
+}
+
+func OnMouseLeave(fn func(), opts ...HandlerOption) core.Item {
+	return On("mouseleave", func(core.EventData) { fn() }, opts...)
+}
+
+// OnPointerDown / OnPointerMove / OnPointerUp receive position, buttons,
+// pointerId and pointerType (e.ClientX(), e.PointerType(), …). Pointer moves
+// are coalesced to one per frame per element.
+func OnPointerDown(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("pointerdown", fn, opts...)
+}
+
+func OnPointerMove(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("pointermove", fn, opts...)
+}
+
+func OnPointerUp(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("pointerup", fn, opts...)
+}
+
+// OnWheel receives e.DeltaX()/DeltaY()/DeltaMode() and the pointer position.
+func OnWheel(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("wheel", fn, opts...)
+}
+
+// OnContextMenu fires on a right-click / long-press; call e.PreventDefault()
+// to replace the browser's menu with your own.
+func OnContextMenu(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("contextmenu", fn, opts...)
+}
+
+// OnLoad / OnError fire when an <img>, <script>, <iframe>, or media element
+// finishes loading or fails to.
+func OnLoad(fn func(), opts ...HandlerOption) core.Item {
+	return On("load", func(core.EventData) { fn() }, opts...)
+}
+
+func OnError(fn func(), opts ...HandlerOption) core.Item {
+	return On("error", func(core.EventData) { fn() }, opts...)
 }

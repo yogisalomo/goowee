@@ -171,32 +171,41 @@ function hydrateOnce() {
 }
 
 const listening = {};
-// Coalesce high-frequency events: only the latest event per type is kept,
-// and they flush on the next requestAnimationFrame.
-const pendingEvents = {};
+// Coalesce high-frequency events: per event type *and target*, only the latest
+// event is kept, and they flush on the next requestAnimationFrame — so two
+// containers scrolling in the same frame each get their update.
+const pendingEvents = new Map(); // type -> Map(target -> [event, targetOnly])
 let rAFEventPending = false;
-function queueEvent(type, e) {
-    pendingEvents[type] = e;
+function queueEvent(type, e, targetOnly) {
+    let byTarget = pendingEvents.get(type);
+    if (!byTarget) pendingEvents.set(type, (byTarget = new Map()));
+    byTarget.set(e.target, [e, targetOnly]);
     if (!rAFEventPending) {
         rAFEventPending = true;
         requestAnimationFrame(function () {
             rAFEventPending = false;
-            for (var t in pendingEvents) {
-                dispatchToGo(t, pendingEvents[t]);
-                delete pendingEvents[t];
+            const batch = [...pendingEvents];
+            pendingEvents.clear();
+            for (const [t, byT] of batch) {
+                for (const [ev, only] of byT.values()) dispatchToGo(t, ev, only);
             }
         });
     }
 }
 
+// goListen registers one document-level listener per event type. Events that
+// don't bubble (capture === true: focus, mouseenter, invalid, load, …) are
+// listened for in the capture phase — the only way they reach the document —
+// and dispatched to their target's handler only, as the DOM would.
 window.goListen = function (type, capture) {
     // First registration means Go has booted through bridge.Init (roadmap 3.2).
     markOnce("goowee:first-listen");
     if (listening[type]) return;
     listening[type] = true;
-    var handler = (type === "scroll" || type === "pointermove")
-        ? function (e) { queueEvent(type, e); }
-        : function (e) { dispatchToGo(type, e); };
+    const targetOnly = !!capture;
+    const handler = (type === "scroll" || type === "pointermove")
+        ? function (e) { queueEvent(type, e, targetOnly); }
+        : function (e) { dispatchToGo(type, e, targetOnly); };
     document.addEventListener(type, handler, capture);
 };
 
@@ -261,19 +270,47 @@ goowee.readFile = function readFile(handle) {
     return f.arrayBuffer().then(function (buf) { return new Uint8Array(buf); });
 };
 
+function modifiers(e) {
+    return {ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey};
+}
+
+function pointerish(e) {
+    return Object.assign({clientX: e.clientX, clientY: e.clientY,
+        offsetX: e.offsetX, offsetY: e.offsetY, button: e.button, buttons: e.buttons}, modifiers(e));
+}
+
+function touchList(list) {
+    const out = [];
+    for (const t of list || []) out.push({identifier: t.identifier, clientX: t.clientX, clientY: t.clientY});
+    return out;
+}
+
 function buildPayload(type, e) {
     switch (type) {
-        case "click": case "dblclick":
-        case "pointerdown": case "pointerup": case "pointermove":
-            return {clientX: e.clientX, clientY: e.clientY, button: e.button,
-                    ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey};
+        case "click": case "dblclick": case "auxclick": case "contextmenu":
+        case "mousedown": case "mouseup": case "mousemove":
+        case "mouseenter": case "mouseleave": case "mouseover": case "mouseout":
+        case "dragstart": case "drag": case "dragend": case "dragenter":
+        case "dragover": case "dragleave": case "drop":
+            return pointerish(e);
+        case "pointerdown": case "pointerup": case "pointermove": case "pointercancel":
+        case "pointerenter": case "pointerleave": case "pointerover": case "pointerout":
+            return Object.assign(pointerish(e),
+                {pointerId: e.pointerId, pointerType: e.pointerType, pressure: e.pressure});
+        case "wheel":
+            return Object.assign(pointerish(e),
+                {deltaX: e.deltaX, deltaY: e.deltaY, deltaZ: e.deltaZ, deltaMode: e.deltaMode});
+        case "touchstart": case "touchmove": case "touchend": case "touchcancel":
+            return Object.assign({touches: touchList(e.touches), changedTouches: touchList(e.changedTouches)},
+                modifiers(e));
         case "input": case "change": {
             const t = e.target;
+            const extra = type === "input" ? {inputType: e.inputType, isComposing: e.isComposing} : {};
             if (t.type === "checkbox" || t.type === "radio")
-                return {value: t.value, checked: t.checked};
+                return Object.assign({value: t.value, checked: t.checked}, extra);
             if (t.type === "file" && t.files)
                 return {value: t.value, files: stashFiles(t)};
-            return {value: t.value};
+            return Object.assign({value: t.value}, extra);
         }
         case "submit": {
             const values = {};
@@ -284,9 +321,9 @@ function buildPayload(type, e) {
             }
             return {values};
         }
-        case "keydown": case "keyup":
-            return {key: e.key, code: e.code,
-                    ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey};
+        case "keydown": case "keyup": case "keypress":
+            return Object.assign({key: e.key, code: e.code, repeat: e.repeat,
+                isComposing: e.isComposing}, modifiers(e));
         case "scroll":
             return {scrollTop: e.target.scrollTop, scrollLeft: e.target.scrollLeft};
         default:
@@ -294,20 +331,21 @@ function buildPayload(type, e) {
     }
 }
 
-function dispatchToGo(type, e) {
+// dispatchToGo delivers e to the Go handlers for it: every ancestor of the
+// target that has a handler, innermost first (bubbling), until one stops
+// propagation — or, for a non-bubbling event, the target's handler only.
+function dispatchToGo(type, e, targetOnly) {
     const payload = JSON.stringify(buildPayload(type, e));
-    let el = e.target;
-    while (el) {
-        if (el._nodeID !== undefined) {
-            const r = handleEvent(el._nodeID, type, payload);
-            if (r && r.handled) {
-                if (r.preventDefault) e.preventDefault();
-                if (r.stopPropagation) e.stopPropagation();
-                if (r.selectOnFocus && type === "focus") el.select();
-                return;
-            }
+    for (let el = e.target; el; el = targetOnly ? null : el.parentNode) {
+        if (el._nodeID === undefined) continue;
+        const r = handleEvent(el._nodeID, type, payload);
+        if (!r || !r.handled) continue;
+        if (r.preventDefault && e.cancelable) e.preventDefault();
+        if (r.selectOnFocus && type === "focus" && el.select) el.select();
+        if (r.stopPropagation) {
+            e.stopPropagation();
+            return;
         }
-        el = el.parentElement;
     }
 }
 

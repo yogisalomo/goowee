@@ -12,6 +12,14 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- `e.PreventDefault()` / `e.StopPropagation()` on `core.EventData`, decided per
+  event while the handler runs; typed accessors `Code`, `Repeat`,
+  `IsComposing`, `InputType`, `CtrlKey`/`ShiftKey`/`AltKey`/`MetaKey`,
+  `OffsetX/Y`, `Button(s)`, `PointerID`, `PointerType`, `Pressure`,
+  `DeltaX/Y/Z`, `DeltaMode`, `Touches`, `ChangedTouches`; `core.NewEventData`.
+  Helpers `OnMouseEnter`, `OnMouseLeave`, `OnPointerDown/Move/Up`, `OnWheel`,
+  `OnContextMenu`, `OnLoad`, `OnError`. `router.Link` takes extra items;
+  `router.InAppClick`. A tutorial "Events" lesson. (#67, #68)
 - `core.ComponentWithProps(name, props, func(*core.Signal[P]) core.Node)` — a
   component whose preserved instance receives new props through a signal and
   keeps its state; `ComponentNode.HasProps` / `Adopt` for renderers. (#57)
@@ -41,6 +49,8 @@ time. The public surface freezes under semver at v1.
 - `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
 
 ### Changed
+- `focus`/`blur`/`scroll` handlers fire for the target element only (a
+  container's `OnFocus` no longer fires for descendants; use `OnFocusIn`).
 - Removing a subtree sends one `RemoveNode` per DOM root (plus portal/head
   content inside it) instead of one per descendant; the JS runtime forgets the
   removed subtree's nodes (and parked file handles) itself. Clearing 100
@@ -79,6 +89,16 @@ time. The public surface freezes under semver at v1.
   the node is removed) and expose `goowee.readFile(handle)`.
 
 ### Fixed
+- Event handlers bubble through ancestors, innermost first, until one stops
+  propagation — they used to stop at the first handler, so a parent never saw
+  a child's click and `StopPropagation()` did nothing (ADR-023). (#65)
+- Non-bubbling events (`invalid`, `mouseenter`/`mouseleave`, `load`/`error`,
+  media events, …) are listened for in the capture phase and reach their
+  target's handler — `h.OnInvalid` never fired before. (#66)
+- `router.Link` leaves cmd/ctrl/shift/alt and middle clicks to the browser
+  (open in new tab/window) instead of navigating in-app. (#67)
+- Coalesced `scroll`/`pointermove` keep the latest event per element, so two
+  containers scrolling in the same frame both update. (#68)
 - A plain component kept across a parent re-render no longer silently shows
   stale data in `h.For`: when an item changes, element rows are diffed in
   place, `ComponentWithProps` rows get the new item, and plain component rows
