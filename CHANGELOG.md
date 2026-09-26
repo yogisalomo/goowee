@@ -11,19 +11,46 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-26
+
+The second-review release. A fresh review of v0.1.0 found silent-staleness,
+lifecycle, placement and event-model bugs under the hardened surface; each was
+reproduced with a test and fixed (issues #53–#83). Highlights: reactive regions
+place and keep their content correctly (end anchors, adoption), `OnMount` runs
+after the DOM exists, components can receive new props, event handlers bubble,
+signal writes are batched, SSR renders concurrently behind a ready-made
+`ssr.Handler`, and app authors get a headless test harness (`gooweetest`).
+Design decisions are recorded as ADR-020 – ADR-025.
+
+### Upgrading from 0.1
+
+- **`hooks.UseResource`'s fetch takes a context:** `func(ctx context.Context)
+  (T, error)`. Add the parameter and pass it to your request; it is cancelled
+  when a newer load starts or the component unmounts. (#75)
+- **Handlers bubble.** A click now reaches every ancestor's handler, innermost
+  first. Where a parent handler used to be shadowed by a child's, call
+  `e.StopPropagation()` in the child (or use the `StopPropagation()` option).
+  `focus`/`blur`/`scroll` handlers fire for the target only — use
+  `OnFocusIn`/`OnFocusOut` to hear descendants. (#65, #66)
+- **`OnMount` / `UseEffect` run after the DOM is applied**, one step later than
+  before. Remove any `core.Schedule` you used to wait for an element; refs and
+  `bridge.Element` work directly in `OnMount`. (#60)
+- **`core.Computed` is lazy:** while nothing observes it, it doesn't recompute
+  on dep changes (reads are still always current). Don't put side effects in a
+  compute function — use `hooks.Watch`.
+- **Component identity is name + key**, and `h.For` remounts a plain
+  `core.Component` row whose item changed. To keep row state across edits,
+  build rows with `core.ComponentWithProps`. (#57)
+- **SSR output** gains a `<!--/{id}-->` anchor after each `Show`/`For`/
+  `Switch`/`Route`/`UseScope` region, and node ids after a region shift by one.
+  Only matters if you parse the HTML.
+- **`router.Link`** leaves cmd/ctrl/shift/alt and middle clicks to the browser.
+- **`javascript:`/`vbscript:` URLs** in `href`/`src`/`action`/… are replaced
+  with `about:blank#blocked`; handle such actions with `OnClick` instead.
+- **Removed:** `ssr.HydrationMeta`, `ssr.SlotRef`, `Renderer.Meta`,
+  `Renderer.RenderWithMeta`.
+
 ### Added
-- `gooweetest` — headless component tests for app authors: `Render(t, node)`
-  mounts into an in-memory DOM that applies the real mutation stream, with
-  CSS-subset finders, `Click`/`Input`/`Submit`/`KeyDown`/`Dispatch` (DOM
-  bubbling, prevent-default reporting), effects after each frame, `WaitFor`
-  for async resources, portals/head/focus inspection. Also
-  `Scheduler.HasWork` and `DOMRenderer.Unmount`. (#76)
-- Dev-mode dependency checking (`?goowee-dev` → `core.SetDevChecks`): a
-  signal read while a `Show`/`For`/`Switch`/`Route`/`UseScope` renders or a
-  `Computed` computes, but not declared as a dep, is reported once per read
-  site with its `file:line`. `Signal.Peek()` reads without being counted;
-  `core.RenderScope` for renderers. The example app is audited clean by a
-  test. (#74)
 - `ssr.Handler(ssr.HandlerOptions{Page, Document, Fallback, ClientOnly})` —
   serve server-rendered documents: concurrent renders, the page's status (404
   when the router falls through), the client-rendered fallback when a render
@@ -31,6 +58,23 @@ time. The public surface freezes under semver at v1.
   `router.NewURL`, `Router.NotFound`. The reference server uses it and no
   longer hard-codes its SSR routes (param routes like `/greet/:name` are now
   server-rendered, unknown paths get 404). (#77)
+- `gooweetest` — headless component tests for app authors: `Render(t, node)`
+  mounts into an in-memory DOM that applies the real mutation stream, with
+  CSS-subset finders, `Click`/`Input`/`Submit`/`KeyDown`/`Dispatch` (DOM
+  bubbling, prevent-default reporting), effects after each frame, `WaitFor`
+  for async resources, portals/head/focus inspection. Also
+  `Scheduler.HasWork` and `DOMRenderer.Unmount`. (#76)
+- `core.Batch(fn)` — group signal writes so each written signal notifies once,
+  after `fn` returns; derived state never observes a half-applied update. Event
+  handlers, `core.Schedule` callbacks, `ref.Get` replies (and effects) are
+  batched automatically (ADR-020). (#73)
+- `core.ComponentWithProps(name, props, func(*core.Signal[P]) core.Node)` — a
+  component whose preserved instance receives new props through a signal and
+  keeps its state; `ComponentNode.HasProps` / `Adopt` for renderers. (#57)
+- `bridge.Element(ref) js.Value` (js/wasm): the live DOM element behind a ref,
+  for handing to a JavaScript library (maps, charts, editors, `<canvas>`) from
+  `OnMount` (ADR-022). The dashboard example draws a canvas chart with it.
+  (#53)
 - `e.PreventDefault()` / `e.StopPropagation()` on `core.EventData`, decided per
   event while the handler runs; typed accessors `Code`, `Repeat`,
   `IsComposing`, `InputType`, `CtrlKey`/`ShiftKey`/`AltKey`/`MetaKey`,
@@ -39,19 +83,12 @@ time. The public surface freezes under semver at v1.
   Helpers `OnMouseEnter`, `OnMouseLeave`, `OnPointerDown/Move/Up`, `OnWheel`,
   `OnContextMenu`, `OnLoad`, `OnError`. `router.Link` takes extra items;
   `router.InAppClick`. A tutorial "Events" lesson. (#67, #68)
-- `core.ComponentWithProps(name, props, func(*core.Signal[P]) core.Node)` — a
-  component whose preserved instance receives new props through a signal and
-  keeps its state; `ComponentNode.HasProps` / `Adopt` for renderers. (#57)
-- `bridge.Element(ref) js.Value` (js/wasm): the live DOM element behind a ref,
-  for handing to a JavaScript library (maps, charts, editors, `<canvas>`) from
-  `OnMount` (ADR-022). The dashboard example draws a canvas chart with it.
-  (#53)
-- `Scheduler.QueueEffect` / `RunEffects` / `PendingEffects`, and
-  `core.LogRecoverEffect` for a panicking effect.
-- `core.Batch(fn)` — group signal writes so each written signal notifies once,
-  after `fn` returns; derived state never observes a half-applied update. Event
-  handlers, `core.Schedule` callbacks, `ref.Get` replies (and effects) are
-  batched automatically (ADR-020). (#73)
+- Dev-mode dependency checking (`?goowee-dev` → `core.SetDevChecks`): a
+  signal read while a `Show`/`For`/`Switch`/`Route`/`UseScope` renders or a
+  `Computed` computes, but not declared as a dep, is reported once per read
+  site with its `file:line`. `Signal.Peek()` reads without being counted;
+  `core.RenderScope` for renderers. The example app is audited clean by a
+  test. (#74)
 - `ref.Get(prop, fn)` — read a value back from a ref'd node (`offsetWidth`,
   `scrollTop`, `selectionStart`, `getBoundingClientRect`, …). The read is
   answered after the next frame's DOM updates apply and `fn` runs on the render
@@ -62,55 +99,49 @@ time. The public surface freezes under semver at v1.
   `Bytes() ([]byte, error)` reads the contents on demand — from a goroutine,
   applied with `core.Schedule`, like a fetch. Closes #51 (no more
   `getElementById` to reach `input.files`).
+- `Scheduler.QueueEffect` / `RunEffects` / `PendingEffects`, and
+  `core.LogRecoverEffect` for a panicking effect.
 - `core.SetFileReader` hook (installed by the bridge) and `core.ErrNoFileReader`
   for SSR/tests; `core.LogRecoverRead` for a panicking read callback.
-
 - `h.SrcS(sig)` — bound `src`, alongside `HrefS`/`ClassS`/…. (#55)
-
-### Documentation
-- `docs/guides/serving.md`: "What not to import" — `net/http` adds ~7 MB to
-  the WASM binary (10.0 MB vs 2.7 MB for a minimal program, Go 1.25), with a
-  context-aware `fetch` helper to use instead; `UseResource` points at it.
-  (#54)
-- `docs/plans/roadmap-1.0.md` refreshed to the current state, with a summary of
-  the second review and what's left before 1.0.
 
 ### Changed
 - **Breaking:** `hooks.UseResource`'s fetch takes a `context.Context`
   (`func(ctx context.Context) (T, error)`), cancelled when a newer load starts
   (dep change, `Refetch`) or the component unmounts. Migrate by adding the
   parameter and passing it to your request. (#75)
-- `h.ShowResource` shows exactly one view — loading, else error, else data
-  (it used to show the data view alongside the loading view).
-- Removed the unused `ssr.HydrationMeta`, `ssr.SlotRef`, `Renderer.Meta` and
-  `Renderer.RenderWithMeta` (leftovers of the pre-ADR-008 design). (#79)
-- `focus`/`blur`/`scroll` handlers fire for the target element only (a
-  container's `OnFocus` no longer fires for descendants; use `OnFocusIn`).
-- Removing a subtree sends one `RemoveNode` per DOM root (plus portal/head
-  content inside it) instead of one per descendant; the JS runtime forgets the
-  removed subtree's nodes (and parked file handles) itself. Clearing 100
-  five-node rows: 500 mutations → 100. `goowee.nodeCount()` exposes the tracked
-  node count (the E2E test checks it for leaks). (#71)
-- `h.For` renders only new and changed items (unchanged rows are reused as-is),
-  the keyed diff's LIS is O(n log n) with an O(n) fast path when nothing moved,
-  and `core.FlatTree` is shallow (children are flattened as the renderer
-  reaches them). Appending one row to a 5,000-row list: 14 ms → 1.3 ms. (#70)
-- Reactive regions get an end anchor: SSR emits `<!--/{id}-->` after each
-  region's content and the client keeps an empty comment there; node ids after
-  a region shift by one (ADR-021).
 - `core.Computed` is lazy: it subscribes to its deps only while observed and
   recomputes on `Get` when unobserved (reads are always current). It no longer
   registers a disposer on the current component.
+- Reactive regions get an end anchor: SSR emits `<!--/{id}-->` after each
+  region's content and the client keeps an empty comment there; node ids after
+  a region shift by one (ADR-021).
+- `focus`/`blur`/`scroll` handlers fire for the target element only (a
+  container's `OnFocus` no longer fires for descendants; use `OnFocusIn`).
 - A panic while a re-render diffs through an `h.ErrorBoundary` now renders the
   fallback (it used to keep a half-updated subtree); a later successful render
   restores the child (amends ADR-018).
-- `runtime/goowee.js`: an `InsertBefore` goes to its reference node's actual
-  parent.
+- SSR renders run concurrently: `ssr.Renderer.Render` no longer holds a
+  process-wide lock (server renders track no component frames; hooks see
+  `EnvServer` via `runtime.ServerRender`) (ADR-024). (#72)
 - Signal notification no longer allocates or looks subscribers up by id:
   `Set` is O(N) in subscribers (was O(N²)) and unsubscribe is O(1) — 1,000
   subscribers: ~505 µs → ~1 µs per `Set`. A panicking `core.Schedule` callback
   is now contained and logged (`recover.scheduled`) instead of aborting the
   frame. (#69)
+- `h.For` renders only new and changed items (unchanged rows are reused as-is),
+  the keyed diff's LIS is O(n log n) with an O(n) fast path when nothing moved,
+  and `core.FlatTree` is shallow (children are flattened as the renderer
+  reaches them). Appending one row to a 5,000-row list: 14 ms → 1.3 ms. (#70)
+- Removing a subtree sends one `RemoveNode` per DOM root (plus portal/head
+  content inside it) instead of one per descendant; the JS runtime forgets the
+  removed subtree's nodes (and parked file handles) itself. Clearing 100
+  five-node rows: 500 mutations → 100. `goowee.nodeCount()` exposes the tracked
+  node count (the E2E test checks it for leaks). (#71)
+- `h.ShowResource` shows exactly one view — loading, else error, else data
+  (it used to show the data view alongside the loading view).
+- `runtime/goowee.js`: an `InsertBefore` goes to its reference node's actual
+  parent.
 - Bound text (`TextS`, `Textf`, `BindProp("textContent", …)`) is formatted in Go
   with `%v` and sent as a string, the same format SSR uses — floats no longer
   change format after hydration (`1e+08` vs JS's `100000000`). (#64)
@@ -123,29 +154,25 @@ time. The public surface freezes under semver at v1.
   park their `File` objects by handle (released when the selection changes or
   the node is removed) and expose `goowee.readFile(handle)`.
 
-### Fixed
-- Router query params decode `%XX` escapes (`?q=go%20wasm` → `go wasm`), via
-  `net/url`.
-- The reference server's static-file path is cleaned (no `..` escapes).
-- SSR renders run concurrently: `ssr.Renderer.Render` no longer holds a
-  process-wide lock (server renders track no component frames; hooks see
-  `EnvServer` via `runtime.ServerRender`) (ADR-024). (#72)
+### Removed
+- `ssr.HydrationMeta`, `ssr.SlotRef`, `Renderer.Meta` and
+  `Renderer.RenderWithMeta` — unused leftovers of the pre-ADR-008 hydration
+  design (they only cost allocations on every SSR render). (#79)
+
+### Security
 - `javascript:`/`vbscript:` URLs in URL attributes (`href`, `src`, `action`,
   `xlink:href`, …) are replaced with `about:blank#blocked` on the server and
   the client; attribute names are validated identically in body, head and DOM
   (and `xlink:href`/`xml:lang`/`data-a_b` are now allowed). (#78)
-- A bound or static `textContent` property is rendered as the element's
-  content by SSR.
-- Event handlers bubble through ancestors, innermost first, until one stops
-  propagation — they used to stop at the first handler, so a parent never saw
-  a child's click and `StopPropagation()` did nothing (ADR-023). (#65)
-- Non-bubbling events (`invalid`, `mouseenter`/`mouseleave`, `load`/`error`,
-  media events, …) are listened for in the capture phase and reach their
-  target's handler — `h.OnInvalid` never fired before. (#66)
-- `router.Link` leaves cmd/ctrl/shift/alt and middle clicks to the browser
-  (open in new tab/window) instead of navigating in-app. (#67)
-- Coalesced `scroll`/`pointermove` keep the latest event per element, so two
-  containers scrolling in the same frame both update. (#68)
+
+### Fixed
+- Content a reactive region renders as several roots (a `For` list, a
+  multi-root `Show` branch) is placed before the region's following siblings
+  — appended rows used to land after a trailing footer — and a region
+  replaced by a plain element is rendered (it used to render nothing). (#83)
+- A nested `Show`/`For`/`Switch` inside a subtree that re-renders is adopted
+  instead of torn down and rebuilt: components inside keep their state, and
+  toggled content stays under its real parent. (#59)
 - A plain component kept across a parent re-render no longer silently shows
   stale data in `h.For`: when an item changes, element rows are diffed in
   place, `ComponentWithProps` rows get the new item, and plain component rows
@@ -156,18 +183,26 @@ time. The public surface freezes under semver at v1.
   the document — refs are set, so `ref.Focus()`/`ref.Get()` work directly and
   no `core.Schedule` is needed to wait for an element; an effect whose
   component unmounts before it runs never runs (ADR-022). (#60)
-- Content a reactive region renders as several roots (a `For` list, a
-  multi-root `Show` branch) is placed before the region's following siblings
-  — appended rows used to land after a trailing footer — and a region
-  replaced by a plain element is rendered (it used to render nothing). (#83)
-- A nested `Show`/`For`/`Switch` inside a subtree that re-renders is adopted
-  instead of torn down and rebuilt: components inside keep their state, and
-  toggled content stays under its real parent. (#59)
+- Event handlers bubble through ancestors, innermost first, until one stops
+  propagation — they used to stop at the first handler, so a parent never saw
+  a child's click and `StopPropagation()` did nothing (ADR-023). (#65)
+- Non-bubbling events (`invalid`, `mouseenter`/`mouseleave`, `load`/`error`,
+  media events, …) are listened for in the capture phase and reach their
+  target's handler — `h.OnInvalid` never fired before. (#66)
+- `router.Link` leaves cmd/ctrl/shift/alt and middle clicks to the browser
+  (open in new tab/window) instead of navigating in-app. (#67)
 - `h.Textf`/`core.Computed` created inside a re-rendering region no longer
   leak a subscription per re-render, and `Watch`/`UseEffect`/`OnMount` called
   in a region's render function are disposed with that render. (#58)
 - `h.ErrorBoundary` releases the effects, bindings, handlers and scope
   subscriptions of whatever its child mounted before panicking. (#61)
+- Router query params decode `%XX` escapes (`?q=go%20wasm` → `go wasm`), via
+  `net/url`.
+- The reference server's static-file path is cleaned (no `..` escapes).
+- A bound or static `textContent` property is rendered as the element's
+  content by SSR.
+- Coalesced `scroll`/`pointermove` keep the latest event per element, so two
+  containers scrolling in the same frame both update. (#68)
 - Hydrating an SSR'd `h.Raw` node claims its `<div>` wrapper instead of logging
   a mismatch and dropping the node.
 - A prop whose value is a slice, map, or func no longer panics the differ
@@ -183,6 +218,17 @@ time. The public surface freezes under semver at v1.
   routes map (overlapping patterns used to match at random). A sub-route's
   params are merged into the parent route's params rather than replacing them,
   and keys it no longer matches are dropped. (#62)
+
+### Documentation
+- `docs/guides/serving.md`: "What not to import" — `net/http` adds ~7 MB to
+  the WASM binary (10.0 MB vs 2.7 MB for a minimal program, Go 1.25), with a
+  context-aware `fetch` helper to use instead; `UseResource` points at it.
+  (#54)
+- `docs/plans/roadmap-1.0.md` refreshed to the current state, with a summary of
+  the second review and what's left before 1.0.
+- Guides, API reference and AGENTS.md corrected where they had drifted from
+  the code (`ssr.Render`'s two results, `EventData` accessors, handler
+  options, `Watch` timing, core type listings).
 
 ## [0.1.0] — 2026-07-23
 
@@ -283,4 +329,8 @@ surface at the first release rather than a diff.
   (ADR-017). A re-rendering scope rooted at an SVG child does not inherit the SVG
   namespace.
 
+[0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
+
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/yogisalomo/goowee/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
