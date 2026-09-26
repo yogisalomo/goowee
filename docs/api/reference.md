@@ -159,6 +159,15 @@ OnReset(func()), OnInvalid(func())
 
 ```go
 OnClickE(func(core.EventData), ...options)
+
+// Accessors on core.EventData:
+e.Value() string, e.Checked() bool, e.Key() string
+e.ClientX(), e.ClientY(), e.ScrollTop(), e.ScrollLeft() float64
+e.FormValues() map[string]string        // submit
+e.Files() []core.File                   // change/input on <input type="file">
+
+// core.File: Name, Size, Type, LastModified; contents on demand.
+f.Bytes() ([]byte, error)               // blocks — call from a goroutine, apply via core.Schedule
 ```
 
 Options: `PreventDefault()`, `StopPropagation()`, `Once()`, `Passive()`.
@@ -197,11 +206,15 @@ VirtualList[T any](sig *core.Signal[[]T], rowHeight int, render func(int, T) cor
 ```go
 Ref() *core.Ref                          // create a ref handle
 RefTo(ref *core.Ref)                     // attach to an element
-// Methods on Ref:
+// Commands (one-way, next frame):
 ref.Focus()
 ref.Blur()
 ref.Click()
 ref.ScrollIntoView()
+// Read a value back (answered after the next frame's DOM updates; fn runs
+// on the render loop). v: float64 | string | bool | map[string]any | nil.
+// A prop naming a method (getBoundingClientRect) is called with no args.
+ref.Get(prop string, fn func(v any))
 
 Portal(target string, children ...core.Node)  // render into another container
 ```

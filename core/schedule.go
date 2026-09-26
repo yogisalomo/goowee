@@ -23,10 +23,13 @@ func SetActiveScheduler(s *Scheduler) {
 //
 // No-op when no scheduler is active (SSR, or tests without a running client).
 func Schedule(fn func()) {
-	activeSchedulerMu.Lock()
-	s := activeScheduler
-	activeSchedulerMu.Unlock()
-	if s != nil {
+	if s := scheduler(); s != nil {
 		s.Post(fn)
 	}
+}
+
+func scheduler() *Scheduler {
+	activeSchedulerMu.Lock()
+	defer activeSchedulerMu.Unlock()
+	return activeScheduler
 }

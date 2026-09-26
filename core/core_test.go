@@ -399,3 +399,156 @@ func TestRefNoopWhenUnusable(t *testing.T) {
 	SetActiveScheduler(nil)
 	(&Ref{ID: 4}).Focus() // no active scheduler → no panic
 }
+
+func TestRefGetEnqueuesReadAndResolves(t *testing.T) {
+	s := NewScheduler()
+	SetActiveScheduler(s)
+	defer SetActiveScheduler(nil)
+
+	var got any
+	calls := 0
+	(&Ref{ID: 7}).Get("offsetWidth", func(v any) { got = v; calls++ })
+	out := s.Flush()
+	if len(out) != 1 || out[0].Type != MutRead || out[0].NodeID != 7 || out[0].Key != "offsetWidth" {
+		t.Fatalf("Get should enqueue MutRead{7,offsetWidth}, got %+v", out)
+	}
+	req, ok := out[0].Value.(int)
+	if !ok || req == 0 {
+		t.Fatalf("MutRead.Value must carry a non-zero request id, got %#v", out[0].Value)
+	}
+	if calls != 0 {
+		t.Fatal("callback must not run before the bridge replies")
+	}
+	if s.PendingReads() != 1 {
+		t.Fatalf("want 1 pending read, got %d", s.PendingReads())
+	}
+
+	s.Resolve(req, 120.0)
+	if calls != 1 || got != 120.0 {
+		t.Fatalf("after Resolve want calls=1 got=120, have calls=%d got=%v", calls, got)
+	}
+	if s.PendingReads() != 0 {
+		t.Fatalf("resolved read must be dropped, %d pending", s.PendingReads())
+	}
+	s.Resolve(req, 1.0) // stale/duplicate reply: ignored
+	s.Resolve(9999, 1.0)
+	if calls != 1 {
+		t.Fatal("a resolved or unknown request id must not invoke a callback")
+	}
+}
+
+func TestRefGetRequestIDsAreDistinct(t *testing.T) {
+	s := NewScheduler()
+	SetActiveScheduler(s)
+	defer SetActiveScheduler(nil)
+
+	var a, b any
+	r := &Ref{ID: 3}
+	r.Get("scrollTop", func(v any) { a = v })
+	r.Get("scrollLeft", func(v any) { b = v })
+	out := s.Flush()
+	if len(out) != 2 || out[0].Value == out[1].Value {
+		t.Fatalf("two reads must get two request ids, got %+v", out)
+	}
+	s.Resolve(out[1].Value.(int), "second")
+	s.Resolve(out[0].Value.(int), "first")
+	if a != "first" || b != "second" {
+		t.Fatalf("replies must route by request id, got a=%v b=%v", a, b)
+	}
+}
+
+func TestRefGetNoopWhenUnusable(t *testing.T) {
+	s := NewScheduler()
+	SetActiveScheduler(s)
+	defer SetActiveScheduler(nil)
+
+	(&Ref{}).Get("value", func(any) { t.Fatal("must not run") })
+	(&Ref{ID: 4}).Get("value", nil)
+	if s.Len() != 0 || s.PendingReads() != 0 {
+		t.Fatal("Get on an unrendered ref or with a nil callback must not enqueue")
+	}
+	SetActiveScheduler(nil)
+	(&Ref{ID: 4}).Get("value", func(any) { t.Fatal("must not run") }) // no scheduler → no panic
+}
+
+func TestSchedulerResolveContainsPanic(t *testing.T) {
+	var captured LogEntry
+	SetLogSink(func(e LogEntry) { captured = e })
+	defer SetLogSink(nil)
+
+	s := NewScheduler()
+	s.Read(1, "x", func(any) { panic("boom") })
+	out := s.Flush()
+	s.Resolve(out[0].Value.(int), nil)
+	if captured.Kind != LogRecoverRead {
+		t.Fatalf("want %s log entry, got %+v", LogRecoverRead, captured)
+	}
+	if s.PendingReads() != 0 {
+		t.Fatal("a panicking callback must still be dropped from the pending table")
+	}
+}
+
+func TestSchedulerCoalesceKeepsReads(t *testing.T) {
+	s := NewScheduler()
+	s.Enqueue(Mutation{Type: MutSetProperty, NodeID: 1, Key: "value", Value: "a"})
+	s.Read(1, "value", func(any) {})
+	s.Enqueue(Mutation{Type: MutSetProperty, NodeID: 1, Key: "value", Value: "b"})
+	s.Read(1, "value", func(any) {})
+	out := s.Flush()
+	if len(out) != 3 {
+		t.Fatalf("want 1 coalesced write + 2 reads, got %d: %+v", len(out), out)
+	}
+	if out[0].Type != MutRead || out[1].Type != MutSetProperty || out[1].Value != "b" || out[2].Type != MutRead {
+		t.Fatalf("reads must survive coalescing in order, got %+v", out)
+	}
+}
+
+func TestEventDataFiles(t *testing.T) {
+	e := EventData{Type: "change", Data: map[string]any{
+		"value": "C:\\fakepath\\song.mp3",
+		"files": []any{
+			map[string]any{"handle": 1.0, "name": "song.mp3", "size": 4096.0, "type": "audio/mpeg", "lastModified": 1700000000000.0},
+			map[string]any{"handle": 2.0, "name": "notes.txt", "size": 0.0, "type": ""},
+			"garbage",
+		},
+	}}
+	files := e.Files()
+	if len(files) != 2 {
+		t.Fatalf("want 2 files, got %d: %+v", len(files), files)
+	}
+	f := files[0]
+	if f.Name != "song.mp3" || f.Size != 4096 || f.Type != "audio/mpeg" || f.handle != 1 {
+		t.Fatalf("unexpected first file: %+v", f)
+	}
+	if f.LastModified.UnixMilli() != 1700000000000 {
+		t.Fatalf("LastModified should decode from ms, got %v", f.LastModified)
+	}
+	if !files[1].LastModified.IsZero() {
+		t.Fatalf("missing lastModified should stay zero, got %v", files[1].LastModified)
+	}
+
+	if got := (EventData{Data: map[string]any{"value": "x"}}).Files(); got != nil {
+		t.Fatalf("non-file events must report no files, got %+v", got)
+	}
+}
+
+func TestFileBytesNeedsReader(t *testing.T) {
+	SetFileReader(nil)
+	if _, err := (File{handle: 1}).Bytes(); err != ErrNoFileReader {
+		t.Fatalf("without a reader want ErrNoFileReader, got %v", err)
+	}
+
+	asked := 0
+	SetFileReader(func(handle int) ([]byte, error) {
+		asked = handle
+		return []byte("hi"), nil
+	})
+	defer SetFileReader(nil)
+	data, err := (File{handle: 42}).Bytes()
+	if err != nil || string(data) != "hi" || asked != 42 {
+		t.Fatalf("Bytes should route through the reader by handle: data=%q err=%v asked=%d", data, err, asked)
+	}
+	if _, err := (File{}).Bytes(); err == nil {
+		t.Fatal("a File without a handle must not be readable")
+	}
+}

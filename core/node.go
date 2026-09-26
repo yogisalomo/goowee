@@ -320,18 +320,17 @@ type EventData struct {
 	Data   map[string]any
 }
 
-func (e EventData) str(k string) string {
-	if v, ok := e.Data[k].(string); ok {
-		return v
-	}
-	return ""
+func (e EventData) str(k string) string  { return mapStr(e.Data, k) }
+func (e EventData) num(k string) float64 { return mapNum(e.Data, k) }
+
+func mapStr(m map[string]any, k string) string {
+	v, _ := m[k].(string)
+	return v
 }
 
-func (e EventData) num(k string) float64 {
-	if v, ok := e.Data[k].(float64); ok {
-		return v
-	}
-	return 0
+func mapNum(m map[string]any, k string) float64 {
+	v, _ := m[k].(float64)
+	return v
 }
 
 func (e EventData) Value() string { return e.str("value") }

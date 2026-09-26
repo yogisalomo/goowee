@@ -17,6 +17,7 @@ const (
 	LogRecoverErrorBoundary LogKind = "recover.error_boundary"
 	LogRecoverReRender      LogKind = "recover.re_render"
 	LogRecoverRender        LogKind = "recover.render"
+	LogRecoverRead          LogKind = "recover.read"
 	LogSignalCycle          LogKind = "signal.cycle"
 	LogWarn                 LogKind = "warn"
 )
