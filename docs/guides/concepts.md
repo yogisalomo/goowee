@@ -92,9 +92,32 @@ to re-run when state changes, you will fight the framework. Instead, think:
 
 Consequences:
 - No hook-ordering rules — call `UseState` conditionally, in loops, anywhere.
-- Props that change are passed as **signals**, not plain values.
-- A matched component is preserved across parent re-renders (state + effects
-  survive).
+- A matched component — same name **and** key — is preserved across parent
+  re-renders (state + effects survive). A plain `core.Component` therefore
+  keeps showing the plain values it was first called with.
+
+### Inputs that change
+
+When a parent can hand a component new data, pick one:
+
+- **Pass signals** instead of values — the component binds to them.
+- **`core.ComponentWithProps`** — the component receives its props as a signal;
+  a preserved instance gets new props through it and keeps its state:
+
+  ```go
+  func UserCard(u User) core.Node {
+      return core.ComponentWithProps("UserCard", u, func(p *core.Signal[User]) core.Node {
+          open, setOpen := hooks.UseState(false) // survives new props
+          return Div(Textf("%v", p), …)
+      })
+  }
+  ```
+
+- **Key it** to remount when a value changes (React's `key` idiom):
+  `core.SetKey(Card(name), name)`.
+
+In dev mode (`?goowee-dev`) goowee warns, once per component, when an unkeyed
+plain component is kept across a parent re-render.
 
 ---
 
@@ -144,6 +167,13 @@ For(entries, func(e Entry) int { return e.ID }, func(e Entry) core.Node {
 
 Keyed reconciliation means toggling a checkbox in one row doesn't lose the
 list scroll position or refocus an input.
+
+`For` renders only what changed: an unchanged item (compared with `==`) reuses
+its mounted row as-is, so appending to a long list renders one row. When the
+item behind a key changes, an element row is re-rendered and diffed in place,
+a `core.ComponentWithProps` row receives the new item and keeps its state, and
+a plain `core.Component` row is remounted (it can only show the values it was
+created with).
 
 For very long lists, use `VirtualList` which only renders the visible window:
 

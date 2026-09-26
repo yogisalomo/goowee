@@ -39,6 +39,16 @@ anywhere). Props/params that must change over a component's life are passed as
 disposal scope, not a slot store. A matched component is *preserved* across
 scope re-renders (state + effects survive).
 
+**Amended 2026-09-26 (#57).** A preserved plain component keeps the plain
+values it was first called with — a silent stale-UI trap, worst in `h.For`,
+whose render hands rows a plain item. Now: identity is **name + key** (a key
+change remounts, even in a positional diff); `core.ComponentWithProps(name,
+props, func(*Signal[P]) Node)` components are preserved *and* receive new props
+through their signal (`ComponentNode.Adopt`); `h.For` reuses an unchanged
+item's row as-is and, when an item changes, diffs element rows in place,
+updates props rows, and remounts plain component rows; dev mode warns once per
+name when an unkeyed plain component is preserved.
+
 ---
 
 ## ADR-002: Manual dependency declaration, not automatic tracking

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/h"
 )
 
 // Re-rendering + keyed-diffing an M-row list on every dep change (§4 batching
@@ -93,5 +94,32 @@ func BenchmarkDiffTree(b *testing.B) {
 		var muts []core.Mutation
 		r.diffNode(old, next, 0, 0, &muts)
 		old = next
+	}
+}
+
+// Appending one row to a 5,000-row h.For list: For reuses unchanged rows
+// (render runs once) and the differ skips reused nodes, so the cost is the
+// keyed bookkeeping, not re-rendering every row (#70).
+func BenchmarkForAppendOne5k(b *testing.B) {
+	xs := make([]int, 5000)
+	for i := range xs {
+		xs[i] = i
+	}
+	items := core.NewSignal(xs)
+	r := New()
+	r.Render(h.Ul(h.For(items, func(i int) int { return i }, func(i int) core.Node {
+		return h.Li(h.Text("row"))
+	})))
+	next := len(xs)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cur := items.Get()
+		grown := make([]int, len(cur)+1)
+		copy(grown, cur)
+		grown[len(cur)] = next
+		next++
+		items.Set(grown)
+		r.Scheduler.Flush()
 	}
 }
