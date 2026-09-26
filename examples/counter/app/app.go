@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"github.com/yogisalomo/goowee/core"
 	. "github.com/yogisalomo/goowee/h"
@@ -387,9 +388,13 @@ func asyncPage(r *router.Router) core.Node {
 		// A goroutine does the "loading" off the render loop; UseResource applies
 		// the result back safely via core.Schedule. Server renders the loading
 		// state; the client loads after hydration.
-		res := hooks.UseResource(nil, func() (string, error) {
-			time.Sleep(500 * time.Millisecond)
-			return "Loaded at " + time.Now().Format("15:04:05.000"), nil
+		res := hooks.UseResource(nil, func(ctx context.Context) (string, error) {
+			select {
+			case <-time.After(500 * time.Millisecond):
+				return "Loaded at " + time.Now().Format("15:04:05.000"), nil
+			case <-ctx.Done(): // reloaded or navigated away: stop early
+				return "", ctx.Err()
+			}
 		})
 		demo := Div(
 			ShowElse(res.Loading,
@@ -403,6 +408,7 @@ func asyncPage(r *router.Router) core.Node {
 			demo, "async.go", asyncCode,
 			howItWorks(
 				"hooks.UseResource(deps, fetch) runs fetch in a goroutine; its result lands on the render loop via core.Schedule.",
+				"fetch gets a context that is cancelled when a newer load starts or the page unmounts — pass it to your request.",
 				"It exposes Data/Loading/Err signals and a Refetch() method; a generation guard drops stale results.",
 				"Fetching is client-side, so SSR renders the loading state and the client fills it in after hydration.",
 			),

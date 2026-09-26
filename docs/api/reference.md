@@ -301,7 +301,7 @@ hooks.UseEffect([]core.SignalAccessor{deps}, func() func())  // mount + deps + c
 hooks.UseScope()                              // *core.ScopeNode
 
 // Async data
-res := hooks.UseResource[T]([]core.SignalAccessor{deps}, func() (T, error))
+res := hooks.UseResource[T]([]core.SignalAccessor{deps}, func(ctx context.Context) (T, error)) // ctx cancelled on refetch/unmount
 // res *Resource[T] with fields:
 res.Data      *core.Signal[T]
 res.Loading   *core.Signal[bool]

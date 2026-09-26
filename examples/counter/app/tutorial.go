@@ -129,9 +129,9 @@ hooks.OnMount(func() func() {                 // runs once, on the client
 
 const asyncCode = `// UseResource runs fetch in a goroutine and exposes its state as
 // signals: Data, Loading, Err (+ Refetch). Applied safely on the loop.
-res := hooks.UseResource(nil, func() (string, error) {
-    return loadFromServer() // your blocking call, in a goroutine
-})
+res := hooks.UseResource(nil, func(ctx context.Context) (string, error) {
+    return loadFromServer(ctx) // your blocking call, in a goroutine;
+})                             // ctx is cancelled on Reload/unmount
 
 return ShowElse(res.Loading,
     func() core.Node { return P(Text("Loading…")) },

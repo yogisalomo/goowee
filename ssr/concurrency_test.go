@@ -77,32 +77,41 @@ func TestConcurrentSSRScales(t *testing.T) {
 	if raceEnabled || testing.Short() || runtime.NumCPU() < 4 {
 		t.Skip("timing test: needs ≥4 CPUs, no -race, no -short")
 	}
-	const total = 64
+	const total = 128
 	render := func() { New().Render(page(400)) }
-	start := time.Now()
-	for i := 0; i < total; i++ {
-		render()
+	measure := func() float64 {
+		start := time.Now()
+		for i := 0; i < total; i++ {
+			render()
+		}
+		seq := time.Since(start)
+		const workers = 4
+		start = time.Now()
+		var wg sync.WaitGroup
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < total/workers; i++ {
+					render()
+				}
+			}()
+		}
+		wg.Wait()
+		return float64(seq) / float64(time.Since(start))
 	}
-	seq := time.Since(start)
-	workers := 4
-	start = time.Now()
-	var wg sync.WaitGroup
-	for w := 0; w < workers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < total/workers; i++ {
-				render()
-			}
-		}()
+	// Best of three: machine noise only ever lowers a measurement, while a
+	// serialized renderer stays near 1.0× on every attempt.
+	best := 0.0
+	for i := 0; i < 3 && best < 1.5; i++ {
+		if s := measure(); s > best {
+			best = s
+		}
 	}
-	wg.Wait()
-	par := time.Since(start)
-	if speedup := float64(seq) / float64(par); speedup < 1.3 {
-		t.Fatalf("4 workers gave %.2f× over sequential (want ≥1.3×; it was 1.05× when serialized) — SSR is serialized", speedup)
-	} else {
-		t.Logf("4 workers: %.2f× (seq %v, par %v)", speedup, seq, par)
+	if best < 1.5 {
+		t.Fatalf("4 workers gave at best %.2f× over sequential (want ≥1.5×; it was 1.05× when serialized)", best)
 	}
+	t.Logf("4 workers: %.2f×", best)
 }
 
 func BenchmarkSSRParallel(b *testing.B) {
