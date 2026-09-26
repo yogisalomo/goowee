@@ -13,3 +13,6 @@ bin/
 
 # GitHub Pages build output
 _site/
+
+# graphify knowledge graph — generated locally (graphify update .), machine-specific
+graphify-out/
