@@ -231,6 +231,19 @@ function stashFiles(el) {
     return out;
 }
 
+// forget drops a removed subtree from nodeMap (and releases any file handles
+// parked for inputs inside it).
+function forget(node) {
+    if (node._nodeID !== undefined) delete nodeMap[node._nodeID];
+    releaseFiles(node);
+    for (let c = node.firstChild; c; c = c.nextSibling) forget(c);
+}
+
+// nodeCount reports how many live nodes the runtime tracks (E2E leak check).
+goowee.nodeCount = function nodeCount() {
+    return Object.keys(nodeMap).length;
+};
+
 function releaseFiles(el) {
     const prev = nodeFiles.get(el);
     if (!prev) return;
@@ -328,10 +341,12 @@ window.applyMutations = function applyMutations(json) {
                 el._nodeID = mut.nodeId;
                 nodeMap[mut.nodeId] = el;
                 break;
-            case 1: // RemoveNode
+            case 1: // RemoveNode — Go sends only a removed subtree's roots
                 el = nodeMap[mut.nodeId];
-                if (el && el.parentNode) el.parentNode.removeChild(el);
-                if (el) releaseFiles(el);
+                if (el) {
+                    if (el.parentNode) el.parentNode.removeChild(el);
+                    forget(el);
+                }
                 delete nodeMap[mut.nodeId];
                 break;
             case 2: // SetAttribute

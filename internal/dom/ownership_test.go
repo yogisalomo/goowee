@@ -284,3 +284,56 @@ func TestRawHydratesAsDiv(t *testing.T) {
 		}
 	}
 }
+
+// #71: removing a subtree sends only its DOM roots; the JS runtime forgets the
+// descendants itself.
+func TestClearingAListRemovesOnlyRowRoots(t *testing.T) {
+	xs := make([]int, 100)
+	for i := range xs {
+		xs[i] = i
+	}
+	items := core.NewSignal(xs)
+	r, d := mount(t, h.Ul(h.For(items, func(i int) int { return i }, func(i int) core.Node {
+		return h.Li(h.Span(h.Text("a")), h.Span(h.Text("b")))
+	})))
+	items.Set(nil)
+	muts := r.Scheduler.Flush()
+	removes := 0
+	for _, m := range muts {
+		if m.Type == core.MutRemoveNode {
+			removes++
+		}
+	}
+	if removes != 100 {
+		t.Fatalf("want one RemoveNode per row root (100), got %d", removes)
+	}
+	d.apply(muts)
+	if len(d.nodes) != 3 { // #root, ul, the For's anchor
+		t.Fatalf("the fake DOM should have forgotten every row node, %d left", len(d.nodes))
+	}
+}
+
+// #71: portal content lives outside the removed subtree's DOM, so it is
+// removed explicitly.
+func TestRemovingASubtreeRemovesItsPortalContent(t *testing.T) {
+	show := core.NewSignal(true)
+	var modal *core.ElementNode
+	r, _ := mount(t, h.Div(h.Show(show, func() core.Node {
+		modal = h.Div(h.Text("modal"))
+		return h.Section(h.Portal("#modal-root", modal))
+	})))
+	show.Set(false)
+	var removed []int
+	for _, m := range r.Scheduler.Flush() {
+		if m.Type == core.MutRemoveNode {
+			removed = append(removed, m.NodeID)
+		}
+	}
+	found := false
+	for _, id := range removed {
+		found = found || id == modal.ID
+	}
+	if !found || len(removed) != 2 {
+		t.Fatalf("want the section and the portal's root removed, got %v (modal=%d)", removed, modal.ID)
+	}
+}

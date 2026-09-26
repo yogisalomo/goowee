@@ -592,15 +592,66 @@ func contentList(n core.Node) []core.Node {
 // Removal
 // ---------------------------------------------------------------------------
 
+// emitRemoveTree unmounts n. Go-side state is released for every node in the
+// subtree, but the DOM needs only its roots removed — descendants go with
+// them, and the JS runtime forgets the whole removed subtree — plus the
+// content of any portal or head metadata inside n, which lives elsewhere.
 func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 	r.disposeReactive(n)
-	ids := runtime.CollectIDs(n)
-	for _, id := range ids {
+	for _, id := range runtime.CollectIDs(n) {
 		r.Bindings.Unbind(id)
 		r.Registry.Remove(id)
-		*muts = append(*muts, core.Mutation{
-			Type: core.MutRemoveNode, NodeID: id,
-		})
+	}
+	var roots []int
+	appendRoots(n, &roots)
+	appendDetachedRoots(n, &roots)
+	for _, id := range roots {
+		*muts = append(*muts, core.Mutation{Type: core.MutRemoveNode, NodeID: id})
+	}
+}
+
+// appendDetachedRoots adds the roots of portal and metadata content found
+// anywhere inside n: those nodes are not DOM descendants of n's roots.
+func appendDetachedRoots(n core.Node, out *[]int) {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		if v != nil {
+			for _, c := range v.Children {
+				appendDetachedRoots(c, out)
+			}
+		}
+	case *core.FragmentNode:
+		if v != nil {
+			for _, c := range v.Children {
+				appendDetachedRoots(c, out)
+			}
+		}
+	case *core.ComponentNode:
+		if v != nil {
+			appendDetachedRoots(v.Prev, out)
+		}
+	case *core.ScopeNode:
+		if v != nil {
+			appendDetachedRoots(v.Prev, out)
+		}
+	case *core.ErrorBoundaryNode:
+		if v != nil {
+			appendDetachedRoots(v.Prev, out)
+		}
+	case *core.PortalNode:
+		if v != nil {
+			for _, c := range v.Children {
+				appendRoots(c, out)
+				appendDetachedRoots(c, out)
+			}
+		}
+	case *core.MetadataNode:
+		if v != nil {
+			for _, c := range v.Children {
+				appendRoots(c, out)
+				appendDetachedRoots(c, out)
+			}
+		}
 	}
 }
 
