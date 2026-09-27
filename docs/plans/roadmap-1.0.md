@@ -25,7 +25,8 @@ policy written (`docs/api-stability.md`), and a `CHANGELOG.md` covering the
 first-release surface. `v0.1.0` is the first tagged release, so downstreams (the
 personal site, `goowee-markdown`) can now pin a version instead of a commit.
 `v0.2.0` (2026-09-26) ships the second review, with an "Upgrading from 0.1"
-guide in the CHANGELOG for its breaking changes. **S**
+guide in the CHANGELOG for its breaking changes; `v0.2.1` (2026-09-28) adds
+`r.LinkTo`/`r.SetBasePath` and aligns the tutorial site. **S**
 
 **0.2 User-facing documentation.** ✅ **Done** (#39). Getting Started, a
 Concepts guide, and an API reference, kept current with each change (the second
