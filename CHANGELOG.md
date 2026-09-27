@@ -11,6 +11,12 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-09-28
+
+A patch release: two additive router helpers, and the tutorial site brought
+in line with 0.2. No breaking changes — upgrade from 0.2.0 without code
+changes.
+
 ### Added
 - `r.LinkTo(to, items...)` — `Link` with arbitrary content (an icon plus
   text, several spans); `r.SetBasePath(base)` for servers rendering under a
@@ -350,6 +356,7 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/yogisalomo/goowee/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/yogisalomo/goowee/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
