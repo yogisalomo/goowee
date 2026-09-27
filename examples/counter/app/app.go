@@ -67,12 +67,8 @@ func logo() core.Node {
 
 func appHeader(r *router.Router) core.Node {
 	return Nav(Class("nav"),
-		A(Class("brand"), Href("/"),
-			OnClickE(func(core.EventData) { r.Navigate("/") }, PreventDefault()),
-			logo(), Text("goowee")),
-		A(Href("/tutorial"),
-			OnClickE(func(core.EventData) { r.Navigate("/tutorial") }, PreventDefault()),
-			Text("Tutorial")),
+		r.LinkTo("/", Class("brand"), logo(), Text("goowee")),
+		r.Link("/tutorial", "Tutorial"),
 		A(Href(repoURL), Target("_blank"), Rel("noopener"), Text("GitHub")),
 	)
 }
@@ -369,7 +365,7 @@ func errorPage(r *router.Router) core.Node {
 			demo, "error.go", errorCode,
 			howItWorks(
 				"h.ErrorBoundary(fallback, child) renders fallback(err) if rendering child panics.",
-				"It is for render-time failures (bad data at mount); update-time panics are contained (the subtree keeps its previous state) and logged.",
+				"A panic while the child renders — at mount, or when a re-render reaches the boundary — shows the fallback; whatever the failed render had set up is cleaned up, and a later successful render brings the child back.",
 				"Everything outside the boundary renders normally, so the failure is scoped.",
 			),
 			tutorialStepNav(r, "/error"),
@@ -624,16 +620,10 @@ func tutorialStepNav(r *router.Router, current string) core.Node {
 	}
 	var left, right core.Node
 	if prev != nil {
-		left = A(Class("btn"), Href(prev.path),
-			OnClickE(func(core.EventData) { r.Navigate(prev.path) }, PreventDefault()),
-			Text("\u2190 "+prev.n+" "+prev.title),
-		)
+		left = r.Link(prev.path, "\u2190 "+prev.n+" "+prev.title, Class("btn"))
 	}
 	if next != nil {
-		right = A(Class("btn"), Href(next.path),
-			OnClickE(func(core.EventData) { r.Navigate(next.path) }, PreventDefault()),
-			Text(next.n+" "+next.title+" \u2192"),
-		)
+		right = r.Link(next.path, next.n+" "+next.title+" \u2192", Class("btn"))
 	}
 	return Nav(Class("tutorial-nav"),
 		left,
@@ -645,13 +635,11 @@ func tutorialStepNav(r *router.Router, current string) core.Node {
 func gettingStartedPage(r *router.Router) core.Node {
 	return core.Component("GettingStarted", func() core.Node {
 		return Div(Class("page lesson"),
-			A(Class("backlink"), Href("/tutorial"),
-				OnClickE(func(core.EventData) { r.Navigate("/tutorial") }, PreventDefault()),
-				Text("← Back to tutorial")),
+			r.Link("/tutorial", "← Back to tutorial", Class("backlink")),
 			H1(Text("Getting started")),
 			H3(Text("Install goowee")),
-			P(Text("Add the module to your project:")),
-			Pre(Class("code"), Text("go get github.com/yogisalomo/goowee")),
+			P(Text("Add the module to your project (Go 1.25+):")),
+			Pre(Class("code"), Text("go get github.com/yogisalomo/goowee@latest")),
 			H3(Text("App structure")),
 			P(Text("A goowee project has two parts: a WASM binary and an optional SSR server. The minimal layout:")),
 			Pre(Class("code"), Text(`myapp/
@@ -696,6 +684,19 @@ func main() {
 			H3(Text("Build & serve")),
 			P(Text("Compile the WASM binary:")),
 			Pre(Class("code"), Text("GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app")),
+			P(Text("The page shell (web/index.html) loads the Go runtime glue and goowee's runtime, then boots main.wasm into #root:")),
+			Pre(Class("code"), Text(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="wasm_exec.js"></script>
+  <script src="goowee.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script>goowee.boot();</script>
+</body>
+</html>`)),
 			P(Text("Copy the runtime files and serve the web directory:")),
 			Pre(Class("code"), Text(`cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
 cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/

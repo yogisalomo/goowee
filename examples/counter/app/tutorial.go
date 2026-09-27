@@ -163,32 +163,46 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
 
 - Static vs reactive text: Text("x") never updates. Use TextS(sig) or
   Textf("Count: %d", count) (signal args are reactive). Attributes have
-  reactive -S variants: ClassS, StyleS, ValueS, DisabledS.
+  reactive -S variants: ClassS, StyleS, ValueS, DisabledS, SrcS.
 - State: count, setCount := hooks.UseState(0). Read count.Get(); write
   setCount(v). In markup pass the SIGNAL (count), not count.Get().
-- Derive with core.Computed(deps, fn); react with hooks.UseEffect(deps, fn),
-  hooks.Watch(deps, fn), or hooks.OnMount(fn) — deps are explicit.
+- A component keeps the plain values it was first called with. If a
+  parent can pass new data, pass signals, use
+  core.ComponentWithProps(name, props, func(p *core.Signal[P]) core.Node),
+  or key it (core.SetKey) to remount.
+- Derive with core.Computed(deps, fn); react with hooks.Watch(deps, fn)
+  or hooks.UseEffect(deps, fn). Deps are explicit — dev mode
+  (?goowee-dev) warns about signals read but not declared; use
+  sig.Peek() for an intentional snapshot.
+- hooks.OnMount(fn) runs AFTER the DOM exists: refs work there, and
+  bridge.Element(ref) hands the element to a JS library.
 - Off the render loop (timers, goroutines, fetch callbacks) NEVER call a
   setter directly — wrap it: core.Schedule(func() { setCount(n) }).
-- Load data with hooks.UseResource(deps, fetch) → Data/Loading/Err + Refetch.
+  Group related writes with core.Batch (handlers are batched already).
+- Load data with hooks.UseResource(deps, func(ctx context.Context) (T, error))
+  → Data/Loading/Err + Refetch; pass ctx to the request (it is cancelled
+  on refetch/unmount). In the browser prefer fetch over net/http (~7 MB).
 - Conditionals: Show / ShowElse / Switch (not a plain if in the body).
   Lists: For(sig, keyFn, render) with a stable key.
-- SSR must be deterministic; wrap non-deterministic content in h.Dynamic().
-- Imperative DOM: h.Ref()+h.RefTo(ref), then ref.Focus(). Overlays: h.Portal.
-- Wrap risky subtrees in h.ErrorBoundary(fallback, child).
+- Events bubble to ancestors' handlers; decide per event with
+  e.PreventDefault() / e.StopPropagation(). Navigate with r.Link /
+  r.LinkTo (modifier clicks still open new tabs).
+- SSR: ssr.Handler(...) serves pages (real 404s via the router). Keep
+  markup deterministic; wrap non-deterministic content in h.Dynamic().
+- Imperative DOM: h.Ref()+h.RefTo(ref), then ref.Focus() / ref.Get(prop, fn).
+  Overlays: h.Portal. Wrap risky subtrees in h.ErrorBoundary(fallback, child).
+- Test components headlessly with gooweetest.Render(t, node).
 
 Full guide: https://github.com/yogisalomo/goowee/blob/main/AGENTS.md`
 
 func aiGuidePage(r *router.Router) core.Node {
 	return core.Component("AIGuidePage", func() core.Node {
 		return Div(Class("page lesson"),
-			A(Class("backlink"), Href("/tutorial"),
-				OnClickE(func(core.EventData) { r.Navigate("/tutorial") }, PreventDefault()),
-				Text("← Back to tutorial")),
+			r.Link("/tutorial", "← Back to tutorial", Class("backlink")),
 			H1(Text("Coding goowee with an AI agent")),
 			P(Class("lead"), Text("Agents (Claude Code, Cursor, and friends) usually trip on goowee's run-once model. Give yours these rules and it writes correct code the first time.")),
 			P(Text("Save it as AGENTS.md or CLAUDE.md at your repo root, or paste it into your agent's rules. Click the box to select all, then copy.")),
-			Textarea(Class("copybox"), ReadOnly(true), Rows(24),
+			Textarea(Class("copybox"), ReadOnly(true), Rows(34),
 				OnFocus(func() {}, SelectOnFocus()),
 				Text(aiRules)),
 			P(Text("The complete guide, mental model, full API cheat sheet, copy-paste patterns, and anti-patterns, lives in "),

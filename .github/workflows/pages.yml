@@ -9,7 +9,7 @@ on:
       - 'examples/counter/**'
       - 'runtime/**'
       - 'core/**'
-      - 'dom/**'
+      - 'internal/**'
       - 'h/**'
       - 'hooks/**'
       - 'router/**'

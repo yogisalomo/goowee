@@ -565,3 +565,26 @@ func TestSubRouteMergesAndClearsParams(t *testing.T) {
 		t.Fatalf("stale sub-route param survived: %v", r2.Params().Get())
 	}
 }
+
+func TestLinkToAndSetBasePath(t *testing.T) {
+	r := New("/")
+	r.SetBasePath("/goowee/")
+	if r.BasePath() != "/goowee" {
+		t.Fatalf("trailing slash should be trimmed, got %q", r.BasePath())
+	}
+	a := r.LinkTo("/tutorial", h.Class("brand"), h.Span(h.Text("x")))
+	var href string
+	for _, at := range a.Attrs {
+		if at.Name == "href" {
+			href = at.Value
+		}
+	}
+	if href != "/goowee/tutorial" || len(a.Children) != 1 {
+		t.Fatalf("LinkTo: href=%q children=%d", href, len(a.Children))
+	}
+	rd := dom.New()
+	rd.Render(a)
+	if opts, _ := rd.Registry.Dispatch(1, "click", `{"button":0}`); !opts.PreventDefault || r.Path.Get() != "/tutorial" {
+		t.Fatal("a plain click navigates in-app (base-relative)")
+	}
+}

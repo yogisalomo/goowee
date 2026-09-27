@@ -45,7 +45,7 @@ const send = (method, params = {}) => {
 
 async function main() {
   let target;
-  for (let i = 0; i < 50 && !target; i++) {
+  for (let i = 0; i < 200 && !target; i++) { // up to 20s: Chrome can take ~8s to open its debug port
     try { target = (await (await fetch(`http://localhost:${DP}/json`)).json()).find((t) => t.type === "page"); }
     catch {}
     if (!target) await sleep(100);

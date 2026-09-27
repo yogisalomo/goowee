@@ -1,4 +1,4 @@
-.PHONY: wasm ssr-server test bench size e2e boot serve serve-ssr clean cpwasm cpjs pages docker
+.PHONY: wasm ssr-server test bench size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -55,6 +55,10 @@ clean:
 
 e2e:
 	./test/e2e/run.sh
+
+# The GitHub Pages build, served under /goowee/ like Pages, in headless Chrome.
+pages-e2e: pages
+	node test/e2e/pages.mjs $(PAGES_OUT)
 
 # Boot-latency / TTI measurement (roadmap 3.2). Prints a median phase split;
 # set GOOWEE_TTI_BUDGET_MS to gate. See docs/plans/boot-latency-measurement.md.
