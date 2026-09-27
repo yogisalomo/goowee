@@ -95,6 +95,15 @@ func (r *Router) Forward() {
 // browser, so "open in new tab/window" keeps working. items add attributes
 // (Class, AriaCurrent, …) or children after the text.
 func (r *Router) Link(to, text string, items ...core.Item) *core.ElementNode {
+	return r.LinkTo(to, append([]core.Item{h.Text(text)}, items...)...)
+}
+
+// LinkTo is Link with arbitrary content: items are the anchor's attributes and
+// children (an icon plus text, several spans, …). The href carries the base
+// path, so copying the link or opening it in a new tab lands on the right URL.
+//
+//	r.LinkTo("/", h.Class("brand"), logo(), h.Text("goowee"))
+func (r *Router) LinkTo(to string, items ...core.Item) *core.ElementNode {
 	all := []core.Item{
 		h.Href(r.base + to), // real URL carries the base; internal nav is base-relative
 		h.OnClickE(func(e core.EventData) {
@@ -104,7 +113,6 @@ func (r *Router) Link(to, text string, items ...core.Item) *core.ElementNode {
 			e.PreventDefault()
 			r.Navigate(to)
 		}),
-		h.Text(text),
 	}
 	return h.A(append(all, items...)...)
 }
@@ -119,6 +127,12 @@ func InAppClick(e core.EventData) bool {
 
 // BasePath returns the URL prefix the app is served under ("" at the root).
 func (r *Router) BasePath() string { return r.base }
+
+// SetBasePath sets the URL prefix the app is served under ("/goowee", or "" at
+// the domain root; a trailing slash is ignored). In the browser BindHistory
+// reads it from the page's <base href>; a server rendering under a prefix, or
+// a test, sets it here so links carry it.
+func (r *Router) SetBasePath(base string) { r.base = strings.TrimSuffix(base, "/") }
 
 // Param returns the value of a URL param captured by the currently matched
 // route ("" if absent). This is a snapshot — good for event handlers and

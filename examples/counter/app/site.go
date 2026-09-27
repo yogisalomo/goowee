@@ -41,9 +41,7 @@ func hero(r *router.Router) core.Node {
 			H1(Text("Reactive web UIs, written in Go.")),
 			P(Class("lead"), Text("goowee compiles to `WebAssembly` and renders on the server, then hydrates on the client. `Signal`s drive fine-grained updates - no virtual DOM, no build step.")),
 			Div(Class("cta-row"),
-				A(Class("btn btn-primary"), Href("/tutorial"),
-					OnClickE(func(core.EventData) { r.Navigate("/tutorial") }, PreventDefault()),
-					Text("Get started")),
+				r.Link("/tutorial", "Get started", Class("btn btn-primary")),
 				A(Class("btn"), Href(repoURL), Target("_blank"), Rel("noopener"), Text("★ GitHub")),
 			),
 		),
@@ -151,7 +149,7 @@ func footer() core.Node {
 func tutorialIndex(r *router.Router) core.Node {
 	link := func(n, path, title, desc string) core.Node {
 		return Li(
-			A(Href(path), OnClickE(func(core.EventData) { r.Navigate(path) }, PreventDefault()),
+			r.LinkTo(path,
 				Span(Class("n"), Text(n)),
 				Span(Text(title)),
 				Span(Class("d"), Text(": "+desc)),

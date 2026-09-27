@@ -65,3 +65,9 @@ jobs:
         run: make e2e
         env:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      # The deployed artifact: the Pages build under its /goowee/ base path.
+      - name: E2E — GitHub Pages build
+        run: make pages-e2e
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}

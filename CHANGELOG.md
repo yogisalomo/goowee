@@ -11,6 +11,25 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Added
+- `r.LinkTo(to, items...)` — `Link` with arbitrary content (an icon plus
+  text, several spans); `r.SetBasePath(base)` for servers rendering under a
+  URL prefix and for tests (the browser still reads `<base href>` in
+  `BindHistory`).
+
+### Fixed
+- The tutorial site's hand-rolled links (header, step navigation, back links,
+  tutorial index, landing CTA) ignored the `/goowee/` base path and hijacked
+  cmd/ctrl-click, so opening one in a new tab hit GitHub's 404; they now use
+  `r.Link`/`r.LinkTo`. The site's AI-agent rules, error-boundary lesson and
+  Getting Started page are updated for 0.2 (and Getting Started now shows the
+  `index.html` shell).
+- E2E harness: wait up to 20 s for Chrome's debug port (current Chrome takes
+  ~8 s headless on macOS; the 5 s wait caused the "could not reach Chrome
+  DevTools endpoint" cold-start failures).
+- The Pages workflow redeploys on `internal/**` changes (the filter still
+  named the pre-0.1 `dom/` path).
+
 ## [0.2.0] — 2026-09-26
 
 The second-review release. A fresh review of v0.1.0 found silent-staleness,
