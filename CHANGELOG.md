@@ -11,6 +11,42 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Changed
+- **Portals are reconciled on re-render** instead of torn down and rebuilt: a
+  component, form or focused input inside `h.Portal` keeps its state when the
+  component holding the portal re-renders, keyed children reorder in place,
+  and portals sharing a target keep their content apart. Each portal keeps an
+  empty comment (its end anchor) after its content in the target; a changed
+  target still rebuilds (ADR-017, amended). As everywhere else (ADR-001), a
+  plain component inside a portal now keeps the plain values it was first
+  called with — pass signals or use `core.ComponentWithProps`.
+- Mutation batches are encoded by a hand-written JSON encoder instead of
+  `json.Marshal`, with byte-identical output (fuzzed against
+  `encoding/json`): 3.3× faster in WASM on a 5,000-update frame
+  (6.1 ms → 1.9 ms).
+- `cmd/ssr-server` serves a pre-built `main.wasm.br` (`make brotli`) to
+  browsers that accept brotli — 27% smaller than gzip — ignoring a copy older
+  than `main.wasm`, and honours `q=0` in `Accept-Encoding`.
+
+### Fixed
+- SVG elements created by a re-render were created in the HTML namespace and
+  didn't render: rows an `h.For` adds inside an `<svg>`, content of a scope
+  rooted at an SVG child, children added to a reused `<svg>`. Re-rendered
+  content now inherits the namespace of where its scope is mounted, and
+  `<foreignObject>` children are HTML.
+- A keyed reorder that moved the row holding the focused input dropped focus
+  and the text selection. The runtime moves live nodes with `moveBefore` where
+  the browser has it, and otherwise restores focus and selection after the
+  batch (an explicit `ref.Focus`/`Blur` in the batch still wins).
+
+### Added
+- `make perf-record VERSION=…` / `make perf-compare` (`scripts/perf.sh`): the
+  benchmark suite plus the example wasm's raw/gzip/brotli size, recorded per
+  release in `docs/perf/` and compared with benchstat; v0.2.1 is the baseline.
+- Mutation-transport measurement: `BenchmarkLayoutTickFrame`,
+  `BenchmarkEncodeLayoutTick`, and `test/e2e/transport.mjs` for the browser
+  side (roadmap 3.4).
+
 ## [0.2.1] — 2026-09-28
 
 A patch release: two additive router helpers, and the tutorial site brought

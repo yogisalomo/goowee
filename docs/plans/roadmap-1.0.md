@@ -1,7 +1,8 @@
 # Road to 1.0 — Production Readiness
 
 *Authored 2026-07-05. Status refreshed 2026-09-26 after the second review
-(issues #57–#83; see "Second review" below).*
+(issues #57–#83; see "Second review" below), and on 2026-10-16 when the smaller
+deferred items were closed (2.1, 2.3, 2.4, 3.1 brotli, 3.4, 3.5).*
 
 The core framework has been hardened end-to-end against the architecture review
 (`docs/26-07-02-fable-review.md`, §1–§10): sound reactive core (token-based
@@ -82,8 +83,11 @@ it on `CreateElement`, and the bridge creates namespaced nodes with
 `createElementNS`. `h.SvgEl` + shape helpers (`Path`, `Circle`, `Rect`, `G`,
 `Line`, `Polyline`, `Polygon`, `Ellipse`). The site logo is now inline SVG
 (dogfood). Covered by a renderer unit test + an E2E `namespaceURI` check.
-*Limitation:* a re-rendering scope whose root is an SVG child (not the `<svg>`
-itself) won't inherit the namespace — render SVG as a unit for now.
+Re-renders keep the namespace: a scope records the namespace where it is
+mounted and diffs carry it down, so rows a `For` adds inside an `<svg>` (and any
+content a re-render creates under a reused SVG element) are SVG elements — they
+used to be created as HTML elements and not render. `<foreignObject>` content
+is HTML.
 
 **2.2 Async data & error boundaries.** _Async data:_ ✅ **Done.**
 `hooks.UseResource(deps, fetch)` returns a `Resource[T]` with `Data`/`Loading`/
@@ -109,10 +113,13 @@ per-request state reachable from hooks, which conflicts with lock-free SSR).
 `OnCut`, `OnCopy`, `OnFocusIn`, `OnFocusOut`) and a `SelectOnFocus()` handler
 option; and **caret preservation** — a `value` write to the focused text field
 restores the selection instead of jumping to the end (programmatic updates
-still apply). *Remaining:* explicit selection preservation across keyed
-reorders (the active-element check covers the common case).
+still apply). **Focus and selection survive keyed reorders:** the runtime
+moves a live node with `moveBefore` where the browser has it (an atomic move
+that keeps focus, selection, scroll and animations), and otherwise restores the
+focused element and its selection after a batch that moved it — unless the
+batch itself focused or blurred through a ref. E2E-checked on both paths.
 
-**2.4 Refs / DOM escape hatch & portals.** ✅ **Mostly done** (ADR-017, ADR-019).
+**2.4 Refs / DOM escape hatch & portals.** ✅ **Done** (ADR-017, ADR-019).
 `h.Ref`/`h.RefTo` give imperative command handles — `ref.Focus()`, `Blur()`,
 `Click()`, `ScrollIntoView()` via a `MutInvoke` command to the bridge — and a
 value channel back: `ref.Get(prop, fn)` rides the batch as a `MutRead`, is
@@ -123,8 +130,10 @@ example dogfoods all three, E2E-checked. `h.Portal(target, …)` renders into
 another container (client-side, rendered fresh under hydration).
 `bridge.Element(ref)` hands the live element to a JavaScript library, and
 `OnMount` runs after the DOM exists, so that works in one step (ADR-022, #53,
-#60). *Remaining:* portals rebuild children on re-render (no id-keyed
-reconciliation) — deferred, documented in ADR-017.
+#60). Portal content is **reconciled** on re-render, not rebuilt: each portal
+keeps an end anchor in its target and diffs its children against it like a
+scope, so components, inputs and focus inside a modal survive a parent
+re-render (ADR-017, amended 2026-10-16).
 
 ---
 
@@ -134,8 +143,10 @@ reconciliation) — deferred, documented in ADR-017.
 `docs/guides/serving.md` now warns that `net/http` alone adds ~7 MB (#54) and
 gives a `fetch` helper instead. TinyGo is a dead end for now
 (`docs/plans/tinygo-recover-implementation.md`). *gzip/brotli serving:*
-✅ **Done** — documented in `docs/serving.md`; the reference SSR server gzips the
-wasm (3.7×), JS/CSS, and SSR HTML, and GitHub Pages gzips via its CDN. *Remaining:*
+✅ **Done** — documented in `docs/guides/serving.md`; the reference SSR server
+serves a pre-built `main.wasm.br` (`make brotli`: 912 KB, 5.2×, 27% smaller than
+gzip) to browsers that accept brotli and otherwise gzips the wasm (3.8×), and it
+gzips JS/CSS and SSR HTML; GitHub Pages gzips via its CDN. *Remaining:*
 evaluate TinyGo (the reflect-free core helps) against the *post-compression*
 download, and explore route-level code splitting/lazy loading. **L**
 
@@ -158,11 +169,20 @@ longest-increasing-subsequence over retained rows (`lis` / `computeNeedsMove` in
 and removals send only subtree roots: appending to a 5,000-row list went from
 14 ms to 1.3 ms (#70, #71).
 
-**3.4 Mutation transport.** 🟡 **Partial.** High-frequency events
-(scroll/pointermove) are coalesced to one per frame per element (#31, #68). *Remaining:* the
-binary-transport upgrade (reusable buffer → shared `ArrayBuffer`) stays deferred —
-measure a large-graph/drag workload first; JSON-marshal per frame is fine until
-then. **M**
+**3.4 Mutation transport.** ✅ **Done (measured).** High-frequency events
+(scroll/pointermove) are coalesced to one per frame per element (#31, #68). The
+large-graph workload was measured (2026-10-16): a force-layout tick moving 500
+circles and 1,000 lines is 5,000 attribute updates, ~250 KB of JSON
+(`BenchmarkLayoutTickFrame`, `BenchmarkEncodeLayoutTick`, and
+`node test/e2e/transport.mjs` for the browser side). On an M1, Go as WASM spends
+16.4 ms producing the frame and spent **6.1 ms** in `json.Marshal`; in Chrome
+the JSON crossing costs 0.1 ms (UTF-8 decode) + ~1.2 ms (`JSON.parse`) next to
+~4 ms of DOM writes and ~1 ms of layout. So the cost was Go's reflection-based
+encoder, not the format: a hand-written encoder (byte-identical output, fuzzed
+against `encoding/json`) brought it to **1.9 ms**, with no runtime change. A
+binary transport would now save at most ~2 ms of a ~24 ms worst-case frame, so
+it stays deferred. The next lever is the reactive pipeline itself — 16 ms and
+15k allocations (3 per updated attribute) per frame. **M**
 
 **3.5 Profiling & regression budgets.** ✅ **Done.** Benchmarks cover signal
 fan-out, coalesce, list re-render, tree diff, and now deep trees
@@ -170,8 +190,12 @@ fan-out, coalesce, list re-render, tree diff, and now deep trees
 tagged `!race`) guard the hot paths — O(1) signal notify (zero allocations;
 notification itself went from O(N²) to O(N), #69), bounded coalesce, bounded
 diff — and CI runs them in a dedicated non-race step. SSR renders run
-concurrently (ADR-024, #72). *Remaining:*
-tracking numbers across releases is still manual (no perf dashboard). **S–M**
+concurrently (ADR-024, #72). **Release-over-release tracking:**
+`make perf-record VERSION=vX.Y.Z` records the benchmark suite plus the example
+wasm's raw/gzip/brotli bytes into `docs/perf/`, and `make perf-compare` diffs
+the working tree against the latest release with benchstat
+(`docs/perf/README.md`). Timings compare on one machine only, so there is no
+hosted dashboard — shared CI runners are too noisy for one. **S–M**
 
 ---
 

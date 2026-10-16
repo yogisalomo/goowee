@@ -1066,11 +1066,27 @@ type fakeNode struct {
 }
 
 type fakeDOM struct {
-	nodes map[int]*fakeNode
+	nodes   map[int]*fakeNode
+	portals map[string]int // portal target selector -> container id (negative)
 }
 
 func newFakeDOM() *fakeDOM {
 	return &fakeDOM{nodes: map[int]*fakeNode{0: {ID: 0, Tag: "#root", attached: true}}}
+}
+
+// container is the node a portal target selector resolves to, made on first
+// use like a container that exists in the page shell.
+func (d *fakeDOM) container(selector string) *fakeNode {
+	if d.portals == nil {
+		d.portals = map[string]int{}
+	}
+	id, ok := d.portals[selector]
+	if !ok {
+		id = -100 - len(d.portals)
+		d.portals[selector] = id
+		d.nodes[id] = &fakeNode{ID: id, Tag: selector, attached: true}
+	}
+	return d.nodes[id]
 }
 
 // detach removes n from its current parent's child list (a DOM move).
@@ -1135,6 +1151,18 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 			p.Children = append(p.Children, 0)
 			copy(p.Children[idx+1:], p.Children[idx:])
 			p.Children[idx] = c.ID
+			c.ParentID, c.attached = p.ID, true
+		case core.MutPortalAppend:
+			c := d.nodes[m.ChildID]
+			if c == nil {
+				continue
+			}
+			p := d.container(m.Value.(string))
+			if c.attached && c.ParentID == p.ID {
+				continue
+			}
+			d.detach(c)
+			p.Children = append(p.Children, c.ID)
 			c.ParentID, c.attached = p.ID, true
 		case core.MutRemoveNode:
 			if n := d.nodes[m.NodeID]; n != nil {
@@ -1777,11 +1805,12 @@ func TestPortalEmitsPortalAppend(t *testing.T) {
 		&core.ElementNode{Tag: "span", Children: []core.Node{&core.TextNode{Value: "hi"}}},
 	}}
 	muts, _ := New().Render(portal)
-	appends, creates := 0, 0
+	var appended []int
+	creates := 0
 	for _, m := range muts {
 		switch m.Type {
 		case core.MutPortalAppend:
-			appends++
+			appended = append(appended, m.ChildID)
 			if m.Value != "#modal" {
 				t.Fatalf("portal target=%v, want #modal", m.Value)
 			}
@@ -1789,8 +1818,9 @@ func TestPortalEmitsPortalAppend(t *testing.T) {
 			creates++
 		}
 	}
-	if appends != 1 {
-		t.Fatalf("want 1 PortalAppend, got %d", appends)
+	// The span, then the portal's end anchor after it.
+	if len(appended) != 2 || appended[1] != portal.Anchor {
+		t.Fatalf("want the span then the anchor (%d) appended, got %v", portal.Anchor, appended)
 	}
 	if creates < 2 {
 		t.Fatalf("want span+text created, got %d", creates)

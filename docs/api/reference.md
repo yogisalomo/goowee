@@ -246,6 +246,7 @@ ref.ScrollIntoView()
 ref.Get(prop string, fn func(v any))
 
 Portal(target string, children ...core.Node)  // render into another container
+// (client-side; reconciled on re-render, so state inside survives)
 ```
 
 ### Error boundary

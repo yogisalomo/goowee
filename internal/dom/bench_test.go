@@ -123,3 +123,66 @@ func BenchmarkForAppendOne5k(b *testing.B) {
 		r.Scheduler.Flush()
 	}
 }
+
+// layoutGraph mounts an SVG graph — nodes circles, edges lines whose endpoints
+// are bound to the same position signals — and returns a func that moves every
+// node once, as one tick of a force-layout animation. With 500 nodes and 1,000
+// edges a tick is 5,000 attribute updates: the mutation transport's heaviest
+// realistic frame (roadmap 3.4).
+func layoutGraph(r *DOMRenderer, nodes, edges int) (tick func(step int)) {
+	xs := make([]*core.Signal[float64], nodes)
+	ys := make([]*core.Signal[float64], nodes)
+	var shapes []core.Item
+	for i := range xs {
+		xs[i], ys[i] = core.NewSignal(float64(i)), core.NewSignal(float64(i))
+		shapes = append(shapes, h.Circle(h.BindAttr("cx", xs[i]), h.BindAttr("cy", ys[i]), h.Attr("r", "4")))
+	}
+	for e := 0; e < edges; e++ {
+		a, b := e%nodes, (e*7+1)%nodes
+		shapes = append(shapes, h.Line(
+			h.BindAttr("x1", xs[a]), h.BindAttr("y1", ys[a]),
+			h.BindAttr("x2", xs[b]), h.BindAttr("y2", ys[b]),
+		))
+	}
+	r.Render(h.Svg(shapes...))
+	r.Scheduler.Flush()
+	return func(step int) {
+		core.Batch(func() {
+			for i := range xs {
+				xs[i].Set(float64(i) + float64(step)*0.37)
+				ys[i].Set(float64(i) - float64(step)*0.61)
+			}
+		})
+	}
+}
+
+// BenchmarkLayoutTickFrame produces one layout-tick frame: the signal writes,
+// binding notifications and coalescing that turn into the frame's mutations.
+func BenchmarkLayoutTickFrame(b *testing.B) {
+	r := New()
+	tick := layoutGraph(r, 500, 1000)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tick(i + 1)
+		if muts := r.Scheduler.Flush(); len(muts) != 5000 {
+			b.Fatalf("tick produced %d mutations, want 5000", len(muts))
+		}
+	}
+}
+
+// BenchmarkEncodeLayoutTick serializes one layout-tick frame for the JS
+// runtime (JSON today); bytes/op is the payload that crosses to JS.
+func BenchmarkEncodeLayoutTick(b *testing.B) {
+	r := New()
+	tick := layoutGraph(r, 500, 1000)
+	tick(1)
+	muts := r.Scheduler.Flush()
+	data, _ := EncodeBatch(muts)
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		EncodeBatch(muts)
+	}
+}

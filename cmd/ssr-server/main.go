@@ -19,13 +19,27 @@ import (
 	"github.com/yogisalomo/goowee/ssr"
 )
 
-// acceptsGzip reports whether the client advertised gzip support.
-func acceptsGzip(r *http.Request) bool {
-	return strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
+// accepts reports whether the client's Accept-Encoding lists coding (gzip,
+// br) without refusing it with q=0.
+func accepts(r *http.Request, coding string) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		name, params, _ := strings.Cut(part, ";")
+		if !strings.EqualFold(strings.TrimSpace(name), coding) {
+			continue
+		}
+		if q, ok := strings.CutPrefix(strings.TrimSpace(params), "q="); ok {
+			if v, err := strconv.ParseFloat(q, 64); err == nil && v == 0 {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
-// compressible reports whether a content type is worth gzipping. The big win is
-// the ~4 MB WASM binary (gzip -9 is ~3.7×); the text assets compress well too.
+// compressible reports whether a content type is worth compressing. The big
+// win is the ~4.7 MB WASM binary (gzip -9 is ~3.8×, brotli -q 11 ~5.2×); the
+// text assets compress well too.
 // Already-compressed formats (png/woff2/…) are served as-is.
 func compressible(ct string) bool {
 	switch {
@@ -104,11 +118,45 @@ func gzipStatic(path string, modTime time.Time) ([]byte, error) {
 	return body, nil
 }
 
-// serveStatic serves a static file, gzip-compressed from cache when the client
-// accepts it and the type is worth compressing, otherwise via http.ServeFile.
+// brotliSibling opens path+".br", a brotli-compressed copy made at build time
+// (`make brotli`: brotli -q 11), when it exists and is at least as new as
+// path — a stale copy from an older build is ignored. The comparison is to
+// the second: the brotli CLI gives its output the input's mtime truncated to
+// whole seconds. Brotli isn't in the
+// standard library, so the server serves pre-built copies (like nginx's
+// brotli_static) instead of compressing on the fly. For the wasm it is ~27%
+// smaller than gzip -9.
+func brotliSibling(path string, fi os.FileInfo) (*os.File, os.FileInfo, bool) {
+	f, err := os.Open(path + ".br")
+	if err != nil {
+		return nil, nil, false
+	}
+	bfi, err := f.Stat()
+	if err != nil || bfi.IsDir() || bfi.ModTime().Before(fi.ModTime().Truncate(time.Second)) {
+		f.Close()
+		return nil, nil, false
+	}
+	return f, bfi, true
+}
+
+// serveStatic serves a static file: its pre-built brotli copy when the client
+// accepts br and one is present, else gzip-compressed from cache when the
+// client accepts gzip and the type is worth compressing, else via
+// http.ServeFile.
 func serveStatic(w http.ResponseWriter, r *http.Request, path string, fi os.FileInfo) {
 	ct := contentType(path)
-	if acceptsGzip(r) && compressible(ct) {
+	if compressible(ct) && accepts(r, "br") {
+		if f, bfi, ok := brotliSibling(path, fi); ok {
+			defer f.Close()
+			h := w.Header()
+			h.Set("Content-Type", ct)
+			h.Set("Content-Encoding", "br")
+			h.Set("Vary", "Accept-Encoding")
+			http.ServeContent(w, r, path, bfi.ModTime(), f)
+			return
+		}
+	}
+	if compressible(ct) && accepts(r, "gzip") {
 		if body, err := gzipStatic(path, fi.ModTime()); err == nil {
 			h := w.Header()
 			h.Set("Content-Type", ct)

@@ -1,0 +1,69 @@
+# goowee v0.2.1 — go1.25.1, 2026-10-16
+goos: darwin
+goarch: arm64
+pkg: github.com/yogisalomo/goowee/core
+cpu: Apple M1
+BenchmarkSignalSetFanout-8   	  647890	      1847 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  660637	      1853 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  637363	      1854 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  640359	      1857 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  639528	      1855 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  641564	      1848 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCoalesce-8          	    8418	    142724 ns/op	  360609 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8067	    142638 ns/op	  360609 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8594	    143617 ns/op	  360608 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8398	    142647 ns/op	  360608 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8976	    144245 ns/op	  360608 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8442	    144720 ns/op	  360609 B/op	      10 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/yogisalomo/goowee/internal/dom
+cpu: Apple M1
+BenchmarkScopeReRenderList-8   	   10503	    114162 ns/op	  172315 B/op	    1244 allocs/op
+BenchmarkScopeReRenderList-8   	   10000	    113460 ns/op	  172314 B/op	    1244 allocs/op
+BenchmarkScopeReRenderList-8   	   10000	    113577 ns/op	  172315 B/op	    1244 allocs/op
+BenchmarkScopeReRenderList-8   	   10000	    113732 ns/op	  172315 B/op	    1244 allocs/op
+BenchmarkScopeReRenderList-8   	   10000	    115159 ns/op	  172314 B/op	    1244 allocs/op
+BenchmarkScopeReRenderList-8   	   10000	    113221 ns/op	  172314 B/op	    1244 allocs/op
+BenchmarkDeepTreeRender-8      	   16972	     70913 ns/op	  207914 B/op	     834 allocs/op
+BenchmarkDeepTreeRender-8      	   16681	     70851 ns/op	  207914 B/op	     834 allocs/op
+BenchmarkDeepTreeRender-8      	   17247	     71038 ns/op	  207914 B/op	     834 allocs/op
+BenchmarkDeepTreeRender-8      	   17146	     71318 ns/op	  207914 B/op	     834 allocs/op
+BenchmarkDeepTreeRender-8      	   17083	     71673 ns/op	  207914 B/op	     834 allocs/op
+BenchmarkDeepTreeRender-8      	   17130	     70161 ns/op	  207914 B/op	     834 allocs/op
+BenchmarkDiffTree-8            	   23922	     50767 ns/op	   82072 B/op	     713 allocs/op
+BenchmarkDiffTree-8            	   23858	     50004 ns/op	   82072 B/op	     713 allocs/op
+BenchmarkDiffTree-8            	   23354	     52376 ns/op	   82072 B/op	     713 allocs/op
+BenchmarkDiffTree-8            	   24046	     50812 ns/op	   82072 B/op	     713 allocs/op
+BenchmarkDiffTree-8            	   23725	     50506 ns/op	   82072 B/op	     713 allocs/op
+BenchmarkDiffTree-8            	   23876	     50411 ns/op	   82072 B/op	     713 allocs/op
+BenchmarkForAppendOne5k-8      	     938	   1366428 ns/op	  894718 B/op	      98 allocs/op
+BenchmarkForAppendOne5k-8      	     930	   1370563 ns/op	  894607 B/op	      98 allocs/op
+BenchmarkForAppendOne5k-8      	     944	   1385591 ns/op	  894789 B/op	      98 allocs/op
+BenchmarkForAppendOne5k-8      	     946	   1367509 ns/op	  894812 B/op	      98 allocs/op
+BenchmarkForAppendOne5k-8      	     943	   1368144 ns/op	  894776 B/op	      98 allocs/op
+BenchmarkForAppendOne5k-8      	     940	   1368133 ns/op	  894736 B/op	      98 allocs/op
+BenchmarkLayoutTickFrame-8     	     471	   2419597 ns/op	 2452506 B/op	   15050 allocs/op
+BenchmarkLayoutTickFrame-8     	     501	   2418568 ns/op	 2452995 B/op	   15050 allocs/op
+BenchmarkLayoutTickFrame-8     	     504	   2419371 ns/op	 2453056 B/op	   15050 allocs/op
+BenchmarkLayoutTickFrame-8     	     504	   2423531 ns/op	 2453042 B/op	   15050 allocs/op
+BenchmarkLayoutTickFrame-8     	     502	   2410785 ns/op	 2452992 B/op	   15050 allocs/op
+BenchmarkLayoutTickFrame-8     	     505	   2441342 ns/op	 2453064 B/op	   15050 allocs/op
+BenchmarkEncodeLayoutTick-8    	    1041	   1150922 ns/op	 226.57 MB/s	  262267 B/op	       2 allocs/op
+BenchmarkEncodeLayoutTick-8    	    1035	   1150209 ns/op	 226.71 MB/s	  262773 B/op	       2 allocs/op
+BenchmarkEncodeLayoutTick-8    	    1044	   1148148 ns/op	 227.12 MB/s	  262267 B/op	       2 allocs/op
+BenchmarkEncodeLayoutTick-8    	    1042	   1149812 ns/op	 226.79 MB/s	  262267 B/op	       2 allocs/op
+BenchmarkEncodeLayoutTick-8    	    1027	   1150916 ns/op	 226.57 MB/s	  262268 B/op	       2 allocs/op
+BenchmarkEncodeLayoutTick-8    	    1047	   1156459 ns/op	 225.48 MB/s	  263270 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/yogisalomo/goowee/ssr
+cpu: Apple M1
+BenchmarkSSRParallel-8   	    6700	    229293 ns/op	  224108 B/op	    3631 allocs/op
+BenchmarkSSRParallel-8   	    5538	    231737 ns/op	  224099 B/op	    3631 allocs/op
+BenchmarkSSRParallel-8   	    4994	    229118 ns/op	  224100 B/op	    3631 allocs/op
+BenchmarkSSRParallel-8   	    6067	    225830 ns/op	  224107 B/op	    3631 allocs/op
+BenchmarkSSRParallel-8   	    5901	    227706 ns/op	  224110 B/op	    3631 allocs/op
+BenchmarkSSRParallel-8   	    4852	    248419 ns/op	  224104 B/op	    3631 allocs/op
+pkg: github.com/yogisalomo/goowee/examples/counter
+BenchmarkExampleWASM 1 4739429 raw-B 1246904 gzip-B 909661 brotli-B

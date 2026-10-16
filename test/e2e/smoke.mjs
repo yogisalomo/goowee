@@ -236,6 +236,42 @@ async function main() {
   check(await evalJS(`fetch('/definitely-missing').then(r=>r.status)`) === 404, "unknown path is not a 404");
   check(await evalJS(`fetch('/greet/zed').then(r=>r.text()).then(t=>t.includes('Hello, zed!'))`), "param route not server-rendered");
 
+  // --- Runtime: a keyed move keeps focus and the text selection ---
+  // Synthetic batches against the live runtime (ids far above the app's): a
+  // row holding the focused input is moved, as a keyed reorder outside the LIS
+  // does. With moveBefore the move is atomic; without it the runtime restores
+  // focus and selection after the batch. An explicit blur in the batch wins.
+  const moveKeepsFocus = () => evalJS(`(()=>{
+    const B = 900000, apply = (m) => applyMutations(JSON.stringify(m));
+    apply([
+      {type:0,nodeId:B+1,key:"tag",value:"ul"},
+      {type:0,nodeId:B+2,key:"tag",value:"li"},
+      {type:0,nodeId:B+3,key:"tag",value:"input"},
+      {type:4,nodeId:B+2,childId:B+3},
+      {type:0,nodeId:B+4,key:"tag",value:"li"},
+      {type:4,nodeId:B+1,childId:B+2},
+      {type:4,nodeId:B+1,childId:B+4},
+      {type:9,nodeId:0,childId:B+1,value:"body"},
+    ]);
+    const input = goowee.node(B+3);
+    input.value = "hello world"; input.focus(); input.setSelectionRange(2, 7);
+    apply([{type:5,nodeId:B+1,childId:B+2,refId:0}]);
+    const kept = document.activeElement === input && input.selectionStart === 2 &&
+      input.selectionEnd === 7 && goowee.node(B+1).lastChild === goowee.node(B+2);
+    apply([{type:5,nodeId:B+1,childId:B+2,refId:B+4},{type:8,nodeId:B+3,key:"blur"}]);
+    const blurred = document.activeElement !== input;
+    apply([{type:1,nodeId:B+1}]);
+    return {kept, blurred};
+  })()`);
+  const native = await moveKeepsFocus();
+  check(native.kept, "a keyed move dropped focus or the selection");
+  check(native.blurred, "focus was restored over an explicit blur");
+  await evalJS(`(()=>{window.__mb=Object.getOwnPropertyDescriptor(Element.prototype,"moveBefore");delete Element.prototype.moveBefore;})()`);
+  const fallback = await moveKeepsFocus();
+  await evalJS(`(()=>{if(window.__mb)Object.defineProperty(Element.prototype,"moveBefore",window.__mb);})()`);
+  check(fallback.kept, "without moveBefore, a keyed move dropped focus or the selection");
+  check(fallback.blurred, "without moveBefore, focus was restored over an explicit blur");
+
   // --- No stale nodes: after all that navigation, every node the runtime still
   // tracks is live in the document (removed subtrees are forgotten).
   const tracked = await evalJS(`goowee.nodeCount()`);

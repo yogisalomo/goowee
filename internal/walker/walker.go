@@ -116,6 +116,9 @@ func (w *Walker) Walk(n core.Node, v Visitor) int {
 		if node == nil {
 			return 0
 		}
+		// The end anchor is allocated here, in both renderers, so ids after a
+		// portal stay in SSR/client parity (the server renders no portal).
+		node.Anchor = w.AllocID()
 		v.VisitPortal(node, func(child core.Node) int {
 			return w.Walk(child, v)
 		})

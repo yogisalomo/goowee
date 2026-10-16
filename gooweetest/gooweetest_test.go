@@ -145,3 +145,21 @@ func TestPortalsAndHead(t *testing.T) {
 		t.Fatal("Find searches portal content too")
 	}
 }
+
+// A component inside a portal keeps its state when the portal's parent
+// re-renders: portal content is reconciled, not rebuilt (ADR-017).
+func TestPortalStateSurvivesParentReRender(t *testing.T) {
+	title := core.NewSignal("one")
+	s := gooweetest.Render(t, Div(hooks.UseScope(func() core.Node {
+		return Section(H2(Text(title.Get())), Portal("#modal-root", counter()))
+	}, title)))
+	s.Click(s.FindByText("Increment"))
+	title.Set("two")
+	s.Flush()
+	if got := s.Find("h2").Text(); got != "two" {
+		t.Fatalf("parent did not re-render: %q", got)
+	}
+	if got := s.Portal("#modal-root").Find("p.count").Text(); got != "Count: 1" {
+		t.Fatalf("portal state lost on a parent re-render: %q", got)
+	}
+}

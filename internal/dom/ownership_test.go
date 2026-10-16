@@ -333,7 +333,7 @@ func TestRemovingASubtreeRemovesItsPortalContent(t *testing.T) {
 	for _, id := range removed {
 		found = found || id == modal.ID
 	}
-	if !found || len(removed) != 2 {
-		t.Fatalf("want the section and the portal's root removed, got %v (modal=%d)", removed, modal.ID)
+	if !found || len(removed) != 3 {
+		t.Fatalf("want the section, the portal's root and its anchor removed, got %v (modal=%d)", removed, modal.ID)
 	}
 }
