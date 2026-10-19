@@ -28,6 +28,9 @@ func CollectIDs(n core.Node) []int {
 		for _, child := range v.Children {
 			ids = append(ids, CollectIDs(child)...)
 		}
+		if v.Anchor > 0 {
+			ids = append(ids, v.Anchor)
+		}
 	case *core.ErrorBoundaryNode:
 		if v.Prev != nil {
 			ids = append(ids, CollectIDs(v.Prev)...)

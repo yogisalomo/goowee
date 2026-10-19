@@ -57,6 +57,10 @@ jobs:
           node-version: '22'   # global WebSocket/fetch — no npm deps in the harness
       - uses: browser-actions/setup-chrome@v1
         id: chrome
+      # run.sh pre-compresses main.wasm when the brotli CLI is present, so the
+      # browser boots from the br-encoded copy the SSR server serves.
+      - name: brotli CLI
+        run: command -v brotli || (sudo apt-get update -qq && sudo apt-get install -y -qq brotli)
 
       # Builds the WASM app + SSR server, serves it, and drives the real app in
       # headless Chrome (hydration, interactivity, routing/history, refs, async,

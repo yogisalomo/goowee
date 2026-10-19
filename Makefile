@@ -1,4 +1,4 @@
-.PHONY: wasm ssr-server test bench size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
+.PHONY: wasm brotli ssr-server test bench perf-record perf-compare size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -10,6 +10,12 @@ PAGES_BASE ?= /goowee/
 
 wasm:
 	GOOS=js GOARCH=wasm go build -o $(WASM_OUT) ./examples/counter
+
+# Pre-compress the wasm for cmd/ssr-server, which serves main.wasm.br to
+# browsers that accept brotli: ~27% smaller than gzip -9 (see
+# docs/guides/serving.md). Needs the brotli CLI. `make brotli serve-ssr`.
+brotli: wasm
+	brotli -q 11 -f -k $(WASM_OUT)
 
 ssr-server:
 	go build -o bin/ssr-server ./cmd/ssr-server
@@ -25,6 +31,15 @@ test:
 
 bench:
 	go test -run '^$$' -bench . ./core/ ./internal/dom/
+
+# Performance across releases (docs/perf/README.md): record the benchmarks and
+# wasm size for a release, or compare the tree with the latest (or BASE=vX.Y.Z).
+perf-record:
+	@test -n "$(VERSION)" || { echo "usage: make perf-record VERSION=vX.Y.Z"; exit 2; }
+	scripts/perf.sh record $(VERSION)
+
+perf-compare:
+	scripts/perf.sh compare $(BASE)
 
 size: wasm
 	@bytes=$$(wc -c < $(WASM_OUT) | tr -d ' '); \
@@ -50,7 +65,7 @@ pages:
 	@echo "built $(PAGES_OUT)/ (base $(PAGES_BASE)) — client-only static site"
 
 clean:
-	rm -f $(WASM_OUT) bin/ssr-server
+	rm -f $(WASM_OUT) $(WASM_OUT).br bin/ssr-server
 	rm -rf $(PAGES_OUT)
 
 e2e:

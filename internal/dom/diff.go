@@ -111,16 +111,11 @@ func (r *DOMRenderer) diffNode(old, nw core.Node, parentID, endRef int, muts *[]
 
 	case *core.PortalNode:
 		n, ok := nw.(*core.PortalNode)
-		if !ok {
+		if !ok || o.Target != n.Target || o.Anchor == 0 {
+			// Another container: rebuild the content there (ADR-017).
 			return r.replace(old, nw, parentID, muts)
 		}
-		// The target is a selector, not a node we can reconcile against, so
-		// tear down the old portal content and render the new (ADR-017). Keep
-		// portal state in signals outside the portal.
-		for _, c := range o.Children {
-			r.emitRemoveTree(c, muts)
-		}
-		r.renderInto(n.Target, n.Children, muts)
+		r.diffPortal(o, n, muts)
 		return false
 
 	case *core.ErrorBoundaryNode:
@@ -131,6 +126,20 @@ func (r *DOMRenderer) diffNode(old, nw core.Node, parentID, endRef int, muts *[]
 		return r.diffBoundary(o, n, parentID, endRef, muts)
 	}
 	return r.replace(old, nw, parentID, muts)
+}
+
+// diffPortal reconciles a portal's content in place: the new children are
+// diffed against the old inside the target container, with the portal's
+// anchor as the end reference, so state inside the portal survives.
+func (r *DOMRenderer) diffPortal(old, nw *core.PortalNode, muts *[]core.Mutation) {
+	core.FlatTree(nw)
+	nw.Anchor = old.Anchor
+	prevNS := r.currentNS
+	r.currentNS = "" // as on mount: the target's namespace is unknown
+	r.parentStack = append(r.parentStack, portalParent)
+	r.diffChildren(portalParent, old.Children, nw.Children, old.Anchor, muts)
+	r.parentStack = r.parentStack[:len(r.parentStack)-1]
+	r.currentNS = prevNS
 }
 
 // replace removes old and renders nw fresh; the caller places it.
@@ -213,9 +222,18 @@ func (r *DOMRenderer) diffElement(old, nw *core.ElementNode, muts *[]core.Mutati
 		}
 	}
 
+	// Children created by this diff inherit the element's namespace, which is
+	// its own or the one the diff inherited from where it is mounted.
+	ns := nw.Namespace
+	if ns == "" {
+		ns = r.currentNS
+	}
+	prevNS := r.currentNS
+	r.currentNS = childNS(nw.Tag, ns)
 	r.parentStack = append(r.parentStack, old.ID)
 	r.diffChildren(old.ID, old.Children, nw.Children, 0, muts)
 	r.parentStack = r.parentStack[:len(r.parentStack)-1]
+	r.currentNS = prevNS
 }
 
 func (r *DOMRenderer) diffText(old, nw *core.TextNode, muts *[]core.Mutation) {

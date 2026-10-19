@@ -12,12 +12,12 @@ WebAssembly is highly compressible. For the example binary:
 
 | encoding | bytes on the wire | vs. raw |
 |----------|------------------:|--------:|
-| identity (uncompressed) | ~4 181 KB | 1.0× |
-| **gzip** (`-9`)          | ~1 138 KB | **3.7×** |
-| brotli (`-q 11`)         | ~1 000 KB | ~4.2× |
+| identity (uncompressed) | ~4 744 KB | 1.0× |
+| **gzip** (`-9`)          | ~1 250 KB | **3.8×** |
+| **brotli** (`-q 11`)     |   ~912 KB | **5.2×** |
 
-At a bandwidth-limited **500 KB/s** the download alone goes from **~8.0 s → ~2.1 s**
-with gzip. Serve `application/wasm` with `Content-Encoding: gzip` (or `br`) and a
+(Go 1.25, goowee 0.2.1.) At a bandwidth-limited **500 KB/s** the download alone
+goes from **~9.5 s → ~2.5 s** with gzip, and **~1.8 s** with brotli. Serve `application/wasm` with `Content-Encoding: gzip` (or `br`) and a
 `Vary: Accept-Encoding` header, and the browser decompresses transparently before
 `instantiateStreaming` compiles it. This is a zero-code-risk win — do it before
 reaching for TinyGo.
@@ -37,9 +37,12 @@ for wasm.)
 
 **The reference SSR server (`cmd/ssr-server`) — built in.** It gzips the wasm
 (cached, compressed once at max level, invalidated on rebuild), the JS/CSS, and
-the SSR HTML whenever the client accepts gzip. It uses only `compress/gzip` from
-the standard library — no dependency — so brotli is left to a real CDN/proxy in
-front of it.
+the SSR HTML whenever the client accepts gzip. Brotli isn't in Go's standard
+library, so for brotli the server serves a pre-built sibling: build it with
+`make brotli` (`brotli -q 11 -k main.wasm`, ~11 s) and every browser that sends
+`Accept-Encoding: br` gets `main.wasm.br` — 27% fewer bytes than gzip. A
+sibling older than `main.wasm` (left over from a previous build) is ignored, so
+a stale copy is never served: `make brotli serve-ssr`.
 
 **nginx** — enable static pre-compressed serving so nginx streams a
 pre-built `.gz`/`.br` sibling instead of recompressing per request:

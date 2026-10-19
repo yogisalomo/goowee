@@ -349,6 +349,45 @@ function dispatchToGo(type, e, targetOnly) {
     }
 }
 
+// moveNode inserts child into parent before ref (null = at the end). A node
+// already in the document is moved with moveBefore where the browser has it —
+// an atomic move that keeps focus, text selection, scroll position and running
+// animations. It reports whether it fell back to a plain remove + insert that
+// moved a live node, which drops focus (restoreFocus repairs that).
+function moveNode(parent, child, ref) {
+    const live = child.isConnected;
+    if (live && parent.isConnected && typeof parent.moveBefore === "function") {
+        try { parent.moveBefore(child, ref); return false; } catch (_) { /* fall through */ }
+    }
+    parent.insertBefore(child, ref);
+    return live;
+}
+
+// saveFocus records the focused element and its text selection before a batch,
+// for restoreFocus.
+function saveFocus() {
+    const el = document.activeElement;
+    if (!el || el === document.body || el === document.documentElement) return null;
+    const s = {el: el, start: null, end: null, dir: null};
+    try {
+        if (typeof el.selectionStart === "number") {
+            s.start = el.selectionStart; s.end = el.selectionEnd; s.dir = el.selectionDirection;
+        }
+    } catch (_) {} // some input types have no selection
+    return s;
+}
+
+// restoreFocus puts focus and the text selection back on an element a batch
+// moved without moveBefore (a keyed-list reorder), when it is still in the
+// document and nothing else took focus. A removed element stays unfocused.
+function restoreFocus(s) {
+    if (!s || !s.el.isConnected) return;
+    const now = document.activeElement;
+    if (now === s.el || (now && now !== document.body && now !== document.documentElement)) return;
+    try { s.el.focus({preventScroll: true}); } catch (_) { return; }
+    if (s.start !== null) try { s.el.setSelectionRange(s.start, s.end, s.dir || undefined); } catch (_) {}
+}
+
 window.applyMutations = function applyMutations(json) {
     hydrateOnce();
     // First flush = first paint of app-produced DOM = interactive (roadmap 3.2).
@@ -360,6 +399,8 @@ window.applyMutations = function applyMutations(json) {
     // Reads (ref.Get) are answered after every write in the batch has been
     // applied, so a handler that updates state and measures sees the result.
     const reads = [];
+    const focus = saveFocus();
+    let movedLive = false, focusCommand = false;
     for (const mut of muts) {
         let el;
         switch (mut.type) {
@@ -428,8 +469,7 @@ window.applyMutations = function applyMutations(json) {
                 const parent = ref && ref.parentNode ? ref.parentNode
                     : (mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId]);
                 if (parent && child) {
-                    if (ref && ref.parentNode === parent) parent.insertBefore(child, ref);
-                    else parent.appendChild(child);
+                    movedLive = moveNode(parent, child, ref && ref.parentNode === parent ? ref : null) || movedLive;
                 }
                 break;
             }
@@ -440,6 +480,7 @@ window.applyMutations = function applyMutations(json) {
             }
             case 8: { // Invoke — call a method on a node (refs: focus/blur/…)
                 el = nodeMap[mut.nodeId];
+                if (mut.key === "focus" || mut.key === "blur") focusCommand = true;
                 if (el && typeof el[mut.key] === "function") el[mut.key]();
                 break;
             }
@@ -447,7 +488,7 @@ window.applyMutations = function applyMutations(json) {
                 const parent = document.querySelector(mut.value);
                 const child = nodeMap[mut.childId];
                 if (parent && child && child.parentNode !== parent) {
-                    parent.appendChild(child);
+                    movedLive = moveNode(parent, child, null) || movedLive;
                 }
                 break;
             }
@@ -490,6 +531,9 @@ window.applyMutations = function applyMutations(json) {
             }
         }
     }
+    // An explicit ref.Focus/Blur in the batch decides focus; otherwise a move
+    // that dropped it is undone.
+    if (movedLive && !focusCommand) restoreFocus(focus);
     if (reads.length === 0) return undefined;
     return JSON.stringify(reads.map(function (mut) {
         return {req: mut.value, value: readProp(nodeMap[mut.nodeId], mut.key)};

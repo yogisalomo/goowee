@@ -414,10 +414,10 @@ without `Dynamic`, since `OnMount` runs only on the client after hydration.
 
 ---
 
-## ADR-017: Refs are imperative command handles; portals are client-side and rebuild
+## ADR-017: Refs are imperative command handles; portals are client-side
 
 **Status:** Accepted (2026-07-06). The "reads are not supported" clause is
-superseded by ADR-019; the portal decision stands.
+superseded by ADR-019; the portal rebuild is amended below (2026-10-16).
 
 **Context.** Real UIs need to reach the DOM imperatively (focus a field, scroll
 into view) and render outside the current subtree (modals, tooltips). Go never
@@ -449,6 +449,17 @@ the selector-based rebuild is simple and correct for v0.
 without a DOM dependency in the renderer; measuring is a known gap. Portals work
 for modals/tooltips but lose child state across re-renders — a documented
 limitation, revisitable with id-keyed portal reconciliation.
+
+**Amended 2026-10-16.** Portals are reconciled instead of rebuilt. Each portal
+has an end anchor — an empty comment kept right after its content in the
+target, allocated by the shared walker so SSR/client ids stay in parity — and a
+re-render diffs the old children against the new with that anchor as the end
+reference: the placement model scopes use (ADR-021). Components, inputs and
+focus inside a portal survive a parent re-render, keyed children reorder in
+place, and portals sharing a container keep their content apart. A changed
+`Target` still rebuilds the content in the new container. Content inside a
+portal is placed relative to its anchor and never falls back to the root
+container: when no element matches the target, it stays out of the document.
 
 ---
 

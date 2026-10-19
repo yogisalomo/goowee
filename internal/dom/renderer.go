@@ -15,6 +15,14 @@ import (
 // walk, because the diff knows where they belong and places them itself.
 const detached = -1
 
+// portalParent stands for a portal's container, which Go knows only by
+// selector. Content inside a portal is placed relative to its anchor (the
+// runtime inserts at the reference node's real parent); were the anchor
+// missing from the document — no element matched the target — the runtime
+// finds no node with this id and places nothing, rather than falling back to
+// the root container.
+const portalParent = -2
+
 // scopeInfo is the renderer's state for one mounted scope. It moves from the
 // old ScopeNode to the new one when a parent re-render adopts the scope.
 type scopeInfo struct {
@@ -22,12 +30,14 @@ type scopeInfo struct {
 	parentID    int                  // DOM parent (best effort; JS inserts at the anchor's real parent)
 	owner       *core.ComponentFrame // owns the hooks called by the current render
 	ownerParent *core.ComponentFrame // the frame the scope was mounted under
+	ns          string               // XML namespace the scope's content inherits (SVG)
 }
 
 type scopeState struct {
 	seq      int
 	parentID int
 	detached bool
+	ns       string
 }
 
 type DOMRenderer struct {
@@ -160,6 +170,11 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 	if el == nil {
 		return
 	}
+	ns := el.Namespace
+	if ns == "" {
+		ns = r.currentNS
+	}
+	prevNS := r.currentNS
 	if r.hydrating {
 		*r.muts = append(*r.muts, core.Mutation{
 			Type: core.MutHydrate, NodeID: id, Key: "tag", Value: el.Tag,
@@ -179,19 +194,16 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 		}
 		prevDynamic := r.hydrateDynamic
 		r.hydrateDynamic = dynamic
+		r.currentNS = childNS(el.Tag, ns) // scopes below record it
 		r.parentStack = append(r.parentStack, id)
 		for _, child := range el.Children {
 			walkChild(child)
 		}
 		r.parentStack = r.parentStack[:len(r.parentStack)-1]
-		r.hydrateDynamic = prevDynamic
+		r.hydrateDynamic, r.currentNS = prevDynamic, prevNS
 		return
 	}
 
-	ns := el.Namespace
-	if ns == "" {
-		ns = r.currentNS
-	}
 	*r.muts = append(*r.muts, core.Mutation{
 		Type: core.MutCreateElement, NodeID: id, Key: "tag", Value: el.Tag, NS: ns,
 	})
@@ -205,8 +217,7 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 		r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
 	}
 	r.parentStack = append(r.parentStack, id)
-	prevNS := r.currentNS
-	r.currentNS = ns
+	r.currentNS = childNS(el.Tag, ns)
 	for _, child := range el.Children {
 		// Fragments and scopes attach their own content (and return 0).
 		if childID := walkChild(child); childID != 0 {
@@ -215,6 +226,15 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 	}
 	r.currentNS = prevNS
 	r.parentStack = r.parentStack[:len(r.parentStack)-1]
+}
+
+// childNS is the namespace an element's children inherit: the element's own,
+// except that an SVG <foreignObject> holds HTML.
+func childNS(tag, ns string) string {
+	if tag == "foreignObject" && ns == core.SVGNamespace {
+		return ""
+	}
+	return ns
 }
 
 // emitAttrs emits an element's static attributes and properties — skipping
@@ -311,6 +331,12 @@ func (r *DOMRenderer) VisitPortal(pn *core.PortalNode, walkChild func(core.Node)
 		return
 	}
 	r.renderInto(pn.Target, pn.Children, r.muts)
+	// The anchor follows the content, so a re-render can place new content
+	// before it (diffPortal).
+	*r.muts = append(*r.muts,
+		core.Mutation{Type: core.MutCreateElement, NodeID: pn.Anchor, Key: "tag", Value: "#comment"},
+		core.Mutation{Type: core.MutPortalAppend, NodeID: 0, ChildID: pn.Anchor, Value: pn.Target},
+	)
 }
 
 // renderInto renders children fresh and appends their roots to the container
@@ -321,7 +347,7 @@ func (r *DOMRenderer) renderInto(selector string, children []core.Node, muts *[]
 	prevHydrating, prevNS := r.hydrating, r.currentNS
 	r.hydrating, r.currentNS = false, ""
 	for _, child := range children {
-		r.renderFresh(child, 0, muts)
+		r.renderFresh(child, portalParent, muts)
 		for _, id := range rootIDs(child) {
 			*muts = append(*muts, core.Mutation{
 				Type: core.MutPortalAppend, NodeID: 0, ChildID: id, Value: selector,
@@ -384,7 +410,7 @@ func (r *DOMRenderer) VisitScopeEnter(sn *core.ScopeNode) {
 	// seq is taken on entry, so an enclosing scope always orders before the
 	// scopes inside it (Flush re-renders parent-before-child).
 	r.scopeSeq++
-	st := scopeState{seq: r.scopeSeq, parentID: r.currentParent()}
+	st := scopeState{seq: r.scopeSeq, parentID: r.currentParent(), ns: r.currentNS}
 	if st.parentID == detached {
 		st.parentID, st.detached = r.freshParent, true
 	}
@@ -417,7 +443,7 @@ func (r *DOMRenderer) VisitScopeLeave(sn *core.ScopeNode, innerID int) int {
 		}
 	}
 
-	info := &scopeInfo{seq: st.seq, parentID: st.parentID, owner: owner}
+	info := &scopeInfo{seq: st.seq, parentID: st.parentID, owner: owner, ns: st.ns}
 	if owner != nil {
 		info.ownerParent = owner.Parent
 	}
@@ -514,7 +540,12 @@ func (r *DOMRenderer) reRenderScope(sn *core.ScopeNode) {
 func (r *DOMRenderer) updateScope(sn *core.ScopeNode, info *scopeInfo, muts *[]core.Mutation) {
 	owner := runtime.NewOwner(info.ownerParent)
 	runtime.PushFrame(owner)
+	// New content inherits the namespace of where the scope is mounted (a
+	// For inside an <svg> renders SVG rows), not the flush's empty context.
+	prevNS := r.currentNS
+	r.currentNS = info.ns
 	defer func() {
+		r.currentNS = prevNS
 		if rec := recover(); rec != nil {
 			// Components mounted by the failed diff hang off owner; release
 			// them, then let the enclosing recovery handle the rest.
@@ -547,7 +578,7 @@ func (r *DOMRenderer) adoptScope(old, nw *core.ScopeNode, parentID int, muts *[]
 	unsubscribeScope(old)
 	r.Scheduler.CancelDirty(old) // the adopting render supersedes a pending one
 	nw.Prev, nw.Anchor = old.Prev, old.Anchor
-	info.parentID = parentID
+	info.parentID, info.ns = parentID, r.currentNS
 	r.scopes[nw] = info
 	r.updateScope(nw, info, muts)
 	r.subscribeScope(nw, info)
@@ -664,6 +695,9 @@ func appendDetachedRoots(n core.Node, out *[]int) {
 			for _, c := range v.Children {
 				appendRoots(c, out)
 				appendDetachedRoots(c, out)
+			}
+			if v.Anchor != 0 {
+				*out = append(*out, v.Anchor)
 			}
 		}
 	case *core.MetadataNode:

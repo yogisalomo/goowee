@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func gunzip(t *testing.T, b []byte) []byte {
@@ -109,6 +110,92 @@ func TestGzipStaticCachesAndInvalidates(t *testing.T) {
 	}
 	if string(gunzip(t, b3)) != "v2-different" {
 		t.Fatalf("stale cache: got %q", gunzip(t, b3))
+	}
+}
+
+// serveWith requests path from serveStatic with the given Accept-Encoding.
+func serveWith(t *testing.T, path, acceptEncoding string) *httptest.ResponseRecorder {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/"+filepath.Base(path), nil)
+	if acceptEncoding != "" {
+		req.Header.Set("Accept-Encoding", acceptEncoding)
+	}
+	rec := httptest.NewRecorder()
+	serveStatic(rec, req, path, fi)
+	return rec
+}
+
+// A pre-built main.wasm.br is served to clients that accept br; others get
+// gzip; a sibling older than the file (a previous build) is ignored.
+func TestServeStaticBrotliSibling(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.wasm")
+	raw := bytes.Repeat([]byte("goowee-wasm-payload-"), 4096)
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	brBody := []byte("pretend-brotli")
+	if err := os.WriteFile(path+".br", brBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serveWith(t, path, "gzip, deflate, br")
+	h := rec.Result().Header
+	if h.Get("Content-Encoding") != "br" || h.Get("Content-Type") != "application/wasm" || h.Get("Vary") != "Accept-Encoding" {
+		t.Fatalf("headers = %v, want br-encoded application/wasm varying on Accept-Encoding", h)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), brBody) {
+		t.Fatalf("body = %q, want the .br sibling", rec.Body.Bytes())
+	}
+
+	for _, ae := range []string{"gzip", "br;q=0, gzip"} {
+		if got := serveWith(t, path, ae).Result().Header.Get("Content-Encoding"); got != "gzip" {
+			t.Errorf("Accept-Encoding %q: Content-Encoding = %q, want gzip", ae, got)
+		}
+	}
+
+	// `brotli -k` stamps the copy with the input's mtime truncated to the
+	// second, so a fresh sibling can look a fraction of a second older.
+	built := time.Date(2026, 10, 16, 12, 0, 0, 319385000, time.UTC)
+	os.Chtimes(path, built, built)
+	os.Chtimes(path+".br", built.Truncate(time.Second), built.Truncate(time.Second))
+	if got := serveWith(t, path, "br").Result().Header.Get("Content-Encoding"); got != "br" {
+		t.Fatalf("sibling stamped by brotli -k: Content-Encoding = %q, want br", got)
+	}
+
+	// Rebuild main.wasm without refreshing the sibling: it is stale.
+	later := built.Add(2 * time.Second)
+	os.Chtimes(path, later, later)
+	if got := serveWith(t, path, "br, gzip").Result().Header.Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("stale .br sibling: Content-Encoding = %q, want gzip", got)
+	}
+}
+
+func TestAccepts(t *testing.T) {
+	cases := []struct {
+		header, coding string
+		want           bool
+	}{
+		{"gzip, deflate, br", "br", true},
+		{"gzip, deflate, br", "gzip", true},
+		{"gzip", "br", false},
+		{"br;q=0, gzip", "br", false},
+		{"br; q=0.0", "br", false},
+		{"br;q=0.5", "br", true},
+		{"GZIP", "gzip", true},
+		{"", "gzip", false},
+		{"x-gzip-ish", "gzip", false},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Accept-Encoding", c.header)
+		if got := accepts(req, c.coding); got != c.want {
+			t.Errorf("accepts(%q, %q) = %v, want %v", c.header, c.coding, got, c.want)
+		}
 	}
 }
 

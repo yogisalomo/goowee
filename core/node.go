@@ -134,13 +134,18 @@ func (f *FragmentNode) String() string {
 // PortalNode renders its children into a different container in the DOM — a
 // modal or tooltip that lives outside the current subtree. Target is a CSS
 // selector resolved at apply time. Portals are client-side: they are not
-// server-rendered, and their content is created fresh (not hydrated). Because
-// the target is a selector (not a node we can reconcile against), portal
-// children are rebuilt on every re-render — keep portal content simple, or
-// hold its state in signals outside the portal. See ADR-017.
+// server-rendered, and their content is created fresh (not hydrated). On a
+// re-render the children are reconciled in place, like any child list, so
+// components and DOM state inside a portal survive; a changed Target rebuilds
+// the content in the new container. See ADR-017.
 type PortalNode struct {
 	Target   string
 	Children []Node
+	// Anchor is the id of the portal's end marker — an empty comment the
+	// renderer keeps right after the portal's content in the target, so
+	// re-rendered content lands in place even when several portals share a
+	// container.
+	Anchor int
 }
 
 func (p *PortalNode) nodeMarker() {}
@@ -297,6 +302,9 @@ func FlatTree(n Node) Node {
 		v.Children = flattenChildren(v.Children)
 		return v
 	case *FragmentNode:
+		v.Children = flattenChildren(v.Children)
+		return v
+	case *PortalNode:
 		v.Children = flattenChildren(v.Children)
 		return v
 	default:

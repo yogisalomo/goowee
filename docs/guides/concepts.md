@@ -508,6 +508,10 @@ Portal("#modal-root",
 )
 ```
 
+Portals render on the client only (the server leaves the target empty). When
+the component holding a portal re-renders, the portal's content is diffed like
+any other children, so a form or component inside a modal keeps its state.
+
 ## Two-way bindings
 
 ```go

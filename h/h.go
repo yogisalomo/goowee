@@ -34,8 +34,9 @@ func (r refItem) Apply(el *core.ElementNode) { el.Ref = r.ref }
 
 // Portal renders children into a different DOM container (a modal or tooltip
 // outside the current subtree). target is a CSS selector, e.g. "#modal-root".
-// Portals are client-side and their content is rebuilt on re-render — see
-// core.PortalNode / ADR-017.
+// Portals are client-side. On a re-render their content is reconciled like
+// any children, so state inside a portal survives — see core.PortalNode /
+// ADR-017.
 func Portal(target string, children ...core.Node) *core.PortalNode {
 	return &core.PortalNode{Target: target, Children: children}
 }
