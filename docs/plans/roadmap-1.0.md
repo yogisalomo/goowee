@@ -27,7 +27,9 @@ first-release surface. `v0.1.0` is the first tagged release, so downstreams (the
 personal site, `goowee-markdown`) can now pin a version instead of a commit.
 `v0.2.0` (2026-09-26) ships the second review, with an "Upgrading from 0.1"
 guide in the CHANGELOG for its breaking changes; `v0.2.1` (2026-09-28) adds
-`r.LinkTo`/`r.SetBasePath` and aligns the tutorial site. **S**
+`r.LinkTo`/`r.SetBasePath` and aligns the tutorial site; `v0.2.2` (2026-10-19)
+closes the smaller deferred items (SVG re-renders, portal reconciliation, focus
+across reorders, a faster encoder, brotli wasm, perf tracking). **S**
 
 **0.2 User-facing documentation.** ✅ **Done** (#39). Getting Started, a
 Concepts guide, and an API reference, kept current with each change (the second
@@ -144,7 +146,7 @@ re-render (ADR-017, amended 2026-10-16).
 gives a `fetch` helper instead. TinyGo is a dead end for now
 (`docs/plans/tinygo-recover-implementation.md`). *gzip/brotli serving:*
 ✅ **Done** — documented in `docs/guides/serving.md`; the reference SSR server
-serves a pre-built `main.wasm.br` (`make brotli`: 912 KB, 5.2×, 27% smaller than
+serves a pre-built `main.wasm.br` (`make brotli`: 914 KB, 5.2×, 27% smaller than
 gzip) to browsers that accept brotli and otherwise gzips the wasm (3.8×), and it
 gzips JS/CSS and SSR HTML; GitHub Pages gzips via its CDN. *Remaining:*
 evaluate TinyGo (the reflect-free core helps) against the *post-compression*
