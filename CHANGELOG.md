@@ -11,6 +11,16 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-10-19
+
+A patch release that closes the smaller deferred roadmap items: SVG content
+created by re-renders renders again, focus survives keyed reorders, portals
+keep their state, mutation encoding is 3.3× faster in WASM, the reference
+server serves brotli-compressed wasm, and performance is tracked release over
+release. No public API changes — upgrade from 0.2.1 without code changes. One
+behavior note: a plain component inside a portal is now preserved across
+re-renders, as everywhere else (see Changed).
+
 ### Changed
 - **Portals are reconciled on re-render** instead of torn down and rebuilt: a
   component, form or focused input inside `h.Portal` keeps its state when the
@@ -42,7 +52,8 @@ time. The public surface freezes under semver at v1.
 ### Added
 - `make perf-record VERSION=…` / `make perf-compare` (`scripts/perf.sh`): the
   benchmark suite plus the example wasm's raw/gzip/brotli size, recorded per
-  release in `docs/perf/` and compared with benchstat; v0.2.1 is the baseline.
+  release in `docs/perf/` and compared with benchstat (v0.2.1 and v0.2.2
+  recorded).
 - Mutation-transport measurement: `BenchmarkLayoutTickFrame`,
   `BenchmarkEncodeLayoutTick`, and `test/e2e/transport.mjs` for the browser
   side (roadmap 3.4).
@@ -392,7 +403,8 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/yogisalomo/goowee/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/yogisalomo/goowee/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/yogisalomo/goowee/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0

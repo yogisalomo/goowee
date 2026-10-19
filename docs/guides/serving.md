@@ -12,11 +12,11 @@ WebAssembly is highly compressible. For the example binary:
 
 | encoding | bytes on the wire | vs. raw |
 |----------|------------------:|--------:|
-| identity (uncompressed) | ~4 744 KB | 1.0× |
-| **gzip** (`-9`)          | ~1 250 KB | **3.8×** |
-| **brotli** (`-q 11`)     |   ~912 KB | **5.2×** |
+| identity (uncompressed) | ~4 759 KB | 1.0× |
+| **gzip** (`-9`)          | ~1 253 KB | **3.8×** |
+| **brotli** (`-q 11`)     |   ~914 KB | **5.2×** |
 
-(Go 1.25, goowee 0.2.1.) At a bandwidth-limited **500 KB/s** the download alone
+(Go 1.25, goowee 0.2.2; tracked per release in `docs/perf/`.) At a bandwidth-limited **500 KB/s** the download alone
 goes from **~9.5 s → ~2.5 s** with gzip, and **~1.8 s** with brotli. Serve `application/wasm` with `Content-Encoding: gzip` (or `br`) and a
 `Vary: Accept-Encoding` header, and the browser decompresses transparently before
 `instantiateStreaming` compiles it. This is a zero-code-risk win — do it before
