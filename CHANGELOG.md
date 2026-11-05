@@ -11,6 +11,16 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-11-06
+
+A patch release with what building a real app on goowee (Dure: a workspace
+UI with forms, threads and live updates) turned up: networking without
+`net/http` (`goowee/net`, plus a fake for `gooweetest`), a loading
+placeholder that the app replaces when it mounts, and three API
+ergonomics fixes. Upgrade from 0.2.2 without code changes. Two behavior notes
+(see Changed): a client-only mount now replaces whatever `#root` holds, and a
+hidden page keeps running frames on a timer.
+
 ### Added
 - **`goowee/net`: fetch and WebSocket without `net/http`** (#103, ADR-026).
   `net.Fetch(ctx, net.Request{…})` wraps the browser's `fetch`: method,
@@ -445,7 +455,8 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/yogisalomo/goowee/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/yogisalomo/goowee/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/yogisalomo/goowee/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/yogisalomo/goowee/compare/v0.1.0...v0.2.0
