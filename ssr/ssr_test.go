@@ -146,6 +146,34 @@ func TestSSRIDMatchesDOM(t *testing.T) {
 	}
 }
 
+// #105: RawS server-renders like Raw (its HTML inside a <div>), and the client
+// claims that div on hydration and updates it in place afterwards.
+func TestSSRRawSHydrates(t *testing.T) {
+	body := core.NewSignal("<b>pending</b>")
+	app := func() core.Node { return h.Section(h.RawS(body)) }
+	page, _ := New().Render(app())
+	r := dom.New()
+	r.SetHydrating(true)
+	muts, _ := r.Render(app())
+	rawID := 0
+	for _, m := range muts {
+		if m.Type == core.MutSetProperty && m.Key == "innerHTML" {
+			t.Fatalf("hydration rewrote the server's raw HTML: %v", m)
+		}
+		if m.Type == core.MutHydrate && m.Value == "div" {
+			rawID = m.NodeID
+		}
+	}
+	if want := fmt.Sprintf(`<div data-node-id="%d"><b>pending</b></div>`, rawID); rawID == 0 || !strings.Contains(page, want) {
+		t.Fatalf("SSR %s, hydration claims div %d", page, rawID)
+	}
+	body.Set("<b>approved</b>")
+	muts = r.Scheduler.Flush()
+	if len(muts) != 1 || muts[0].NodeID != rawID || muts[0].Value != "<b>approved</b>" {
+		t.Fatalf("update after hydration: %v", muts)
+	}
+}
+
 func TestSSREscapeHTML(t *testing.T) {
 	n := &core.TextNode{Value: "a < b & c > d"}
 	r := New()

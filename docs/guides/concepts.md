@@ -114,7 +114,7 @@ When a parent can hand a component new data, pick one:
   ```
 
 - **Key it** to remount when a value changes (React's `key` idiom):
-  `core.SetKey(Card(name), name)`.
+  `return core.SetKey(Card(name), name)` (SetKey returns the node it keys).
 
 In dev mode (`?goowee-dev`) goowee warns, once per component, when an unkeyed
 plain component is kept across a parent re-render.

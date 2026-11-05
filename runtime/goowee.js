@@ -135,13 +135,22 @@ let hydrated = false;
 // applied. This is deferred rather than run at module load because this
 // script sits in <head>, before <div id="root"> (and its SSR content) exists;
 // by the first applyMutations the WASM app has booted and the DOM is present.
-// For a pure client app (no SSR) there simply are no nodes to claim.
+// For a pure client app (no SSR) there are no nodes to claim, and #root
+// belongs to the app: whatever the page put there (a "Loading…" splash shown
+// while the WASM downloads) is removed here, in the same task that appends
+// the app's first frame, so nothing paints in between. "Server-rendered" is
+// decided exactly as bridge.Run decides it: a [data-node-id] in the document.
 function hydrateOnce() {
     if (hydrated) return;
     hydrated = true;
     mark("goowee:hydrate-start");
     const root = getRoot();
     if (!root) { mark("goowee:hydrate-end"); return; }
+    if (!document.querySelector("[data-node-id]")) {
+        root.replaceChildren();
+        mark("goowee:hydrate-end");
+        return;
+    }
 
     root.querySelectorAll("[data-node-id]").forEach(el => {
         preexistingNodes[parseInt(el.getAttribute("data-node-id"), 10)] = el;

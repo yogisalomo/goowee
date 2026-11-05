@@ -142,8 +142,8 @@ re-render (ADR-017, amended 2026-10-16).
 ## P3 — Performance & footprint (adoption-deciding, not correctness)
 
 **3.1 Bundle size.** ~4.7 MB raw / ~1.2 MB gzip for the example app today.
-`docs/guides/serving.md` now warns that `net/http` alone adds ~7 MB (#54) and
-gives a `fetch` helper instead. TinyGo is a dead end for now
+`docs/guides/serving.md` now warns that `net/http` alone adds ~7 MB (#54);
+`goowee/net` (fetch + WebSocket, ~80 KB raw) replaces it (#103, ADR-026). TinyGo is a dead end for now
 (`docs/plans/tinygo-recover-implementation.md`). *gzip/brotli serving:*
 ✅ **Done** — documented in `docs/guides/serving.md`; the reference SSR server
 serves a pre-built `main.wasm.br` (`make brotli`: 914 KB, 5.2×, 27% smaller than

@@ -241,10 +241,14 @@ func (c *ComponentNode) Adopt(prev *ComponentNode) {
 }
 
 // SetKey sets the reconciliation key on a node that carries one (elements and
-// components). Other node types have no key and are left unchanged. Used by
-// list helpers (For, VirtualList) so keyed matching preserves identity across
-// reorders regardless of whether rows are elements or components.
-func SetKey(n Node, key any) {
+// components) and returns n, so a keyed node can be built inline:
+//
+//	return core.SetKey(Card(m), m.ID) // remounts when m.ID changes
+//
+// Other node types have no key and are returned unchanged. List helpers (For,
+// VirtualList) use it so keyed matching preserves identity across reorders
+// regardless of whether rows are elements or components.
+func SetKey(n Node, key any) Node {
 	switch v := n.(type) {
 	case *ElementNode:
 		if v != nil {
@@ -255,6 +259,7 @@ func SetKey(n Node, key any) {
 			v.Key = key
 		}
 	}
+	return n
 }
 
 func (c *ComponentNode) nodeMarker() {}

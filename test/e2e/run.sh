@@ -46,3 +46,6 @@ URL="http://localhost:$PORT" node test/e2e/smoke.mjs
 
 echo "==> running devtools e2e"
 URL="http://localhost:$PORT" node test/e2e/devtools.mjs
+
+echo "==> running goowee/net e2e (fetch + WebSocket against a real server)"
+node test/e2e/net.mjs

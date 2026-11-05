@@ -11,6 +11,48 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Added
+- **`goowee/net`: fetch and WebSocket without `net/http`** (#103, ADR-026).
+  `net.Fetch(ctx, net.Request{…})` wraps the browser's `fetch`: method,
+  headers, a JSON or byte body, credentials mode, aborted when `ctx` ends, so
+  it fits `hooks.UseResource`. `Response.JSON` decodes the body and returns
+  a `*net.StatusError` for a non-2xx status. `net.Dial(url, net.SocketOptions{…})`
+  opens a WebSocket whose `OnOpen`/`OnMessage`/`OnClose` callbacks run on the
+  render loop (no `core.Schedule`), with optional reconnection with jittered
+  backoff and a `ReconnectURL` for replay cursors. About 80 KB raw (12 KB
+  brotli) in an app that uses both, where `net/http` costs ~7 MB. Outside the
+  browser `Fetch` returns `net.ErrUnavailable`; `net.SetTransport` swaps the
+  network.
+- `gooweetest.NewFakeNet(t)`: an in-memory `goowee/net` for component tests:
+  route handlers (`n.Handle("GET /api/x", …)`, `gooweetest.JSONResponse`),
+  recorded requests, and the server end of each socket the app dials
+  (`n.Socket("/ws")` → `Send`, `Received`, `Close`).
+- `h.RawS(sig)`: raw HTML that follows a `*core.Signal[string]`, replacing the
+  wrapper div's content in place when it changes (#105).
+- `h.Empty()`: the node that renders nothing, for functions that return
+  `core.Node` (`h.Group` is an item, not a node) (#105).
+- `test/e2e/net.mjs` (part of `make e2e`): `goowee/net` in headless Chrome
+  against a real HTTP and WebSocket server.
+
+### Changed
+- `core.SetKey` returns the node it keys, so a keyed row is built inline:
+  `return core.SetKey(Card(m), m.ID)` (#105). Existing calls compile
+  unchanged.
+- On a client-only mount (no server-rendered nodes), the app replaces
+  whatever `#root` holds, so a "Loading…" placeholder shown while the WASM
+  downloads goes away with the first frame instead of staying above the app
+  (#104). Keep portal targets outside `#root`. The example and Pages shells
+  now show one.
+- While the page is hidden, the frame loop runs on a timer, since browsers
+  don't fire `requestAnimationFrame` in background tabs: socket messages,
+  resource results and other scheduled updates apply then (at the browser's
+  throttled timer rate) instead of piling up until the tab is shown.
+
+### Fixed
+- The API reference listed `Group` and `Nodes` with the wrong signatures,
+  `Dynamic` with children, and no `Fragment`; the getting-started shell now
+  uses `goowee.boot()` (#105).
+
 ## [0.2.2] — 2026-10-19
 
 A patch release that closes the smaller deferred roadmap items: SVG content

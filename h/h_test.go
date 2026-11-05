@@ -135,6 +135,19 @@ func TestFragment(t *testing.T) {
 	}
 }
 
+// #105: Empty is the node that renders nothing, usable where a core.Node is
+// returned (Group is an Item, not a Node).
+func TestEmpty(t *testing.T) {
+	var n core.Node = Empty()
+	f, ok := n.(*core.FragmentNode)
+	if !ok || len(f.Children) != 0 {
+		t.Fatalf("Empty() = %#v, want a fragment with no children", n)
+	}
+	if el := Div(Empty(), Text("x")); len(core.FlatTree(el).(*core.ElementNode).Children) != 1 {
+		t.Fatalf("Div(Empty(), Text(\"x\")) children: %v, want just the text", el.Children)
+	}
+}
+
 func TestTextS(t *testing.T) {
 	sig := core.NewSignal("hello")
 	tn := TextS(sig)

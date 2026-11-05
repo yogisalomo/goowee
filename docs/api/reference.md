@@ -1,6 +1,6 @@
 # API Reference
 
-The public surface of goowee spans five packages. Import them as:
+The public surface of goowee spans these packages. Import them as:
 
 ```go
 import (
@@ -8,6 +8,7 @@ import (
     . "github.com/yogisalomo/goowee/h"       // dot-imported DSL
     "github.com/yogisalomo/goowee/hooks"
     "github.com/yogisalomo/goowee/router"
+    "github.com/yogisalomo/goowee/net"       // fetch + WebSocket
     "github.com/yogisalomo/goowee/ssr"        // server-side renderer
     "github.com/yogisalomo/goowee/bridge"    // WASM entry point
 )
@@ -54,7 +55,7 @@ type ComponentNode struct { Name string; Key any; Render func() Node; … }
 core.Component(name string, setup func() core.Node) *ComponentNode
 // A preserved instance receives new props through its props signal.
 core.ComponentWithProps(name string, props P, setup func(*core.Signal[P]) core.Node) *ComponentNode
-core.SetKey(node core.Node, key any)
+core.SetKey(node core.Node, key any) core.Node // returns node: `return core.SetKey(Card(m), m.ID)`
 type ScopeNode struct { ... }         // created by Show/For/Switch
 ```
 
@@ -102,8 +103,9 @@ Textarea(items...)
 // Generic element:
 El("tag", items...)
 
-// Raw HTML (untrusted input must be sanitized):
+// Raw HTML, inside a <div> (untrusted input must be sanitized):
 Raw(html string)                        // renders pre-rendered HTML verbatim
+RawS(sig *core.Signal[string])          // replaces the HTML when sig changes
 ```
 
 ### SVG
@@ -258,14 +260,16 @@ ErrorBoundary(fallback func(err any) core.Node, child core.Node)
 ### Dynamic content (SSR hydration escape hatch)
 
 ```go
-Dynamic(children ...core.Node)           // client value wins on hydration
+Dynamic() core.Item                      // on an element: client value wins on hydration
 ```
 
 ### Helpers
 
 ```go
-Nodes(nodes ...core.Node)                // flatten children
-Group(children ...core.Node)             // logical group (no wrapper element)
+Fragment(children ...core.Node)          // groups nodes, no wrapper element (a Node)
+Empty()                                  // renders nothing: `return Empty()` from a func returning core.Node
+Group(items ...core.Item) core.Item      // bundles attrs/events/children into one Item (not a Node)
+Nodes(nodes []core.Node) []core.Item     // spread built nodes: El("div", Nodes(children)...)
 SelectOnFocus()                          // handler option
 ```
 
@@ -406,6 +410,59 @@ el.Text(), el.HTML(), el.Attr(name), el.HasAttr(name), el.Value(), el.Checked(),
 ```
 
 Selectors: tag, `#id`, `.class`, `[attr]`, `[attr=value]`, descendant (space).
+
+A fake `goowee/net` for components that fetch or open sockets (install it
+before `Render`; not for parallel tests):
+
+```go
+n := gooweetest.NewFakeNet(t)
+n.Handle("GET /api/user", func(r net.Request) (net.Response, error) {  // "/path" = any method
+    return gooweetest.JSONResponse(200, User{Name: "Ada"})            // unmatched → 404
+})
+n.Requests() []net.Request                 // what the app sent (JSON already in Body)
+ws := n.Socket("/ws")                      // latest socket dialed to that path (query ignored)
+ws.Send(text), ws.SendBinary(b), ws.SendJSON(v)  // to the app; Flush to run its OnMessage
+ws.Received() []net.Message, ws.Close(code, reason), ws.Closed(), ws.URL
+```
+
+---
+
+## `net` — fetch and WebSocket
+
+The browser's `fetch` and `WebSocket` without `net/http` (which adds ~7 MB to
+the WASM binary). Outside the browser (SSR, native tests) `Fetch` returns
+`net.ErrUnavailable` and sockets never open; `gooweetest.NewFakeNet` fakes both.
+
+```go
+import "github.com/yogisalomo/goowee/net"
+
+// Blocks until the body has arrived: call from a goroutine (UseResource's
+// fetch runs in one). err = no response (network, CORS, ctx done → ctx.Err()).
+net.Fetch(ctx, net.Request{
+    Method: "POST", URL: "/api/x",            // Method "" = GET; URL relative to the page
+    Header: map[string]string{"X-Token": t},
+    JSON:   v,                                // or Body []byte; JSON sets Content-Type
+    Credentials: "include",                   // "" = same-origin
+}) (net.Response, error)
+resp.Status, resp.StatusText, resp.URL, resp.Header /* lowercase names */, resp.Body
+resp.OK() bool, resp.Text() string
+resp.JSON(&v) error                           // a non-2xx status → *net.StatusError
+
+// A WebSocket; returns at once. Callbacks run on the render loop (no
+// core.Schedule) and stop after Close.
+sock := net.Dial("/ws", net.SocketOptions{      // ws(s):// or relative (page's scheme)
+    Protocols: []string{"v1"},
+    OnOpen:    func(),
+    OnMessage: func(m net.Message),             // m.Text(), m.Data, m.Binary
+    OnClose:   func(e net.CloseEvent),          // e.Code, e.Reason, e.Reconnecting
+    Reconnect: true,                            // backoff MinBackoff (1s) doubling to MaxBackoff (30s), jittered
+    ReconnectURL: func() string,                // e.g. "/ws?since=" + cursor
+})
+sock.Send(text) error, sock.SendBinary(b) error // net.ErrNotOpen unless connected; never blocks
+sock.Close()                                    // code 1000, stops reconnecting
+
+net.SetTransport(t net.Transport) (previous net.Transport) // swap the network (tests, other hosts)
+```
 
 ---
 

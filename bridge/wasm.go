@@ -104,9 +104,14 @@ func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry) {
 }
 
 func startScheduler(sched *core.Scheduler) {
+	global := js.Global()
+	doc := global.Get("document")
 	scheduled := false
-	var rAF js.Func
-	rAF = js.FuncOf(func(this js.Value, args []js.Value) any {
+	var frame js.Func
+	frame = js.FuncOf(func(this js.Value, args []js.Value) any {
+		if !scheduled {
+			return nil // this frame already ran, from the other callback
+		}
 		scheduled = false
 		muts := sched.Flush()
 		if len(muts) > 0 {
@@ -118,14 +123,29 @@ func startScheduler(sched *core.Scheduler) {
 		return nil
 	})
 	// Schedule exactly one frame when work appears, instead of waking the
-	// module every ~16ms while idle.
+	// module every ~16ms while idle. A hidden page (a background tab) gets no
+	// animation frames, so work arriving then (a socket message, a fetch
+	// result) would wait until the page is shown: run the frame on a timer
+	// instead, which the browser still fires, if throttled.
 	sched.OnWork = func() {
 		if scheduled {
 			return
 		}
 		scheduled = true
-		js.Global().Call("requestAnimationFrame", rAF)
+		if doc.Get("hidden").Bool() {
+			global.Call("setTimeout", frame, 0)
+		} else {
+			global.Call("requestAnimationFrame", frame)
+		}
 	}
+	// A frame requested just before the page was hidden would wait for it to
+	// be shown again; move it to a timer too.
+	doc.Call("addEventListener", "visibilitychange", js.FuncOf(func(this js.Value, args []js.Value) any {
+		if scheduled && doc.Get("hidden").Bool() {
+			global.Call("setTimeout", frame, 0)
+		}
+		return nil
+	}))
 	// Flush whatever the initial render already enqueued.
 	sched.OnWork()
 }

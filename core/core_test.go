@@ -552,3 +552,19 @@ func TestFileBytesNeedsReader(t *testing.T) {
 		t.Fatal("a File without a handle must not be readable")
 	}
 }
+
+// #105: SetKey returns its node, so a keyed row can be built inline.
+func TestSetKeyReturnsNode(t *testing.T) {
+	c := Component("Card", func() Node { return &ElementNode{Tag: "div"} })
+	if got := SetKey(c, 7); got != Node(c) || c.Key != 7 {
+		t.Fatalf("SetKey(component) = %v (key %v), want the same component keyed 7", got, c.Key)
+	}
+	el := &ElementNode{Tag: "li"}
+	if got := SetKey(el, "a"); got != Node(el) || el.Key != "a" {
+		t.Fatalf("SetKey(element) = %v (key %v), want the same element keyed \"a\"", got, el.Key)
+	}
+	txt := &TextNode{Value: "x"}
+	if got := SetKey(txt, 1); got != Node(txt) {
+		t.Fatalf("SetKey(text) = %v, want the text node back unchanged", got)
+	}
+}
