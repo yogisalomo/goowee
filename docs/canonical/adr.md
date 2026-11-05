@@ -778,3 +778,50 @@ own design pass.
 AbortController) and any context-aware client. SSR of data pages still shows
 the loading state until the client loads.
 
+
+## ADR-026: Networking is `goowee/net`, on the browser's fetch and WebSocket
+
+**Status:** Accepted (2026-11-06)
+
+**Context.** Apps need HTTP and, for live data, a WebSocket (#103). `net/http`
+works under `GOOS=js` but adds ~7 MB to the binary and has no WebSocket
+client, so apps called `fetch` and `WebSocket` through `syscall/js`
+themselves: each had to get `core.Schedule` right for callbacks that arrive
+off the render loop, and code touching `syscall/js` can't run under
+`gooweetest`, so apps split their components to keep them testable.
+
+**Decision.** A `net` package with `Fetch(ctx, Request) (Response, error)`
+and `Dial(url, SocketOptions) *Socket`, both running on a `Transport`
+interface: the browser's fetch and WebSocket in a WASM build (in
+`net/browser_js.go`, so an app that doesn't import `net` doesn't link it),
+`ErrUnavailable` natively, and anything installed with `SetTransport`.
+`gooweetest.NewFakeNet` installs an in-memory one with route handlers and the
+server end of each socket.
+
+- `Fetch` blocks, like `File.Bytes`, so it composes with `UseResource`'s
+  goroutine and context (the context aborts it through an `AbortController`).
+  Its error means "no response"; any status is a `Response`, and
+  `Response.JSON` turns a non-2xx status into a `*StatusError`, so the
+  common `return v, resp.JSON(&v)` treats it as an error.
+- A `Socket`'s callbacks are posted through `core.Schedule`, so they run on
+  the render loop and set signals directly; `Socket` owns that, once, for
+  every transport. Events of a superseded connection, and everything after
+  `Close`, are dropped. Reconnection is optional, with jittered exponential
+  backoff, and `ReconnectURL` (run on the render loop) recomputes the URL,
+  e.g. to resume from a replay cursor.
+- The frame loop runs on `setTimeout` while the page is hidden, where
+  `requestAnimationFrame` doesn't fire, so a message arriving in a
+  background tab is applied then instead of when the tab is shown (and the
+  queue of scheduled work doesn't grow meanwhile). A frame requested just
+  before the page hides moves to a timer on `visibilitychange`.
+
+**Alternatives.** Installing the browser transport from `bridge.Run`, as with
+`core.SetFileReader`, would link `net` into every app. Callbacks on the
+caller's goroutine would leave each app to schedule them, the mistake the
+package exists to remove. Queuing sends while a socket reconnects would hide
+lost messages; `Send` returns `ErrNotOpen` and the app decides.
+
+**Consequences.** About 80 KB raw (12 KB brotli) in an app that uses both,
+against ~7 MB for `net/http`. A background tab now runs frames at the
+browser's throttled timer rate (about once a second) while it has work,
+rather than not at all.

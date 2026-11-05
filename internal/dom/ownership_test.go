@@ -285,6 +285,32 @@ func TestRawHydratesAsDiv(t *testing.T) {
 	}
 }
 
+// #105: RawS replaces the wrapper div's content in place when its signal
+// changes: one innerHTML write on the same node, nothing recreated.
+func TestRawSUpdatesContentInPlace(t *testing.T) {
+	body := core.NewSignal("<b>pending</b>")
+	r := New()
+	muts, _ := renderFx(r, h.Section(h.RawS(body)))
+	rawID := 0
+	for _, m := range muts {
+		if m.Type == core.MutSetProperty && m.Key == "innerHTML" {
+			if m.Value != "<b>pending</b>" {
+				t.Fatalf("initial innerHTML %v", m.Value)
+			}
+			rawID = m.NodeID
+		}
+	}
+	if rawID == 0 {
+		t.Fatalf("no innerHTML write on mount: %v", muts)
+	}
+	body.Set("<b>approved</b>")
+	muts = flushFx(r)
+	if len(muts) != 1 || muts[0].Type != core.MutSetProperty || muts[0].NodeID != rawID ||
+		muts[0].Key != "innerHTML" || muts[0].Value != "<b>approved</b>" {
+		t.Fatalf("update: got %v, want one innerHTML write on node %d", muts, rawID)
+	}
+}
+
 // #71: removing a subtree sends only its DOM roots; the JS runtime forgets the
 // descendants itself.
 func TestClearingAListRemovesOnlyRowRoots(t *testing.T) {

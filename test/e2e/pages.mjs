@@ -60,6 +60,11 @@ try {
   await send("Page.navigate", { url: base + "/" });
   await waitFor(`/Reactive web UIs, written in Go\\./.test(document.body.innerText)`, "landing");
   check(await ev(hrefsOK), "landing: an in-app link lacks the /goowee base");
+  // #104: the shell's full-height "Loading…" splash sits in #root; mounting
+  // the app replaces it instead of rendering below it.
+  check(await ev(`fetch(location.href).then(r=>r.text()).then(t=>t.includes('<div class="splash">'))`), "the page shell has no splash to replace");
+  check(await ev(`!document.querySelector('#root .splash') && document.querySelector('#root').firstElementChild.getBoundingClientRect().top < window.innerHeight / 2`),
+    "the loading splash stayed in #root after the app mounted");
   await click("Tutorial");
   await waitFor(`location.pathname === '/goowee/tutorial'`, "tutorial via header link");
   await waitFor(`/Learn goowee by example/.test(document.body.innerText)`, "tutorial index rendered");
@@ -85,5 +90,5 @@ try {
   await waitFor(`/Loaded at /.test(document.body.innerText)`, "async resource with ctx");
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "PAGES CHECK FAIL:\n- " + fail.join("\n- ") : "PAGES CHECK PASS: base-path links, navigation, deep links, v0.2.0 content, canvas, async");
+console.log(fail.length ? "PAGES CHECK FAIL:\n- " + fail.join("\n- ") : "PAGES CHECK PASS: base-path links, splash replaced on mount, navigation, deep links, v0.2.0 content, canvas, async");
 ws.close(); chrome.kill(); server?.close(); process.exit(fail.length ? 1 : 0);

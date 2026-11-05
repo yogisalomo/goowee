@@ -693,10 +693,11 @@ func main() {
   <script src="goowee.js"></script>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">Loading…</div>
   <script>goowee.boot();</script>
 </body>
 </html>`)),
+			P(Text("Whatever #root holds until the app mounts (here a loading message) is replaced by its first frame.")),
 			P(Text("Copy the runtime files and serve the web directory:")),
 			Pre(Class("code"), Text(`cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
 cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/

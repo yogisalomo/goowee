@@ -169,7 +169,7 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
 - A component keeps the plain values it was first called with. If a
   parent can pass new data, pass signals, use
   core.ComponentWithProps(name, props, func(p *core.Signal[P]) core.Node),
-  or key it (core.SetKey) to remount.
+  or key it to remount: return core.SetKey(Card(id), id).
 - Derive with core.Computed(deps, fn); react with hooks.Watch(deps, fn)
   or hooks.UseEffect(deps, fn). Deps are explicit — dev mode
   (?goowee-dev) warns about signals read but not declared; use
@@ -181,8 +181,13 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
   Group related writes with core.Batch (handlers are batched already).
 - Load data with hooks.UseResource(deps, func(ctx context.Context) (T, error))
   → Data/Loading/Err + Refetch; pass ctx to the request (it is cancelled
-  on refetch/unmount). In the browser prefer fetch over net/http (~7 MB).
+  on refetch/unmount). HTTP: net.Fetch(ctx, net.Request{...}) from
+  goowee/net, not net/http (~7 MB); resp.JSON(&v) errors on non-2xx.
+  WebSocket: net.Dial(url, net.SocketOptions{OnMessage, Reconnect: true});
+  its callbacks run on the render loop. Dial in OnMount, return sock.Close.
 - Conditionals: Show / ShowElse / Switch (not a plain if in the body).
+  Render nothing with Empty() (Group is an Item, not a Node). HTML that
+  changes after mount: RawS(sig).
   Lists: For(sig, keyFn, render) with a stable key.
 - Events bubble to ancestors' handlers; decide per event with
   e.PreventDefault() / e.StopPropagation(). Navigate with r.Link /
@@ -191,7 +196,8 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
   markup deterministic; wrap non-deterministic content in h.Dynamic().
 - Imperative DOM: h.Ref()+h.RefTo(ref), then ref.Focus() / ref.Get(prop, fn).
   Overlays: h.Portal. Wrap risky subtrees in h.ErrorBoundary(fallback, child).
-- Test components headlessly with gooweetest.Render(t, node).
+- Test components headlessly with gooweetest.Render(t, node); fake the
+  network with gooweetest.NewFakeNet(t) before Render.
 
 Full guide: https://github.com/yogisalomo/goowee/blob/main/AGENTS.md`
 

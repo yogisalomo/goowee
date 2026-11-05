@@ -163,3 +163,27 @@ func TestPortalStateSurvivesParentReRender(t *testing.T) {
 		t.Fatalf("portal state lost on a parent re-render: %q", got)
 	}
 }
+
+// #105: a component row keeps the values it was created with, so HTML that
+// changes later goes through RawS; the row's keyed inline with SetKey.
+func TestRawSInComponentRow(t *testing.T) {
+	type msg struct {
+		ID   int
+		Body *core.Signal[string]
+	}
+	body := core.NewSignal("<p>Approve deploy? <b>pending</b></p>")
+	items := core.NewSignal([]msg{{ID: 1, Body: body}})
+	s := gooweetest.Render(t, Div(For(items, func(m msg) int { return m.ID }, func(m msg) core.Node {
+		return core.SetKey(core.Component("Card", func() core.Node {
+			return Div(Class("card"), RawS(m.Body))
+		}), m.ID)
+	})))
+	if !strings.Contains(s.HTML(), "<b>pending</b>") {
+		t.Fatalf("mount: %s", s.HTML())
+	}
+	body.Set("<p>Approve deploy? <b>approved</b></p>")
+	s.Flush()
+	if html := s.HTML(); !strings.Contains(html, "<b>approved</b>") || strings.Contains(html, "pending") {
+		t.Fatalf("after update: %s", html)
+	}
+}

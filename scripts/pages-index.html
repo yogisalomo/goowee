@@ -12,7 +12,8 @@
     <script src="goowee.js"></script>
 </head>
 <body>
-    <div id="root"></div>
+    <!-- Shown while main.wasm downloads; the app's first frame replaces it. -->
+    <div id="root"><div class="splash">Loading…</div></div>
     <script>goowee.boot();</script>
 </body>
 </html>

@@ -17,7 +17,8 @@ make serve-ssr             # WASM + SSR server on :8081
 - Prefer editing existing files over creating new ones.
 - Match existing patterns (signal, hook, node, etc.).
 - Avoid adding new external dependencies.
-- WASM-only code goes in `bridge/` with `//go:build js && wasm` guard.
+- WASM-only code goes in `bridge/`, or in a `_js.go` file next to its native
+  fallback (`router/history_js.go`, `net/browser_js.go`), with a `//go:build js && wasm` guard.
 - Pure-Go code tested with `go test ./...` (no WASM dependency).
 
 ## Architecture
@@ -44,6 +45,7 @@ Application code (Go)
 | `dom` | `DOMRenderer` (initial render + diff), `NodeRegistry` (events) |
 | `html` | Element helpers (`Div`, `Span`, etc.), `VirtualList` |
 | `router` | `Router`, `Route`, `Link` |
+| `net` | `Fetch`, `Dial` (WebSocket) on the browser's fetch/WebSocket; pluggable `Transport` |
 | `ssr` | Server-side HTML renderer + hydration metadata |
 | `bridge` | `Bridge` interface, `NoopBridge`, WASM `Init` |
 

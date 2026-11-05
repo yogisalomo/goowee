@@ -1,6 +1,9 @@
 package h
 
-import "github.com/yogisalomo/goowee/core"
+import (
+	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/hooks"
+)
 
 func El(tag string, items ...core.Item) *core.ElementNode {
 	el := &core.ElementNode{Tag: tag}
@@ -12,9 +15,26 @@ func El(tag string, items ...core.Item) *core.ElementNode {
 	return el
 }
 
+// Fragment groups nodes without a wrapper element: its children render in its
+// place. Fragment() with no children renders nothing; Empty is the same node
+// under a name that says so.
 func Fragment(children ...core.Node) *core.FragmentNode {
 	return &core.FragmentNode{Children: children}
 }
+
+// Empty is a node that renders nothing — the "nothing here" return value of a
+// function that returns core.Node:
+//
+//	func badge(n int) core.Node {
+//	    if n == 0 {
+//	        return Empty()
+//	    }
+//	    return Span(Class("badge"), Textf("%d", n))
+//	}
+//
+// It is Fragment() with no children. (Group returns a core.Item, which isn't
+// a core.Node.)
+func Empty() *core.FragmentNode { return &core.FragmentNode{} }
 
 // Ref creates a handle to an element's DOM node. Attach it with RefTo and call
 // ref.Focus()/Blur()/Click()/ScrollIntoView() from handlers or effects.
@@ -83,6 +103,10 @@ func IfElse(cond bool, a, b core.Item) core.Item {
 	return b
 }
 
+// Group bundles items — attributes, props, events, children — into one item
+// that applies them all, e.g. to return several from a helper. It is a
+// core.Item, not a core.Node: to group nodes into one node, use Fragment, and
+// to render nothing, Empty.
 func Group(items ...core.Item) core.Item { return groupItem(items) }
 
 type groupItem []core.Item
@@ -103,12 +127,10 @@ func Map[T any](xs []T, fn func(T) core.Item) core.Item {
 	return g
 }
 
-// Nodes adapts a []core.Node into items so a slice of already-built nodes
-// can be spread into an element constructor: El("div", Nodes(children)...).
-// Every core.Node is already a core.Item; this just changes the slice type.
-// Raw renders a pre-rendered HTML string into the DOM without parsing it into
-// individual element nodes. Use for markdown output, CMS content, or any HTML
-// that doesn't need reactive updates.
+// Raw renders a pre-rendered HTML string into the DOM, inside a <div>,
+// without parsing it into individual element nodes. Use for markdown output,
+// CMS content, or other HTML generated elsewhere. Raw is static; RawS follows
+// a signal.
 //
 // WARNING: The HTML is inserted as-is. Do not use with untrusted input without
 // sanitization (e.g. bluemonday). The node does not participate in
@@ -117,6 +139,18 @@ func Raw(html string) *core.RawNode {
 	return &core.RawNode{HTML: html}
 }
 
+// RawS is Raw that follows sig: when sig changes, the wrapper <div> keeps its
+// place and its content is replaced with the new HTML (nothing happens when
+// the HTML is unchanged). Use it for HTML that changes after mount, such as a
+// rendered message body whose state changes. The same warning as Raw applies:
+// sanitize untrusted input.
+func RawS(sig *core.Signal[string]) core.Node {
+	return hooks.UseScope(func() core.Node { return Raw(sig.Get()) }, sig)
+}
+
+// Nodes adapts a []core.Node into items so a slice of already-built nodes
+// can be spread into an element constructor: El("div", Nodes(children)...).
+// Every core.Node is already a core.Item; this just changes the slice type.
 func Nodes(ns []core.Node) []core.Item {
 	items := make([]core.Item, len(ns))
 	for i, n := range ns {

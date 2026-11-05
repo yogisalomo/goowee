@@ -64,7 +64,8 @@ Bind a signal instead.
    loop (a `time.Ticker`, `go func`, a fetch/network callback, a channel receive)
    **must not call a setter or `sig.Set` directly** — that races the renderer.
    Wrap the update: `core.Schedule(func() { setCount(n) })`. Inside `Schedule` you
-   read/write signals normally.
+   read/write signals normally. (`goowee/net` socket callbacks already run on the
+   render loop: no `Schedule` there.)
 5. **Lists → `For` with a stable key.** `For(sig, func(x T) K { return x.ID }, func(x T) core.Node { ... })`.
    The key must be unique and stable per item so reordering preserves identity.
    For component rows whose item can change, build the row with
@@ -73,7 +74,7 @@ Bind a signal instead.
 5b. **A component keeps the plain values it was first called with.** If a parent
    re-render can pass different data, pass signals, use
    `core.ComponentWithProps(name, props, func(p *core.Signal[P]) core.Node)`, or
-   key it (`core.SetKey(Card(id), id)`) to remount.
+   key it (`return core.SetKey(Card(id), id)` — it returns the node) to remount.
 6. **Conditionals → `Show` / `ShowElse` / `Switch`** (not an `if` in the body,
    which only runs once): `ShowElse(flag, func() core.Node {...}, func() core.Node {...})`.
 7. **Derived values → `core.Computed`**, not recomputation in the body:
@@ -105,6 +106,7 @@ import (
     "github.com/yogisalomo/goowee/core"
     . "github.com/yogisalomo/goowee/h"
     "github.com/yogisalomo/goowee/hooks"
+    "github.com/yogisalomo/goowee/net" // fetch + WebSocket, when needed
     "github.com/yogisalomo/goowee/router"
 )
 ```
@@ -123,7 +125,11 @@ import (
 **Elements & content** (`h`, dot-imported)
 - Elements: `Div`, `Span`, `P`, `H1`–`H6`, `Button`, `Input`, `Form`, `Label`,
   `Ul`/`Li`, `Nav`, `Main`, `Footer`, `A`, `Img`, … and `El("tag", …)` for anything else.
-- Raw HTML: `Raw(html)` — inserts pre-rendered HTML verbatim (sanitize untrusted input!).
+- Raw HTML: `Raw(html)` — inserts pre-rendered HTML verbatim (sanitize untrusted input!);
+  `RawS(sig)` replaces it when the `*core.Signal[string]` changes.
+- Nothing: `Empty()` is the node that renders nothing (`return Empty()` from a
+  func returning `core.Node`). `Fragment(nodes...)` groups nodes without a wrapper.
+  `Group(items...)` is an **Item**, not a Node — it bundles attrs/events/children.
 - Text: `Text("static")`, `TextS(sig)`, `Textf("Count: %d", count)` (reactive args).
 - Attrs: `Class`, `ID`, `Href`, `Type`, `Name`, `Placeholder`, `Style`, `Attr(name, val)`,
   ARIA (`AriaLabel`, `AriaHidden(true)`, `AriaCurrent("page")`, …). Reactive: add `S`
@@ -149,6 +155,19 @@ import (
 - Full event data / options: `OnClickE(func(core.EventData), PreventDefault(), StopPropagation())`.
 - Two-way binding: `BindValue(strSig)`, `BindChecked(boolSig)`, `BindSelect(strSig)`,
   `BindValueLazy(strSig)` (commits on change).
+
+**Networking** (`goowee/net` — imported as `net`; don't use `net/http`, +7 MB)
+- `resp, err := net.Fetch(ctx, net.Request{Method: "POST", URL: "/api/x", JSON: v, Header: …})`
+  — blocks, so call it from a goroutine (`UseResource`'s fetch runs in one);
+  `ctx` aborts it. `err` is a network failure only; `resp.JSON(&out)` decodes
+  and returns a `*net.StatusError` for a non-2xx status (`resp.OK()`, `resp.Text()`).
+- `sock := net.Dial("/ws", net.SocketOptions{OnOpen, OnMessage: func(m net.Message), OnClose,
+  Reconnect: true, ReconnectURL: func() string})` → `sock.Send(text)`, `sock.SendBinary(b)`,
+  `sock.Close()`. Callbacks run **on the render loop** (set signals directly).
+  Dial in `OnMount` and `return sock.Close`.
+- Tests: `n := gooweetest.NewFakeNet(t)` before `Render`; `n.Handle("GET /api/x",
+  func(r net.Request) (net.Response, error) { return gooweetest.JSONResponse(200, v) })`;
+  `ws := n.Socket("/ws"); ws.Send("…"); s.Flush()`; `ws.Received()`, `ws.Close(1006, "")`.
 
 **Router** (`router`)
 - `r := router.New(router.CurrentPath())`; `r.BindHistory()` (browser back/forward).
@@ -200,6 +219,10 @@ cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/ 
 # and has a <div id="root"></div>. (See goowee's examples/counter for a template.)
 ```
 
+`#root` belongs to the app: a placeholder inside it (`<div id="root"><div
+class="splash">Loading…</div></div>`) shows while the WASM downloads and is
+replaced by the app's first frame. Keep portal targets outside `#root`.
+
 For **SSR + hydration**: on the server, serve pages with
 `ssr.Handler(ssr.HandlerOptions{Page: ssr.RoutedPage(App), Document: shell, Fallback: indexHTML})`
 (concurrent renders, real 404s via `router.NotFound`, panic → client fallback, gzip);
@@ -222,7 +245,14 @@ and applies the result safely; don't hand-roll goroutine+Schedule for loads):
 ```go
 func Greeting() core.Node {
     return core.Component("Greeting", func() core.Node {
-        msg := hooks.UseResource(nil, func(ctx context.Context) (string, error) { return api.Greeting(ctx) })
+        msg := hooks.UseResource(nil, func(ctx context.Context) (string, error) {
+            var g struct{ Text string }
+            resp, err := net.Fetch(ctx, net.Request{URL: "/api/greeting"})
+            if err == nil {
+                err = resp.JSON(&g) // a non-2xx status is an error too
+            }
+            return g.Text, err
+        })
         return ShowResource(msg,
             func() core.Node { return P(Text("Loading…")) },
             func(err error) core.Node { return P(Textf("Error: %s", err)) },
@@ -237,6 +267,18 @@ func Greeting() core.Node {
 Fetching is client-side, so SSR renders the loading state. (For a one-off
 side-effect that isn't a data load, use `OnMount` + a goroutine + `core.Schedule`
 directly.)
+
+**Live updates over a WebSocket** (callbacks run on the render loop):
+```go
+hooks.OnMount(func() func() {
+    sock := net.Dial("/ws?since=0", net.SocketOptions{
+        OnMessage:    func(m net.Message) { setMsgs(append(msgs.Get(), m.Text())) },
+        Reconnect:    true, // backoff 1s → 30s
+        ReconnectURL: func() string { return fmt.Sprintf("/ws?since=%d", len(msgs.Peek())) },
+    })
+    return sock.Close
+})
+```
 
 **Controlled form:**
 ```go
@@ -281,6 +323,10 @@ s.Input(s.Find("input[name=title]"), "milk"); s.Submit(s.Find("form"))
 s.WaitForText("Loaded")   // async UseResource results
 ```
 
+Components that use `goowee/net` stay testable: install `gooweetest.NewFakeNet(t)`
+before `Render`, answer requests with `n.Handle(pattern, fn)`, and drive sockets
+from the server side with `n.Socket("/ws")` (see Networking above).
+
 ## Anti-patterns (do NOT do these)
 
 - ❌ Expecting the component body to re-run on state change. It runs once.
@@ -294,6 +340,9 @@ s.WaitForText("Loaded")   // async UseResource results
 - ❌ Non-deterministic SSR output (`time.Now()`, random) without `h.Dynamic()` or the
   placeholder-plus-`OnMount` pattern.
 - ❌ Reaching into the DOM with `syscall/js` from app code. Use a `Ref` (`Focus`, etc.).
+- ❌ `fetch`/`WebSocket` through `syscall/js`, or `net/http` (+7 MB). Use `goowee/net`.
+- ❌ `return Group()` for "nothing" in a func returning `core.Node` (Group is an
+  Item). Use `Empty()`.
 
 ---
 

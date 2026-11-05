@@ -16,6 +16,7 @@
 //
 // Every interaction flushes, so assertions see the updated DOM. For work that
 // finishes on another goroutine (hooks.UseResource), use WaitFor/WaitForText.
+// Components that use goowee/net get an in-memory network from NewFakeNet.
 // Layout doesn't exist here: ref reads of sizes and positions return nil.
 package gooweetest
 

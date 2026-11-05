@@ -64,7 +64,8 @@ jobs:
 
       # Builds the WASM app + SSR server, serves it, and drives the real app in
       # headless Chrome (hydration, interactivity, routing/history, refs, async,
-      # error boundary, off-loop stopwatch) plus the devtools inspector checks.
+      # error boundary, off-loop stopwatch) plus the devtools inspector checks,
+      # and goowee/net (fetch + WebSocket) against a real server.
       - name: E2E (headless Chrome)
         run: make e2e
         env:

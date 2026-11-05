@@ -23,10 +23,11 @@ These are the supported API. Import them freely.
 | `h`       | The typed DSL: elements, attributes, events, control flow (`Show`/`For`/`Switch`), `Svg`, `Ref`/`Portal`, `ErrorBoundary`. |
 | `hooks`   | `UseState`, `UseEffect`, `Watch`, `OnMount`, `UseResource`, `UseScope`. |
 | `router`  | `Route`, params (`ParamSignal`), navigation, guards, sub-routes, base path. |
+| `net`     | `Fetch` and `Dial` (WebSocket) on the browser's own APIs; `Transport`/`SetTransport` to swap the network. |
 | `ssr`     | Server-side rendering: `ssr.Handler`, `ssr.RoutedPage`, `ssr.New().Render(node)`. |
 | `bridge`  | The client entry point: `bridge.Run(node)`. |
 | `devtools`| Optional dev-mode inspector: `devtools.Enable()`, `devtools.Snapshot()`. |
-| `gooweetest` | Headless component tests: `gooweetest.Render(t, node)` → a `Screen` to find, click, type, flush. |
+| `gooweetest` | Headless component tests: `gooweetest.Render(t, node)` → a `Screen` to find, click, type, flush; `NewFakeNet` fakes `net`. |
 | `core`    | **Only the subset listed below.** |
 
 ### The public subset of `core`

@@ -93,18 +93,17 @@ func main() {
     <script src="goowee.js"></script>
 </head>
 <body>
-    <div id="root"></div>
-    <script>
-        const go = new Go();
-        WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
-            .then(r => go.run(r.instance));
-    </script>
+    <div id="root"><p class="splash">Loading…</p></div>
+    <script>goowee.boot();</script>
 </body>
 </html>
 ```
 
-For a production page shell, see `examples/counter/index.html` which includes
-a `counter.js` bootstrap that handles loading states.
+`goowee.boot()` downloads and starts `main.wasm`. Whatever `#root` holds until
+then (here a loading message) is replaced by the app's first frame, so the
+page isn't blank while a large binary downloads. Keep anything else, such as a
+portal's target, outside `#root`. `examples/counter/index.html` is a complete
+shell.
 
 ## 5. Build and serve
 
