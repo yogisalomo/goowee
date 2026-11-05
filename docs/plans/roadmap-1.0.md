@@ -29,7 +29,10 @@ personal site, `goowee-markdown`) can now pin a version instead of a commit.
 guide in the CHANGELOG for its breaking changes; `v0.2.1` (2026-09-28) adds
 `r.LinkTo`/`r.SetBasePath` and aligns the tutorial site; `v0.2.2` (2026-10-19)
 closes the smaller deferred items (SVG re-renders, portal reconciliation, focus
-across reorders, a faster encoder, brotli wasm, perf tracking). **S**
+across reorders, a faster encoder, brotli wasm, perf tracking); `v0.2.3`
+(2026-11-06) ships the fixes a real app (Dure) needed: `goowee/net` (fetch +
+WebSocket, ADR-026), a placeholder-replacing client mount, `RawS`/`Empty`/an
+inline `SetKey`. **S**
 
 **0.2 User-facing documentation.** ✅ **Done** (#39). Getting Started, a
 Concepts guide, and an API reference, kept current with each change (the second
