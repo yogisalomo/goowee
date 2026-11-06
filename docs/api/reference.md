@@ -59,6 +59,21 @@ core.SetKey(node core.Node, key any) core.Node // returns node: `return core.Set
 type ScopeNode struct { ... }         // created by Show/For/Switch
 ```
 
+### Context (tree-scoped values)
+
+```go
+var Session = core.NewContext(Session{})          // the default, for consumers with no provider
+Session.Provide(sig *core.Signal[Session], children ...core.Node) core.Node  // in scope below; nearest wins
+Session.Use(func(s *core.Signal[Session]) core.Node) core.Node              // the nearest provider's signal
+```
+
+- Bind the signal (`TextS`, `core.Computed`, a `Show` dep) to follow changes;
+  `Use`'s function re-runs like a `Show`'s content, so keep state in a
+  component inside it.
+- SSR-safe: each render resolves its own providers, so concurrent requests
+  never see each other's values. Provide request state (the session) near the
+  root of the per-request tree.
+
 ### Scheduler
 
 ```go
@@ -436,9 +451,13 @@ before `Render`; not for parallel tests):
 
 ```go
 n := gooweetest.NewFakeNet(t)
-n.Handle("GET /api/user", func(r net.Request) (net.Response, error) {  // "/path" = any method
+n.Handle("GET /api/user", func(r net.Request) (net.Response, error) {  // net/http.ServeMux patterns
     return gooweetest.JSONResponse(200, User{Name: "Ada"})            // unmatched → 404
 })
+n.Handle("POST /api/", gooweetest.Status(204))   // everything under /api/; "/rooms/{id}" wildcards
+n.Handle("/", gooweetest.Status(204))            // every request nothing more specific matches
+ws := s.WaitForSocket(n, "/ws")                  // flushes until the app has an open socket there
+n.SetReconnectDelay(0)                           // sockets reconnect without their real backoff
 n.Requests() []net.Request                 // what the app sent (JSON already in Body)
 ws := n.Socket("/ws")                      // latest socket dialed to that path (query ignored)
 ws.Send(text), ws.SendBinary(b), ws.SendJSON(v)  // to the app; Flush to run its OnMessage

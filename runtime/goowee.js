@@ -71,18 +71,72 @@ function markOnce(name) {
 // boot loads and runs the WASM module, replacing the copy-pasted loader that
 // used to live in each HTML shell. `opts.wasm` overrides the module URL (default
 // "main.wasm", resolved against <base> like the other assets).
+//
+// A module served as application/wasm is compiled while it downloads
+// (instantiateStreaming). Browsers refuse that for any other Content-Type, so
+// for a host that doesn't send it the bytes are downloaded first and compiled
+// after, with a warning (#109). A failure (network, HTTP status, a body that
+// isn't WebAssembly) is reported once, as an actionable console error, a
+// "goowee:boot-error" event on window, and goowee.bootError. The returned
+// promise still rejects for a caller that chains on it, e.g. to replace the
+// loading placeholder with a message.
 goowee.boot = function boot(opts) {
     opts = opts || {};
     const wasmURL = opts.wasm || "main.wasm";
     const go = new Go();
     mark("goowee:fetch-start");
-    return WebAssembly.instantiateStreaming(fetch(wasmURL), go.importObject)
+    const started = fetch(wasmURL)
+        .catch(function (err) {
+            throw bootError("couldn't download " + wasmURL + " (" + err + ")", err);
+        })
+        .then(function (resp) {
+            if (!resp.ok) {
+                throw bootError("downloading " + resp.url + " failed: HTTP " + resp.status + " " + resp.statusText);
+            }
+            const type = (resp.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+            if (type === "application/wasm" && typeof WebAssembly.instantiateStreaming === "function") {
+                return WebAssembly.instantiateStreaming(resp, go.importObject)
+                    .catch(function (err) { throw wasmError(resp.url, type, err); });
+            }
+            console.warn("goowee: " + resp.url + " is served as " + (type ? "'" + type + "'" : "no Content-Type") +
+                ", not application/wasm, so it is compiled after downloading instead of while it downloads. " +
+                "Configure the server to send Content-Type: application/wasm.");
+            return resp.arrayBuffer()
+                .then(function (bytes) { return WebAssembly.instantiate(bytes, go.importObject); })
+                .catch(function (err) { throw wasmError(resp.url, type, err); });
+        })
         .then(function (result) {
             mark("goowee:instantiated");
             mark("goowee:run");
             go.run(result.instance);
+        })
+        .catch(function (err) {
+            if (!err || !err.gooweeBoot) err = bootError("starting " + wasmURL + " failed (" + err + ")", err);
+            goowee.bootError = err;
+            console.error(err.message);
+            window.dispatchEvent(new CustomEvent("goowee:boot-error", {detail: err}));
+            throw err;
         });
+    // Reported above; don't also surface as an unhandled rejection.
+    started.catch(function () {});
+    return started;
 };
+
+function bootError(message, cause) {
+    const err = new Error("goowee: " + message);
+    err.gooweeBoot = true;
+    if (cause) err.cause = cause;
+    return err;
+}
+
+// wasmError explains a compile or instantiate failure; the usual cause is a
+// server answering the wasm URL with an HTML page (an SPA fallback).
+function wasmError(url, type, err) {
+    const hint = type === "text/html"
+        ? " The server answered with an HTML page: check that " + url + " serves the built main.wasm and isn't caught by an index.html fallback."
+        : "";
+    return bootError(url + " isn't a WebAssembly module this page can run (" + err + ")." + hint, err);
+}
 
 // bootTimings collects the marks and the wasm Resource Timing entry into a plain
 // object (read by value over CDP by test/e2e/boot.mjs). Durations are ms.

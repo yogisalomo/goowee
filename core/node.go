@@ -280,6 +280,12 @@ type ScopeNode struct {
 	// renderer keeps right after the scope's content, so re-rendered content
 	// (even several roots, or none) is always inserted in the right place.
 	Anchor int
+	// Provides makes the scope a context provider (Context.Provide): its
+	// content renders with Provides.Value in scope for Provides.Key.
+	Provides *ContextValue
+	// Consumes makes the scope a context consumer (Context.Use): its content
+	// is Consumes.Render of the nearest provided value, in place of Render.
+	Consumes *ContextUse
 }
 
 func (s *ScopeNode) nodeMarker() {}

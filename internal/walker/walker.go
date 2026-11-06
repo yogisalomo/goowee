@@ -10,6 +10,63 @@ import (
 // guaranteeing identical node IDs by construction.
 type Walker struct {
 	nextID int
+	ctx    *Context // context values in scope at this point of the walk
+}
+
+// Context is the chain of context values in scope at a point of a walk,
+// innermost first. It is immutable, so a renderer can keep one (for a
+// scope's later re-renders) and restore it with SetContext. nil is the root:
+// nothing provided.
+type Context struct {
+	key, value any
+	parent     *Context
+}
+
+// lookup is the nearest value provided for key, or def.
+func (c *Context) lookup(key, def any) any {
+	for ; c != nil; c = c.parent {
+		if c.key == key {
+			return c.value
+		}
+	}
+	return def
+}
+
+// with is c plus p's value, innermost.
+func (c *Context) with(p *core.ContextValue) *Context {
+	if p == nil {
+		return c
+	}
+	return &Context{key: p.Key, value: p.Value, parent: c}
+}
+
+// Context returns the context values in scope at this point of the walk.
+func (w *Walker) Context() *Context { return w.ctx }
+
+// SetContext makes c the context values in scope, e.g. to re-render a scope
+// where it was mounted.
+func (w *Walker) SetContext(c *Context) { w.ctx = c }
+
+// ScopeContent renders a scope's content: a context consumer's render with
+// the nearest provided value, otherwise the scope's render.
+func (w *Walker) ScopeContent(sn *core.ScopeNode) core.Node {
+	if use := sn.Consumes; use != nil {
+		return use.Render(w.ctx.lookup(use.Key, use.Default))
+	}
+	return core.RenderScope(sn)
+}
+
+// WithProvided runs fn with sn's provided value (if any) in scope, restoring
+// the previous values afterwards, panic or not.
+func (w *Walker) WithProvided(sn *core.ScopeNode, fn func()) {
+	if sn.Provides == nil {
+		fn()
+		return
+	}
+	outer := w.ctx
+	w.ctx = outer.with(sn.Provides)
+	defer func() { w.ctx = outer }()
+	fn()
 }
 
 func New() *Walker {
@@ -18,6 +75,7 @@ func New() *Walker {
 
 func (w *Walker) Reset() {
 	w.nextID = 1
+	w.ctx = nil
 }
 
 func (w *Walker) AllocID() int {
@@ -104,8 +162,9 @@ func (w *Walker) Walk(n core.Node, v Visitor) int {
 			return 0
 		}
 		v.VisitScopeEnter(node)
-		inner := core.FlatTree(core.RenderScope(node))
-		id := w.Walk(inner, v)
+		inner := core.FlatTree(w.ScopeContent(node))
+		var id int
+		w.WithProvided(node, func() { id = w.Walk(inner, v) })
 		node.Prev = inner
 		// The end anchor is allocated after the content, in both renderers, so
 		// SSR and client ids stay in parity.

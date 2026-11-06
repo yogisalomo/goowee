@@ -1,7 +1,7 @@
 // Dev-mode inspector + structured recover logging (roadmap 4.2).
 // Expects an SSR server at $URL (see run.sh). No npm deps — Node CDP only.
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -141,4 +141,9 @@ main().catch((e) => {
   console.error("DEVTOOLS E2E ERROR:", e.message);
   if (consoleLogs.length) console.error("--- captured console ---\n" + consoleLogs.map((l) => `[${l.type}] ${l.text}`).join("\n"));
   process.exitCode = 2;
-}).finally(() => { try { ws?.close(); } catch {} chrome.kill("SIGKILL"); });
+}).finally(() => {
+  try { ws?.close(); } catch {}
+  // Delete the Chrome profile (tens of MB) once Chrome has exited.
+  chrome.once("exit", () => { try { rmSync(userDir, { recursive: true, force: true, maxRetries: 3 }); } catch {} });
+  chrome.kill("SIGKILL");
+});

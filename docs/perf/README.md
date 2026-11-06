@@ -11,6 +11,12 @@ make perf-compare                 # the working tree vs the latest release
 make perf-compare BASE=v0.2.1     # … or vs a given one
 ```
 
+`make ssr-scaling` checks that 4 parallel server renders beat sequential ones by
+≥1.5×, the regression ADR-024 removed a lock for. It's wall-clock, so it's
+opt-in (`GOOWEE_PERF_TESTS=1`): run it on a quiet machine with ≥4 free CPUs.
+The default suite guards the same property deterministically
+(`TestSSRRendersOverlap`).
+
 `perf-compare` prints benchstat's table, with a delta and a p-value per
 benchmark, so a regression shows up before it ships. Run it before cutting a
 release, then record the release.

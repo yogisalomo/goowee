@@ -2,6 +2,7 @@ package ssr
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -71,11 +72,46 @@ func TestConcurrentSSRIsSafe(t *testing.T) {
 	}
 }
 
+// #72, #110: server renders are not serialized. Each render blocks inside a
+// component's setup until the other render's setup has started, which can
+// only happen if both are in progress at once; a process-wide render lock
+// leaves the first one waiting until its deadline. Deterministic, so it runs
+// in the default suite and under -race.
+func TestSSRRendersOverlap(t *testing.T) {
+	started := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
+	overlapped := [2]bool{}
+	var wg sync.WaitGroup
+	for i := range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			New().Render(core.Component("Overlap", func() core.Node {
+				close(started[i])
+				select {
+				case <-started[1-i]:
+					overlapped[i] = true
+				case <-time.After(5 * time.Second):
+				}
+				return h.P(h.Text("ok"))
+			}))
+		}()
+	}
+	wg.Wait()
+	if !overlapped[0] || !overlapped[1] {
+		t.Fatal("two server renders never ran at the same time: rendering is serialized")
+	}
+}
+
 // #72: parallel SSR actually scales (it was fully serialized: 1.05× on 8
-// goroutines). Skipped under the race detector and on small machines.
+// goroutines). A wall-clock measurement depends on the host's free CPUs and
+// load, so it is opt-in (#110): GOOWEE_PERF_TESTS=1, or make ssr-scaling.
+// TestSSRRendersOverlap guards the no-lock property in the default suite.
 func TestConcurrentSSRScales(t *testing.T) {
-	if raceEnabled || testing.Short() || runtime.NumCPU() < 4 {
-		t.Skip("timing test: needs ≥4 CPUs, no -race, no -short")
+	if os.Getenv("GOOWEE_PERF_TESTS") != "1" {
+		t.Skip("timing test: set GOOWEE_PERF_TESTS=1 (make ssr-scaling)")
+	}
+	if raceEnabled || runtime.NumCPU() < 4 {
+		t.Skip("timing test: needs ≥4 CPUs and no -race")
 	}
 	const total = 128
 	render := func() { New().Render(page(400)) }

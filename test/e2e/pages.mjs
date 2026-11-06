@@ -6,7 +6,7 @@
 // Usage: node test/e2e/pages.mjs _site   (make pages-e2e)
 //        node test/e2e/pages.mjs https://yogisalomo.github.io/goowee   (the live site)
 import { createServer } from "node:http";
-import { readFileSync, existsSync, mkdtempSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
@@ -32,11 +32,12 @@ const server = LIVE ? null : createServer((req, res) => {
   res.writeHead(404, { "content-type": "text/html" }); res.end(readFileSync(join(SITE, "404.html")));
 }).listen(PORT);
 
+const profile = mkdtempSync(join(tmpdir(), "goowee-pages-"));
 const chrome = spawn(chromePath(), [
   "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
   // CI runners and containers need --no-sandbox; harmless locally.
   ...(process.env.CHROME_NO_SANDBOX === "0" ? [] : ["--no-sandbox"]),
-  `--remote-debugging-port=${DP}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "goowee-pages-"))}`, "about:blank",
+  `--remote-debugging-port=${DP}`, `--user-data-dir=${profile}`, "about:blank",
 ], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let target; // up to 20s: Chrome can take ~8s to open its debug port
@@ -91,4 +92,8 @@ try {
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
 console.log(fail.length ? "PAGES CHECK FAIL:\n- " + fail.join("\n- ") : "PAGES CHECK PASS: base-path links, splash replaced on mount, navigation, deep links, v0.2.0 content, canvas, async");
-ws.close(); chrome.kill(); server?.close(); process.exit(fail.length ? 1 : 0);
+ws.close(); server?.close();
+// Delete the Chrome profile (tens of MB) once Chrome has exited.
+await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });
+try { rmSync(profile, { recursive: true, force: true, maxRetries: 3 }); } catch {}
+process.exit(fail.length ? 1 : 0);

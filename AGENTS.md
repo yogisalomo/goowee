@@ -114,6 +114,11 @@ import (
 )
 ```
 
+**Context** (`core`) — a tree-scoped value instead of prop drilling or a global:
+- `var Theme = core.NewContext("light")`; `Theme.Provide(themeSig, children...)` near the root
+  (per request on the server); below it, `Theme.Use(func(t *core.Signal[string]) core.Node { … })`.
+  Nearest provider wins; bind `t` to follow changes; SSR-safe per request.
+
 **State & reactivity** (`core`, `hooks`)
 - `count, setCount := hooks.UseState(0)` → `*core.Signal[int]`, `func(int)`
 - `sig.Get()`, `sig.Set(v)`, `core.NewSignal(v)`, `sig.WithEquals(eq)`
@@ -169,8 +174,10 @@ import (
   `sock.Close()`. Callbacks run **on the render loop** (set signals directly).
   Dial in `OnMount` and `return sock.Close`.
 - Tests: `n := gooweetest.NewFakeNet(t)` before `Render`; `n.Handle("GET /api/x",
-  func(r net.Request) (net.Response, error) { return gooweetest.JSONResponse(200, v) })`;
-  `ws := n.Socket("/ws"); ws.Send("…"); s.Flush()`; `ws.Received()`, `ws.Close(1006, "")`.
+  func(r net.Request) (net.Response, error) { return gooweetest.JSONResponse(200, v) })`
+  (net/http.ServeMux patterns: `"POST /api/"`, `"/rooms/{id}"`, `"/"` = catch-all,
+  `gooweetest.Status(204)`); `ws := s.WaitForSocket(n, "/ws"); ws.Send("…"); s.Flush()`;
+  `ws.Received()`, `ws.Close(1006, "")`; `n.SetReconnectDelay(0)` for reconnect tests.
 
 **Router** (`router`)
 - `r := router.New(router.CurrentPath())`; `r.BindHistory()` (browser back/forward).

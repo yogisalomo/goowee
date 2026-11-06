@@ -39,7 +39,7 @@ stack, node structs). Only these identifiers are public:
 - **Reactivity:** `Signal[T]` (incl. `Peek`), `NewSignal`, `Computed`,
   `SignalAccessor`, `Batch`, `Schedule` (off-loop updates).
 - **Composition:** `Node`, `Component`, `ComponentWithProps`, `ComponentNode`,
-  `SetKey`.
+  `SetKey`, `Context` (`NewContext`, `Provide`, `Use`).
 - **Events / misc:** `EventData` (+ `Touch`, `File`), `Ref`, `SVGNamespace`.
 
 Everything else exported from `core` — `Scheduler`, `RenderContext`,
