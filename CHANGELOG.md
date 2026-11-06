@@ -11,6 +11,15 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-11-06
+
+A patch release for the composer of a real goowee app (Dure, #106): pasted
+screenshots and dropped files reach Go through `e.Files()` like a file
+input's, with their text and types; `ref.Call` calls DOM methods with
+arguments, such as placing the caret after inserted text; and gooweetest can
+paste, drop and pick files. Also fixes `OnPaste`/`OnCut`/`OnCopy`, which
+passed `""` in the browser. Upgrade from 0.2.3 without code changes.
+
 ### Added
 - **Paste and drop carry their data** (#106). A paste's clipboard files (a
   pasted screenshot) and a drop's files come through `e.Files()`, readable
@@ -482,7 +491,8 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/yogisalomo/goowee/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/yogisalomo/goowee/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/yogisalomo/goowee/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/yogisalomo/goowee/compare/v0.2.0...v0.2.1

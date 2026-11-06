@@ -34,4 +34,12 @@ GOOS=js GOARCH=wasm go test -exec="$(go env GOROOT)/lib/wasm/go_js_wasm_exec" \
 benchmark suite as of 2026-10-16 (which adds the layout-tick benchmarks), so the
 first comparison covers them too.
 
+**Record on a quiet machine, and check the spread.** Machine state (load,
+power and thermal state) shifts every timing at once, including benchmarks of
+code the release didn't touch, and often widens the `±` column; when timings
+move uniformly or the spread is wide, re-record. `v0.2.3.txt` is such an
+outlier: its timings run about 35% fast across the board (v0.2.2 and v0.2.4,
+recorded on the same M1, agree with each other within noise), so compare
+timings against another release. Its allocations and sizes are sound.
+
 [benchstat]: https://pkg.go.dev/golang.org/x/perf/cmd/benchstat
