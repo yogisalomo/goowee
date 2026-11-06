@@ -22,6 +22,22 @@ goes from **~9.5 s → ~2.5 s** with gzip, and **~1.8 s** with brotli. Serve `ap
 `instantiateStreaming` compiles it. This is a zero-code-risk win — do it before
 reaching for TinyGo.
 
+**Send `Content-Type: application/wasm`.** It lets the browser compile the
+module while it downloads. With any other type, `goowee.boot()` still starts
+the app, but downloads the whole file before compiling it and warns in the
+console which header to fix. A wasm URL that answers with an HTML page (an
+SPA fallback catching it) or an error status stops the boot with one console
+error saying so, a `goowee:boot-error` event on `window`, and a rejected
+`goowee.boot()` promise, e.g. to replace the loading placeholder:
+
+```html
+<script>
+  goowee.boot().catch(() => {
+    document.getElementById("root").textContent = "Couldn't load the app. Reload to try again.";
+  });
+</script>
+```
+
 Measure the effect yourself with the boot harness under a throttled network:
 
 ```sh

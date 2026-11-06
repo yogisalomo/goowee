@@ -31,6 +31,7 @@ type scopeInfo struct {
 	owner       *core.ComponentFrame // owns the hooks called by the current render
 	ownerParent *core.ComponentFrame // the frame the scope was mounted under
 	ns          string               // XML namespace the scope's content inherits (SVG)
+	ctx         *walker.Context      // context values in scope where the scope is mounted
 }
 
 type scopeState struct {
@@ -102,6 +103,7 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 
 	r.parentStack = nil
 	r.scopeStack = nil
+	r.Walker.SetContext(nil)
 	r.currentNS = ""
 	r.hydrateDynamic = false
 
@@ -443,7 +445,7 @@ func (r *DOMRenderer) VisitScopeLeave(sn *core.ScopeNode, innerID int) int {
 		}
 	}
 
-	info := &scopeInfo{seq: st.seq, parentID: st.parentID, owner: owner, ns: st.ns}
+	info := &scopeInfo{seq: st.seq, parentID: st.parentID, owner: owner, ns: st.ns, ctx: r.Walker.Context()}
 	if owner != nil {
 		info.ownerParent = owner.Parent
 	}
@@ -542,10 +544,13 @@ func (r *DOMRenderer) updateScope(sn *core.ScopeNode, info *scopeInfo, muts *[]c
 	runtime.PushFrame(owner)
 	// New content inherits the namespace of where the scope is mounted (a
 	// For inside an <svg> renders SVG rows), not the flush's empty context.
-	prevNS := r.currentNS
+	prevNS, prevCtx := r.currentNS, r.Walker.Context()
 	r.currentNS = info.ns
+	// …and the context values provided where it is mounted (Context.Use).
+	r.Walker.SetContext(info.ctx)
 	defer func() {
 		r.currentNS = prevNS
+		r.Walker.SetContext(prevCtx)
 		if rec := recover(); rec != nil {
 			// Components mounted by the failed diff hang off owner; release
 			// them, then let the enclosing recovery handle the rest.
@@ -553,9 +558,11 @@ func (r *DOMRenderer) updateScope(sn *core.ScopeNode, info *scopeInfo, muts *[]c
 			panic(rec)
 		}
 	}()
-	newTree := core.FlatTree(core.RenderScope(sn))
+	newTree := core.FlatTree(r.Walker.ScopeContent(sn))
 	r.parentStack = append(r.parentStack, info.parentID)
-	r.diffChildren(info.parentID, contentList(sn.Prev), contentList(newTree), sn.Anchor, muts)
+	r.Walker.WithProvided(sn, func() {
+		r.diffChildren(info.parentID, contentList(sn.Prev), contentList(newTree), sn.Anchor, muts)
+	})
 	r.parentStack = r.parentStack[:len(r.parentStack)-1]
 	runtime.PopComponent()
 
@@ -578,7 +585,7 @@ func (r *DOMRenderer) adoptScope(old, nw *core.ScopeNode, parentID int, muts *[]
 	unsubscribeScope(old)
 	r.Scheduler.CancelDirty(old) // the adopting render supersedes a pending one
 	nw.Prev, nw.Anchor = old.Prev, old.Anchor
-	info.parentID, info.ns = parentID, r.currentNS
+	info.parentID, info.ns, info.ctx = parentID, r.currentNS, r.Walker.Context()
 	r.scopes[nw] = info
 	r.updateScope(nw, info, muts)
 	r.subscribeScope(nw, info)

@@ -3,9 +3,12 @@ package gooweetest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/yogisalomo/goowee/net"
 )
@@ -27,19 +30,17 @@ import (
 //	s.WaitForText("away")
 //
 // Socket callbacks run on the Screen's render loop, like in the browser, so
-// call Screen.Flush (or WaitFor) after sending to see their effect.
+// call Screen.Flush (or WaitFor) after sending to see their effect. For a
+// socket the app dials later (after a load, say), use Screen.WaitForSocket.
 type FakeNet struct {
 	t testing.TB
 
 	mu       sync.Mutex
-	routes   []fakeRoute
+	routes   map[string]func(net.Request) (net.Response, error) // by pattern
+	mux      *http.ServeMux                                     // matches requests to routes' patterns
 	requests []net.Request
 	sockets  []*FakeSocket
-}
-
-type fakeRoute struct {
-	method, path string // method "" matches any
-	fn           func(net.Request) (net.Response, error)
+	delay    *time.Duration // SetReconnectDelay; nil keeps the sockets' own backoff
 }
 
 // NewFakeNet installs a FakeNet as goowee/net's transport until the test ends.
@@ -53,21 +54,70 @@ func NewFakeNet(t testing.TB) *FakeNet {
 	return n
 }
 
-// Handle answers requests matching pattern with fn. The pattern is
-// "METHOD /path" or "/path" (any method); the path must equal the request
-// URL's path, query excluded (fn can read the query from Request.URL). When
-// several patterns match, the latest registered wins, so a test can change an
-// answer midway. A request that no pattern matches gets a 404. fn runs on the
-// app's fetching goroutine; an error it returns is what net.Fetch returns,
-// standing in for a network failure.
+// Handle answers requests matching pattern with fn. Patterns follow
+// net/http.ServeMux: "GET /api/user" (a method and an exact path),
+// "/api/user" (any method), "POST /api/" (everything under /api/),
+// "/rooms/{id}/messages" (a wildcard segment), and "/" alone for every request
+// no other pattern matches, e.g. tests that only check what the app sent:
+//
+//	n.Handle("/", gooweetest.Status(204))
+//
+// The most specific pattern wins; registering a pattern again replaces its
+// handler, so a test can change an answer midway. A request no pattern matches
+// gets a 404 (and a t.Logf naming it). fn runs on the app's fetching
+// goroutine; an error it returns is what net.Fetch returns, standing in for a
+// network failure. Patterns ServeMux would reject, or that conflict, fail the
+// test.
 func (n *FakeNet) Handle(pattern string, fn func(net.Request) (net.Response, error)) {
-	route := fakeRoute{path: pattern, fn: fn}
-	if method, path, ok := strings.Cut(pattern, " "); ok {
-		route.method, route.path = method, strings.TrimSpace(path)
-	}
+	n.t.Helper()
 	n.mu.Lock()
-	n.routes = append(n.routes, route)
-	n.mu.Unlock()
+	defer n.mu.Unlock()
+	routes := map[string]func(net.Request) (net.Response, error){pattern: fn}
+	for p, f := range n.routes {
+		if p != pattern {
+			routes[p] = f
+		}
+	}
+	mux := http.NewServeMux()
+	if err := register(mux, routes); err != nil {
+		n.t.Fatalf("gooweetest: FakeNet.Handle(%q): %v", pattern, err)
+	}
+	n.routes, n.mux = routes, mux
+}
+
+// register adds every pattern to mux, turning ServeMux's panic on a bad or
+// conflicting pattern into an error.
+func register(mux *http.ServeMux, routes map[string]func(net.Request) (net.Response, error)) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	for p := range routes {
+		mux.Handle(p, http.NotFoundHandler())
+	}
+	return nil
+}
+
+// Status is a handler answering every request with an empty response of the
+// given status: n.Handle("POST /api/", gooweetest.Status(204)).
+func Status(code int) func(net.Request) (net.Response, error) {
+	return func(net.Request) (net.Response, error) { return net.Response{Status: code}, nil }
+}
+
+// route finds the handler for req: the most specific matching pattern.
+func (n *FakeNet) route(req net.Request) func(net.Request) (net.Response, error) {
+	if n.mux == nil {
+		return nil
+	}
+	r, err := http.NewRequest(req.Method, req.URL, nil)
+	if err != nil {
+		return nil
+	}
+	if _, pattern := n.mux.Handler(r); pattern != "" {
+		return n.routes[pattern]
+	}
+	return nil
 }
 
 // JSONResponse is a response with status and v encoded as its JSON body, in
@@ -90,16 +140,9 @@ func (n *FakeNet) Requests() []net.Request {
 
 // Fetch implements net.Transport.
 func (n *FakeNet) Fetch(ctx context.Context, req net.Request) (net.Response, error) {
-	path := urlPath(req.URL)
 	n.mu.Lock()
 	n.requests = append(n.requests, req)
-	var fn func(net.Request) (net.Response, error)
-	for i := len(n.routes) - 1; i >= 0; i-- {
-		if r := n.routes[i]; r.path == path && (r.method == "" || r.method == req.Method) {
-			fn = r.fn
-			break
-		}
-	}
+	fn := n.route(req)
 	n.mu.Unlock()
 	if fn == nil {
 		n.t.Logf("gooweetest: FakeNet has no handler for %s %s; answering 404", req.Method, req.URL)
@@ -156,6 +199,63 @@ func (n *FakeNet) Socket(path string) *FakeSocket {
 	}
 	n.t.Fatalf("gooweetest: the app dialed no socket to %s (sockets: %d)", path, len(n.sockets))
 	return nil
+}
+
+// SetReconnectDelay makes sockets dialed through n reconnect after d instead
+// of their SocketOptions backoff, so a test of reconnection runs quickly; use
+// Screen.WaitForSocket for the new socket. (A Socket reconnects only with
+// SocketOptions.Reconnect set.)
+func (n *FakeNet) SetReconnectDelay(d time.Duration) {
+	n.mu.Lock()
+	n.delay = &d
+	n.mu.Unlock()
+}
+
+// ReconnectDelay implements net.ReconnectDelayer.
+func (n *FakeNet) ReconnectDelay(planned time.Duration) time.Duration {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.delay != nil {
+		return *n.delay
+	}
+	return planned
+}
+
+// openSocket is the most recent socket to path that is still open, or nil.
+func (n *FakeNet) openSocket(path string) *FakeSocket {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for i := len(n.sockets) - 1; i >= 0; i-- {
+		if s := n.sockets[i]; urlPath(s.URL) == path && !s.Closed() {
+			return s
+		}
+	}
+	return nil
+}
+
+// WaitForSocket flushes until the app has an open socket to path (query
+// excluded) through n, and returns the most recent one: for apps that dial
+// after an async step, and for the new socket after a reconnection (Close the
+// old one first). It fails the test after timeout (default 2s).
+//
+//	ws := s.WaitForSocket(n, "/ws")
+//	ws.SendJSON(frame)
+func (s *Screen) WaitForSocket(n *FakeNet, path string, timeout ...time.Duration) *FakeSocket {
+	s.t.Helper()
+	limit := 2 * time.Second
+	if len(timeout) > 0 {
+		limit = timeout[0]
+	}
+	for deadline := time.Now().Add(limit); ; time.Sleep(time.Millisecond) {
+		s.Flush()
+		if ws := n.openSocket(path); ws != nil {
+			return ws
+		}
+		if time.Now().After(deadline) {
+			s.t.Fatalf("gooweetest: no open socket to %s within %v (%d dialed in all)", path, limit, len(n.Sockets()))
+			return nil
+		}
+	}
 }
 
 // Sockets returns every socket the app has dialed, oldest first.

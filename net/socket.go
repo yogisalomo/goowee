@@ -41,6 +41,14 @@ type SocketOptions struct {
 	ReconnectURL func() string
 }
 
+// ReconnectDelayer is implemented by a Transport that decides how long a
+// Socket waits before reconnecting, given the wait its backoff planned:
+// gooweetest.FakeNet does, so a reconnection test needn't sit out a real
+// backoff.
+type ReconnectDelayer interface {
+	ReconnectDelay(planned time.Duration) time.Duration
+}
+
 // Socket is a WebSocket opened by Dial, reconnecting when SocketOptions ask
 // for it. Its methods are safe to call from any goroutine.
 type Socket struct {
@@ -48,6 +56,7 @@ type Socket struct {
 	opts SocketOptions
 
 	mu       sync.Mutex
+	tr       Transport // what the current attempt dialed with
 	conn     Conn
 	open     bool
 	closed   bool        // Close was called
@@ -121,8 +130,10 @@ func (s *Socket) connect(url string) {
 	}
 	s.gen++
 	gen := s.gen
+	tr := current()
+	s.tr = tr
 	s.mu.Unlock()
-	conn, err := current().Dial(url, s.opts.Protocols, ConnEvents{
+	conn, err := tr.Dial(url, s.opts.Protocols, ConnEvents{
 		Open:    func() { core.Schedule(func() { s.opened(gen) }) },
 		Message: func(m Message) { core.Schedule(func() { s.message(gen, m) }) },
 		Close:   func(e CloseEvent) { core.Schedule(func() { s.ended(gen, e) }) },
@@ -173,6 +184,9 @@ func (s *Socket) ended(gen int, e CloseEvent) {
 		return
 	}
 	wait := s.backoff()
+	if d, ok := s.tr.(ReconnectDelayer); ok {
+		wait = d.ReconnectDelay(wait)
+	}
 	if !s.open {
 		s.failures++
 	}

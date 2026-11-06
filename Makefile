@@ -1,4 +1,4 @@
-.PHONY: wasm brotli ssr-server test bench perf-record perf-compare size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
+.PHONY: wasm brotli ssr-server test bench perf-record perf-compare ssr-scaling size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -40,6 +40,11 @@ perf-record:
 
 perf-compare:
 	scripts/perf.sh compare $(BASE)
+
+# Parallel SSR speedup (4 workers vs sequential, want >=1.5x): a wall-clock
+# check, so it's opt-in. Run it on a quiet machine with >=4 free CPUs.
+ssr-scaling:
+	GOOWEE_PERF_TESTS=1 go test -run '^TestConcurrentSSRScales$$' -count=1 -v ./ssr/
 
 size: wasm
 	@bytes=$$(wc -c < $(WASM_OUT) | tr -d ' '); \

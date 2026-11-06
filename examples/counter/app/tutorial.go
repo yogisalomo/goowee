@@ -198,6 +198,9 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
   ref.Call("setSelectionRange", at, at) (after the frame; UTF-16 offsets).
   Pasted/dropped files: OnPasteE / OnDrop → e.Files(), f.Bytes() in a goroutine.
   Overlays: h.Portal. Wrap risky subtrees in h.ErrorBoundary(fallback, child).
+- Tree-scoped values (session, theme, API client): var Theme =
+  core.NewContext(def); Theme.Provide(sig, children...) near the root;
+  Theme.Use(func(t *core.Signal[T]) core.Node {...}) below. SSR-safe.
 - Test components headlessly with gooweetest.Render(t, node); fake the
   network with gooweetest.NewFakeNet(t) before Render.
 

@@ -825,3 +825,42 @@ lost messages; `Send` returns `ErrNotOpen` and the app decides.
 against ~7 MB for `net/http`. A background tab now runs frames at the
 browser's throttled timer rate (about once a second) while it has work,
 rather than not at all.
+
+## ADR-027: Context is resolved by the renderer's walk, not by a hook
+
+**Status:** Accepted (2026-11-07)
+
+**Context.** Apps need tree-scoped dependencies (the session, an API client,
+the theme, the locale) without threading them through every component or
+keeping them in package-level signals, which leak across SSR requests (#111).
+The usual shape is a hook (`useContext`) that finds the nearest provider
+through the current component. That fails on the server: ADR-024 renders
+requests concurrently without tracking component frames, and a hook is a
+plain function with no way to tell which of several concurrent renders it is
+running in (Go has no goroutine-local storage, the same wall ADR-025 hit).
+
+**Decision.** `core.NewContext[T](def)` with `Provide(*Signal[T], children...)`
+and `Use(func(*Signal[T]) Node)`, both scopes. The walker, which is per
+render, keeps an immutable chain of provided values: a provider scope's
+content is walked with its value pushed (restored afterwards, panic or not),
+and a consumer scope renders with the nearest value, or the shared default
+signal. The DOM renderer records the chain where each scope is mounted, like
+its XML namespace, and restores it when the scope re-renders or a parent
+re-render adopts it, so content mounted later (a `Show` turned on, a new
+`For` row) resolves to the same provider. A provider is a scope rather than a
+component so that a parent re-render diffs its new children instead of
+keeping the old ones, as an adopted component would.
+
+**Alternatives.** A hook resolved through component frames would work only
+in the browser, and server-rendered consumers would see the default, so
+hydration would mismatch for exactly the request-scoped values context is
+for. A per-render lock around setup calls would serialize SSR again (1.05×
+on 8 goroutines before ADR-024). A consumer built as a component would keep
+its first content when a parent re-render puts a different `Use` in the same
+place.
+
+**Consequences.** Consumption is a render function, not a hook call. Its
+function re-runs like a `Show`'s content, so state belongs in a component
+inside it. The value is a signal, so consumers update by binding it.
+Providing a different signal to an existing provider re-renders its content
+with the new one.

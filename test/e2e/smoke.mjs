@@ -10,7 +10,7 @@
 //   - refs both ways: ref.Focus reaches the node, ref.Get reads a value back,
 //     and a picked file's bytes reach Go through e.Files()[i].Bytes().
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -287,4 +287,9 @@ main().catch((e) => {
   console.error("E2E ERROR:", e.message);
   if (logs.length) console.error("--- browser logs ---\n" + logs.join("\n"));
   process.exitCode = 2;
-}).finally(() => { try { ws?.close(); } catch {} chrome.kill("SIGKILL"); });
+}).finally(() => {
+  try { ws?.close(); } catch {}
+  // Delete the Chrome profile (tens of MB) once Chrome has exited.
+  chrome.once("exit", () => { try { rmSync(userDir, { recursive: true, force: true, maxRetries: 3 }); } catch {} });
+  chrome.kill("SIGKILL");
+});

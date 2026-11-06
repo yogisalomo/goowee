@@ -18,7 +18,7 @@
 //      download phase, and thus the compression win, is visible; loopback is
 //      too fast for it to show).
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -196,4 +196,9 @@ main().catch((e) => {
   console.error("BOOT ERROR:", e.message);
   if (logs.length) console.error("--- notes ---\n" + logs.join("\n"));
   process.exitCode = 2;
-}).finally(() => { try { ws?.close(); } catch {} chrome.kill("SIGKILL"); });
+}).finally(() => {
+  try { ws?.close(); } catch {}
+  // Delete the Chrome profile (tens of MB) once Chrome has exited.
+  chrome.once("exit", () => { try { rmSync(userDir, { recursive: true, force: true, maxRetries: 3 }); } catch {} });
+  chrome.kill("SIGKILL");
+});

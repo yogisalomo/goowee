@@ -15,7 +15,7 @@
 //
 // Env: CHROME (browser path), CDP_PORT (default 9347), TICKS (default 40).
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,10 +32,11 @@ function chromePath() {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const profile = mkdtempSync(join(tmpdir(), "goowee-transport-"));
 const chrome = spawn(chromePath(), [
   "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
   ...(process.env.CHROME_NO_SANDBOX === "0" ? [] : ["--no-sandbox"]),
-  `--remote-debugging-port=${DP}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "goowee-transport-"))}`, "about:blank",
+  `--remote-debugging-port=${DP}`, `--user-data-dir=${profile}`, "about:blank",
 ], { stdio: "ignore" });
 
 let ws, nextId = 1;
@@ -132,4 +133,9 @@ async function main() {
 }
 
 main().catch((e) => { console.error("transport:", e.message); process.exitCode = 2; })
-  .finally(() => { try { ws?.close(); } catch {} chrome.kill("SIGKILL"); });
+  .finally(() => {
+    try { ws?.close(); } catch {}
+    // Delete the Chrome profile (tens of MB) once Chrome has exited.
+    chrome.once("exit", () => { try { rmSync(profile, { recursive: true, force: true, maxRetries: 3 }); } catch {} });
+    chrome.kill("SIGKILL");
+  });

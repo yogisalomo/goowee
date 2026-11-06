@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -181,5 +182,114 @@ func TestFakeNetSocket(t *testing.T) {
 	s.Unmount()
 	if !again.Closed() {
 		t.Fatal("socket left open after unmount")
+	}
+}
+
+// #114: ServeMux patterns: prefixes, wildcards and a catch-all, most specific
+// first; re-registering a pattern replaces its answer.
+func TestFakeNetPatterns(t *testing.T) {
+	n := gooweetest.NewFakeNet(t)
+	answer := func(s string) func(net.Request) (net.Response, error) {
+		return func(net.Request) (net.Response, error) { return net.Response{Body: []byte(s)}, nil }
+	}
+	n.Handle("/", gooweetest.Status(204))
+	n.Handle("POST /api/", answer("api post"))
+	n.Handle("GET /api/rooms/{id}/messages", answer("messages"))
+	n.Handle("GET /api/rooms/7/messages", answer("room 7"))
+	get := func(method, url string) string {
+		resp, err := net.Fetch(context.Background(), net.Request{Method: method, URL: url})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Sprintf("%d %s", resp.Status, resp.Text())
+	}
+	for _, c := range []struct{ method, url, want string }{
+		{"POST", "/api/invite", "200 api post"},
+		{"POST", "/api/questions/7/answer?x=1", "200 api post"},
+		{"GET", "/api/rooms/3/messages", "200 messages"},
+		{"GET", "/api/rooms/7/messages", "200 room 7"}, // more specific than {id}
+		{"GET", "http://localhost:8080/api/rooms/3/messages", "200 messages"},
+		{"GET", "/api/activity", "204 "}, // only the catch-all matches
+		{"DELETE", "/elsewhere", "204 "},
+	} {
+		if got := get(c.method, c.url); got != c.want {
+			t.Errorf("%s %s: %q, want %q", c.method, c.url, got, c.want)
+		}
+	}
+	n.Handle("POST /api/", answer("changed"))
+	if got := get("POST", "/api/invite"); got != "200 changed" {
+		t.Errorf("re-registered pattern: %q", got)
+	}
+	if len(n.Requests()) != 8 {
+		t.Errorf("requests recorded: %d", len(n.Requests()))
+	}
+
+	// A pattern ServeMux rejects fails the test.
+	rec := &recordTB{TB: t}
+	bad := gooweetest.NewFakeNet(rec)
+	bad.Handle("GET /a/{x}", gooweetest.Status(200))
+	bad.Handle("GET /a/{y}", gooweetest.Status(200)) // conflicts with {x}
+	if !strings.Contains(rec.fatal, "conflicts") {
+		t.Errorf("conflicting patterns: %q", rec.fatal)
+	}
+}
+
+// recordTB records a Fatalf instead of stopping the test.
+type recordTB struct {
+	testing.TB
+	fatal string
+}
+
+func (r *recordTB) Fatalf(format string, args ...any) { r.fatal = fmt.Sprintf(format, args...) }
+func (r *recordTB) Helper()                           {}
+
+// #115: an app that dials after an async step, and the new socket after a
+// reconnection, are awaited with WaitForSocket; SetReconnectDelay skips the
+// real backoff (1s by default).
+func TestWaitForSocket(t *testing.T) {
+	n := gooweetest.NewFakeNet(t)
+	n.Handle("GET /api/bootstrap", func(net.Request) (net.Response, error) {
+		time.Sleep(20 * time.Millisecond)
+		return gooweetest.JSONResponse(200, map[string]int{"seq": 41})
+	})
+	n.SetReconnectDelay(0)
+	s := gooweetest.Render(t, core.Component("Live", func() core.Node {
+		msgs, setMsgs := hooks.UseState("")
+		hooks.OnMount(func() func() {
+			var sock *net.Socket
+			go func() {
+				resp, _ := net.Fetch(context.Background(), net.Request{URL: "/api/bootstrap"})
+				var b struct{ Seq int }
+				resp.JSON(&b)
+				core.Schedule(func() { // dial only once bootstrap has loaded
+					sock = net.Dial(fmt.Sprintf("/ws?since=%d", b.Seq), net.SocketOptions{
+						OnMessage: func(m net.Message) { setMsgs(msgs.Get() + m.Text()) },
+						Reconnect: true, // default backoff 0.5–1s; SetReconnectDelay overrides it
+					})
+				})
+			}()
+			return func() {
+				if sock != nil {
+					sock.Close()
+				}
+			}
+		})
+		return P(TextS(msgs))
+	}))
+	ws := s.WaitForSocket(n, "/ws")
+	if ws.URL != "/ws?since=41" {
+		t.Fatalf("dialed %q", ws.URL)
+	}
+	ws.Send("a")
+	ws.Close(1012, "restart")
+	start := time.Now()
+	again := s.WaitForSocket(n, "/ws", 400*time.Millisecond)
+	if again == ws || time.Since(start) > 400*time.Millisecond {
+		t.Fatalf("reconnection: same socket %v after %v", again == ws, time.Since(start))
+	}
+	again.Send("b")
+	s.Flush()
+	if got := s.Find("p").Text(); got != "ab" {
+		t.Fatalf("messages %q", got)
 	}
 }

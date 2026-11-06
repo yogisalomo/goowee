@@ -34,10 +34,11 @@ const server = createServer((req, res) => {
   res.writeHead(404); res.end();
 }).listen(PORT);
 
+const profile = mkdtempSync(join(tmpdir(), "goowee-clipboard-chrome-"));
 const chrome = spawn(chromePath(), [
   "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
   ...(process.env.CHROME_NO_SANDBOX === "0" ? [] : ["--no-sandbox"]),
-  `--remote-debugging-port=${DP}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "goowee-clipboard-chrome-"))}`, "about:blank",
+  `--remote-debugging-port=${DP}`, `--user-data-dir=${profile}`, "about:blank",
 ], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // A CDP reply that never comes (a crashed page, say) must fail the run, not hang it.
@@ -119,5 +120,8 @@ try {
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
 console.log(fail.length ? "CLIPBOARD CHECK FAIL:\n- " + fail.join("\n- ") : "CLIPBOARD CHECK PASS: paste files+text, OnPaste/OnCopy, drop zone, ref.Call caret (focused + unfocused), throwing call");
-ws.close(); chrome.kill(); server.close(); rmSync(dir, { recursive: true, force: true });
+ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
+// Delete the Chrome profile (tens of MB) once Chrome has exited.
+await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });
+try { rmSync(profile, { recursive: true, force: true, maxRetries: 3 }); } catch {}
 process.exit(fail.length ? 1 : 0);

@@ -11,6 +11,46 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Added
+- **Tree-scoped context** (#111, ADR-027): `core.NewContext[T](default)`,
+  `ctx.Provide(signal, children...)` and `ctx.Use(func(*core.Signal[T]) core.Node)`.
+  The nearest provider wins, consumers update by binding the signal, content
+  mounted later (a `Show`, a new `For` row) still finds its provider, and
+  removing a provider's subtree releases its consumers' subscriptions. Each
+  render resolves its own providers, so concurrent SSR requests never see each
+  other's values.
+- gooweetest: `FakeNet.Handle` takes `net/http.ServeMux` patterns, with
+  prefixes (`"POST /api/"`), wildcards (`"/rooms/{id}"`) and `"/"` as a
+  catch-all, plus `gooweetest.Status(code)`, so tests that only check what the
+  app sent don't stub every endpoint (#114). `s.WaitForSocket(n, path)` waits
+  for an app that dials after an async step, or for the socket after a
+  reconnection, and `n.SetReconnectDelay(d)` skips the real backoff (#115),
+  through the new `net.ReconnectDelayer`.
+- `make ssr-scaling`: the parallel-SSR speedup check, now opt-in (see Fixed).
+- `test/e2e/wasmmime.mjs` (part of `make e2e`): boot under each server
+  behaviour for `main.wasm`.
+
+### Changed
+- gooweetest: when several `FakeNet` patterns match, the most specific wins
+  (ServeMux's rule) instead of the latest registered. Registering the same
+  pattern again still replaces its handler.
+
+### Fixed
+- `goowee.boot()` failed to start the app when `main.wasm` wasn't served as
+  `application/wasm` (#109). It now compiles the module after downloading it,
+  with a console warning naming the header to fix; `application/wasm` keeps
+  the streaming fast path. Real failures (network, HTTP status, an HTML page
+  answering the wasm URL) report one actionable console error, a
+  `goowee:boot-error` event and `goowee.bootError`, not an unhandled promise
+  rejection; the returned promise still rejects for callers that chain on it.
+- `go test ./...` failed on loaded or small machines: `TestConcurrentSSRScales`
+  required a 1.5× wall-clock speedup (#110). It's opt-in now
+  (`GOOWEE_PERF_TESTS=1`, `make ssr-scaling`), and the default suite checks
+  the no-global-lock property deterministically: two renders must be inside
+  setup at the same time.
+- The e2e harnesses left a Chrome profile (up to ~200 MB) in the temp
+  directory on every run; they now delete it.
+
 ## [0.2.4] — 2026-11-06
 
 A patch release for the composer of a real goowee app (Dure, #106): pasted
