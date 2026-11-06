@@ -33,7 +33,8 @@ across reorders, a faster encoder, brotli wasm, perf tracking); `v0.2.3`
 (2026-11-06) ships the fixes a real app (Dure) needed: `goowee/net` (fetch +
 WebSocket, ADR-026), a placeholder-replacing client mount, `RawS`/`Empty`/an
 inline `SetKey`; `v0.2.4` (2026-11-06) adds paste/drop files and text and
-`ref.Call` (#106). **S**
+`ref.Call` (#106); `v0.2.5` (2026-11-07) adds tree-scoped context (ADR-027),
+the boot MIME fallback and FakeNet patterns (#109–#111, #114, #115). **S**
 
 **0.2 User-facing documentation.** ✅ **Done** (#39). Getting Started, a
 Concepts guide, and an API reference, kept current with each change (the second

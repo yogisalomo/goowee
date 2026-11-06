@@ -47,5 +47,9 @@ move uniformly or the spread is wide, re-record. `v0.2.3.txt` is such an
 outlier: its timings run about 35% fast across the board (v0.2.2 and v0.2.4,
 recorded on the same M1, agree with each other within noise), so compare
 timings against another release. Its allocations and sizes are sound.
+`v0.2.5.txt` was recorded with about five of the M1's eight cores busy: its
+sequential timings agree with v0.2.4 within noise, but `SSRParallel`, which
+uses every core, reads ~45% slow (an interleaved A/B of v0.2.4 and v0.2.5
+under the same load measured 234.9 µs vs 233.1 µs, p = 1.0).
 
 [benchstat]: https://pkg.go.dev/golang.org/x/perf/cmd/benchstat

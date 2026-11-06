@@ -11,6 +11,15 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-11-07
+
+A patch release with a tree-scoped context API, a `goowee.boot()` that starts
+on hosts that don't send `application/wasm`, a default `go test ./...` that
+no longer fails on busy machines, and two `FakeNet` improvements found moving
+Dure's tests onto it. Upgrade from 0.2.4 without code changes; one gooweetest
+behavior note (see Changed): overlapping `FakeNet` patterns now resolve to the
+most specific one.
+
 ### Added
 - **Tree-scoped context** (#111, ADR-027): `core.NewContext[T](default)`,
   `ctx.Provide(signal, children...)` and `ctx.Use(func(*core.Signal[T]) core.Node)`.
@@ -531,7 +540,8 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/yogisalomo/goowee/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/yogisalomo/goowee/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/yogisalomo/goowee/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/yogisalomo/goowee/compare/v0.2.1...v0.2.2
