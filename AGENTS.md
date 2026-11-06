@@ -85,7 +85,10 @@ Bind a signal instead.
    a placeholder and fill it in from `OnMount` (client-only).
 9. **Imperative DOM → refs; overlays → portals.** `ref := h.Ref()`, attach with
    `h.RefTo(ref)`, then `ref.Focus()`/`Blur()`/`Click()`/`ScrollIntoView()` from a
-   handler/effect. `h.Portal("#modal-root", …)` renders outside the current subtree.
+   handler/effect; `ref.Call("setSelectionRange", at, at)` for methods with
+   arguments (applied after the frame's DOM updates; offsets are UTF-16 units:
+   `len(utf16.Encode([]rune(s)))`, not `len(s)`). `h.Portal("#modal-root", …)`
+   renders outside the current subtree.
 10. **Prefer the typed helpers.** Use `h`'s element/attr/event constructors rather
     than building `core.ElementNode` literals by hand.
 11. **Head metadata → `Metadata` + `Page`.** Wrap `<title>`, `<meta>`, `<link>`,
@@ -308,6 +311,11 @@ as `/todos/1` → `/todos/2` (bind `ParamSignal`, don't read `Param` once in set
   `mouseenter`, `mouseleave`, `invalid`, `load`, `error` reach the target only.
 - Decide per event inside the handler: `e.PreventDefault()`, `e.StopPropagation()`
   (e.g. Enter-to-send in a textarea).
+- Paste and drop: `OnPasteE(func(e core.EventData))` / `OnDrop(…)` carry `e.Files()`
+  (a pasted screenshot, dropped files; read with `f.Bytes()` in a goroutine),
+  `e.DataText()` and `e.DataTypes()`. A drop zone needs `OnDragOver` calling
+  `e.PreventDefault()` (check `slices.Contains(e.DataTypes(), "Files")`).
+  `OnPaste(func(text string))` gets the pasted text.
 - Typed data: `e.Key()`, `e.CtrlKey()`, `e.ClientX()`, `e.DeltaY()`,
   `e.PointerType()`, `e.Touches()`, … — see `core.EventData`.
 
@@ -322,6 +330,10 @@ if got := s.Find("p.count").Text(); got != "Count: 1" { t.Fatalf("got %q", got) 
 s.Input(s.Find("input[name=title]"), "milk"); s.Submit(s.Find("form"))
 s.WaitForText("Loaded")   // async UseResource results
 ```
+
+Paste, drop and file inputs: `s.Paste(el, text, gooweetest.File{Name, Type, Data})`,
+`s.Drop(el, files...)`, `s.SelectFiles(input, files...)`; `f.Bytes()` returns `Data`.
+`el.Calls()` lists `ref.Call`s; `el.Prop("selectionStart")` is the caret.
 
 Components that use `goowee/net` stay testable: install `gooweetest.NewFakeNet(t)`
 before `Render`, answer requests with `n.Handle(pattern, fn)`, and drive sockets

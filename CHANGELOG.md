@@ -11,6 +11,33 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Added
+- **Paste and drop carry their data** (#106). A paste's clipboard files (a
+  pasted screenshot) and a drop's files come through `e.Files()`, readable
+  with `File.Bytes()` like a file input's (each element's latest paste or
+  drop stays readable until the next one or until it's removed).
+  `e.DataText()` is the pasted or dropped text (for cut and copy, the
+  selection), and `e.DataTypes()` lists the formats, also during dragover,
+  when the files themselves aren't exposed yet. New helpers: `h.OnPasteE`,
+  `h.OnDragEnter`, `h.OnDragOver`, `h.OnDragLeave`, `h.OnDrop`.
+- `ref.Call(method, args...)` calls a DOM method with arguments, after the
+  frame's DOM updates, so it sees a value the same handler just set: e.g.
+  `ref.Call("setSelectionRange", at, at)` to put the caret after inserted text.
+  A throwing call is logged without stopping the frame (#106).
+- gooweetest: `s.Paste`, `s.Drop`, `s.SelectFiles` with `gooweetest.File`
+  contents behind `File.Bytes`, `gooweetest.DragOverData()`, and
+  `el.Calls()`. `selectionStart`/`selectionEnd` follow `Input`,
+  `setSelectionRange` and value writes.
+- `test/e2e/clipboard.mjs` (part of `make e2e`): paste, drop and `ref.Call`
+  in headless Chrome.
+
+### Fixed
+- `h.OnPaste`, `h.OnCut` and `h.OnCopy` always passed `""` in the browser:
+  their payload had no value. They now pass the pasted text and the selected
+  text; a test dispatching only `"value"` still works.
+- gooweetest answered `ref.Get` reads where they occurred in the batch; it now
+  answers them after the batch's writes, as the browser does.
+
 ## [0.2.3] — 2026-11-06
 
 A patch release with what building a real app on goowee (Dure: a workspace

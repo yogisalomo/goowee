@@ -282,6 +282,7 @@ const (
 	MutInvoke       // call a method on a node (Key = method name), e.g. focus
 	MutPortalAppend // append a child to a container matched by selector (Value)
 	MutRead         // read a property (Key) of a node; Value = request id, answered via Scheduler.Resolve
+	MutCall         // call a method (Key) with arguments (Value, a []any), after the batch's writes
 )
 
 func (mt MutationType) String() string {
@@ -308,6 +309,8 @@ func (mt MutationType) String() string {
 		return "PortalAppend"
 	case MutRead:
 		return "Read"
+	case MutCall:
+		return "Call"
 	default:
 		return "Unknown"
 	}

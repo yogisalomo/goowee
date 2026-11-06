@@ -23,6 +23,7 @@ package gooweetest
 import (
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,20 +37,25 @@ type Screen struct {
 	t   testing.TB
 	r   *dom.DOMRenderer
 	doc *document
+
+	filesMu sync.Mutex
+	files   map[int][]byte // File.Bytes contents of Paste/Drop/SelectFiles files, by handle
 }
 
 // Render mounts n and flushes until the first frame and its effects are done.
 // The mount is torn down (effects cleaned up) when the test ends.
 func Render(t testing.TB, n core.Node) *Screen {
 	t.Helper()
-	s := &Screen{t: t, r: dom.New(), doc: newDocument()}
+	s := &Screen{t: t, r: dom.New(), doc: newDocument(), files: map[int][]byte{}}
 	core.SetActiveScheduler(s.r.Scheduler)
+	core.SetFileReader(s.readFile)
 	muts, _ := s.r.Render(n)
 	s.r.Scheduler.Enqueue(muts...)
 	s.Flush()
 	t.Cleanup(func() {
 		s.Unmount()
 		core.SetActiveScheduler(nil)
+		core.SetFileReader(nil)
 	})
 	return s
 }
@@ -275,10 +281,13 @@ func (s *Screen) Click(el *Element) {
 	s.Dispatch(el, "click", map[string]any{"button": 0})
 }
 
-// Input sets el's value and fires input, as typing does.
+// Input sets el's value and fires input, as typing does; the caret ends up
+// after the text.
 func (s *Screen) Input(el *Element, value string) {
 	s.t.Helper()
 	el.n.props["value"] = value
+	end := utf16Len(value)
+	el.n.props["selectionStart"], el.n.props["selectionEnd"] = end, end
 	s.Dispatch(el, "input", map[string]any{"value": value})
 }
 
@@ -358,7 +367,18 @@ func (e *Element) Attr(name string) string { v, _ := e.n.attr(name); return v }
 func (e *Element) HasAttr(name string) bool { _, ok := e.n.attr(name); return ok }
 
 // Prop is a DOM property set by the renderer (value, checked, disabled, …).
+// selectionStart and selectionEnd follow Input, ref.Call("setSelectionRange")
+// and value writes, as numbers.
 func (e *Element) Prop(name string) any { return e.n.props[name] }
+
+// Call is a method the app called on an element through core.Ref.Call.
+type Call struct {
+	Method string
+	Args   []any
+}
+
+// Calls returns the methods called on the element through ref.Call, in order.
+func (e *Element) Calls() []Call { return append([]Call(nil), e.n.calls...) }
 
 // Value is the element's value property (or value attribute).
 func (e Element) Value() string {
