@@ -103,16 +103,79 @@ func OnInvalid(fn func(), opts ...HandlerOption) core.Item {
 	return On("invalid", func(core.EventData) { fn() }, opts...)
 }
 
-func OnPaste(fn func(value string), opts ...HandlerOption) core.Item {
-	return On("paste", func(e core.EventData) { fn(e.Value()) }, opts...)
+// OnPaste runs fn with the pasted plain text. For pasted files (a
+// screenshot) or to decide whether to let the paste through, use OnPasteE.
+func OnPaste(fn func(text string), opts ...HandlerOption) core.Item {
+	return On("paste", func(e core.EventData) { fn(dataText(e)) }, opts...)
 }
 
-func OnCut(fn func(value string), opts ...HandlerOption) core.Item {
-	return On("cut", func(e core.EventData) { fn(e.Value()) }, opts...)
+// OnPasteE handles a paste with its full data: e.DataText(), e.DataTypes()
+// and e.Files() (pasted images). Call e.PreventDefault() to keep the browser
+// from inserting the paste itself, e.g. when it is a file:
+//
+//	OnPasteE(func(e core.EventData) {
+//	    if files := e.Files(); len(files) > 0 {
+//	        e.PreventDefault()
+//	        go upload(files) // File.Bytes blocks: read off the render loop
+//	    }
+//	})
+func OnPasteE(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("paste", fn, opts...)
 }
 
-func OnCopy(fn func(value string), opts ...HandlerOption) core.Item {
-	return On("copy", func(e core.EventData) { fn(e.Value()) }, opts...)
+// OnCut runs fn with the selected text being cut.
+func OnCut(fn func(text string), opts ...HandlerOption) core.Item {
+	return On("cut", func(e core.EventData) { fn(dataText(e)) }, opts...)
+}
+
+// OnCopy runs fn with the selected text being copied.
+func OnCopy(fn func(text string), opts ...HandlerOption) core.Item {
+	return On("copy", func(e core.EventData) { fn(dataText(e)) }, opts...)
+}
+
+// dataText is the event's clipboard text, or its value for a hand-built event
+// that sets only "value" (as tests written before DataText did).
+func dataText(e core.EventData) string {
+	if t := e.DataText(); t != "" {
+		return t
+	}
+	return e.Value()
+}
+
+// OnDragEnter, OnDragOver and OnDragLeave make a drop zone: the browser only
+// allows a drop on an element whose dragover handler calls PreventDefault.
+// e.DataTypes() says what is being dragged ("Files" for files); the files
+// themselves arrive with the drop.
+func OnDragEnter(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("dragenter", fn, opts...)
+}
+
+func OnDragOver(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("dragover", fn, opts...)
+}
+
+func OnDragLeave(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("dragleave", fn, opts...)
+}
+
+// OnDrop handles a drop: e.Files() (dropped files), e.DataText(),
+// e.DataTypes(), and the pointer position. Call e.PreventDefault() to keep the
+// browser from opening a dropped file itself. The element must also accept
+// the drop with an OnDragOver that calls PreventDefault:
+//
+//	Div(Class("dropzone"),
+//	    OnDragOver(func(e core.EventData) {
+//	        if slices.Contains(e.DataTypes(), "Files") {
+//	            e.PreventDefault()
+//	        }
+//	    }),
+//	    OnDrop(func(e core.EventData) {
+//	        e.PreventDefault()
+//	        go upload(e.Files())
+//	    }),
+//	)
+func OnDrop(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("drop", fn, opts...)
 }
 
 func OnFocusIn(fn func(), opts ...HandlerOption) core.Item {

@@ -4,8 +4,8 @@ package core
 // then call imperative methods from event handlers or effects — focus a field
 // after a validation error, scroll a message into view, etc.
 //
-// Commands (Focus, Blur, …) are one-way and run on the next frame, so they're
-// for post-render actions, not setup. Get reads a value back: it's answered on
+// Commands (Focus, Blur, …, Call) are one-way and run on the next frame, so
+// they're for post-render actions, not setup. Get reads a value back: it's answered on
 // the frame after pending DOM updates apply, so a handler can update state and
 // measure the result in one go.
 type Ref struct {
@@ -18,6 +18,28 @@ func (r *Ref) Focus()          { r.invoke("focus") }
 func (r *Ref) Blur()           { r.invoke("blur") }
 func (r *Ref) Click()          { r.invoke("click") }
 func (r *Ref) ScrollIntoView() { r.invoke("scrollIntoView") }
+
+// Call calls method on the referenced node with args, once the frame's DOM
+// updates are applied, so it sees state the same handler just set. Use it for
+// DOM methods that take arguments, such as putting the caret after text a
+// handler inserted into a textarea:
+//
+//	setDraft(before + mention + after)
+//	at := len(utf16.Encode([]rune(before + mention))) // JS offsets are UTF-16 units
+//	ref.Call("setSelectionRange", at, at)
+//
+// Like Focus it is fire-and-forget: the result is discarded (read values with
+// Get), and an exception is logged to the console rather than stopping the
+// frame. args must encode to JSON: numbers, strings, bools, slices, maps.
+// No-op before the element has rendered.
+func (r *Ref) Call(method string, args ...any) {
+	if r == nil || r.ID == 0 {
+		return
+	}
+	if s := scheduler(); s != nil {
+		s.Enqueue(Mutation{Type: MutCall, NodeID: r.ID, Key: method, Value: append([]any{}, args...)})
+	}
+}
 
 // Get reads prop from the referenced node — scrollTop, offsetWidth,
 // selectionStart, value, checkValidity — and hands it to fn. The read runs on

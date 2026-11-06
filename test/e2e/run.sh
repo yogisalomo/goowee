@@ -49,3 +49,6 @@ URL="http://localhost:$PORT" node test/e2e/devtools.mjs
 
 echo "==> running goowee/net e2e (fetch + WebSocket against a real server)"
 node test/e2e/net.mjs
+
+echo "==> running clipboard e2e (paste/drop files, ref.Call)"
+node test/e2e/clipboard.mjs

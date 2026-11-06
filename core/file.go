@@ -6,9 +6,10 @@ import (
 	"time"
 )
 
-// File describes one file picked through an <input type="file">, as returned
-// by EventData.Files on a change/input event. The metadata travels with the
-// event; the contents stay in the browser until Bytes reads them.
+// File describes one file the user gave the page: picked through an
+// <input type="file"> (change/input events), pasted (paste) or dropped (drop),
+// as returned by EventData.Files. The metadata travels with the event; the
+// contents stay in the browser until Bytes reads them.
 type File struct {
 	Name         string
 	Size         int64
@@ -18,8 +19,10 @@ type File struct {
 	handle int // the bridge's key for the live File object; 0 = not readable
 }
 
-// Files returns the files selected on a file input. Empty for any other
-// element or event type.
+// Files returns the files an event carries: the selection of a file input
+// (change, input), a paste's clipboard files (a pasted screenshot, say), or the
+// files dropped by a drop. Empty for other events, and during dragover, when
+// the browser doesn't expose them yet (check DataTypes for "Files").
 func (e EventData) Files() []File {
 	raw, ok := e.Data["files"].([]any)
 	if !ok {
@@ -77,9 +80,13 @@ func SetFileReader(fn func(handle int) ([]byte, error)) {
 //	    }
 //	})
 //
-// The file stays readable until the input's selection changes or the element
-// is removed; after that Bytes returns an error. Outside the browser it
-// returns ErrNoFileReader.
+// The same goes for a paste or drop (On("paste", …), On("drop", …)).
+//
+// The file stays readable until the input's selection changes (for a paste or
+// drop, until the next paste or drop handled by the same element) or the
+// element is removed; after that Bytes returns an error. Outside the browser
+// it returns ErrNoFileReader (gooweetest's Paste, Drop and SelectFiles supply
+// contents).
 func (f File) Bytes() ([]byte, error) {
 	fileReaderMu.Lock()
 	read := fileReader

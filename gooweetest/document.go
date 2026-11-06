@@ -5,6 +5,7 @@ import (
 	"html"
 	"sort"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/yogisalomo/goowee/core"
 )
@@ -20,6 +21,7 @@ type node struct {
 	parent   *node
 	children []*node
 	raw      string // innerHTML set as a property (h.Raw)
+	calls    []Call // methods called through ref.Call
 }
 
 type nodeKind int
@@ -194,6 +196,21 @@ func (d *document) container(selector string) *node {
 }
 
 func (d *document) apply(muts []core.Mutation) {
+	// As in the browser, calls with arguments and then reads wait for the
+	// batch's writes.
+	var calls, reads []core.Mutation
+	defer func() {
+		for _, m := range calls {
+			if n := d.nodes[m.NodeID]; n != nil {
+				args, _ := m.Value.([]any)
+				d.call(n, m.Key, args)
+			}
+		}
+		for _, m := range reads {
+			req, _ := m.Value.(int)
+			d.reads = append(d.reads, readReply{req, d.readProp(d.nodes[m.NodeID], m.Key)})
+		}
+	}()
 	for _, m := range muts {
 		switch m.Type {
 		case core.MutCreateElement, core.MutHydrate:
@@ -234,6 +251,8 @@ func (d *document) apply(muts []core.Mutation) {
 				n.setTextContent(fmt.Sprint(m.Value))
 			case "innerHTML":
 				n.raw = fmt.Sprint(m.Value)
+			case "value":
+				d.setValue(n, m.Value)
 			default:
 				n.props[m.Key] = m.Value
 			}
@@ -279,10 +298,70 @@ func (d *document) apply(muts []core.Mutation) {
 				}
 			}
 		case core.MutRead:
-			req, _ := m.Value.(int)
-			d.reads = append(d.reads, readReply{req, d.readProp(d.nodes[m.NodeID], m.Key)})
+			reads = append(reads, m)
+		case core.MutCall:
+			calls = append(calls, m)
 		}
 	}
+}
+
+// setValue writes a value property the way the runtime does: a focused field
+// keeps its caret (clamped to the new text), any other moves it to the end,
+// as browsers do on a programmatic write.
+func (d *document) setValue(n *node, v any) {
+	n.props["value"] = v
+	if _, ok := n.props["selectionStart"]; !ok {
+		return
+	}
+	end := utf16Len(fmt.Sprint(v))
+	if d.active == n {
+		start, stop := propNum(n, "selectionStart"), propNum(n, "selectionEnd")
+		n.props["selectionStart"], n.props["selectionEnd"] = min(start, end), min(stop, end)
+		return
+	}
+	n.props["selectionStart"], n.props["selectionEnd"] = end, end
+}
+
+// call applies a ref.Call: it is recorded for Element.Calls, and the methods
+// whose effect a test can observe are modelled (focus, blur, select and
+// setSelectionRange, whose offsets are clamped to the value like a
+// browser's).
+func (d *document) call(n *node, method string, args []any) {
+	n.calls = append(n.calls, Call{Method: method, Args: args})
+	length := utf16Len(fmt.Sprint(n.props["value"]))
+	switch method {
+	case "focus":
+		d.active = n
+	case "blur":
+		if d.active == n {
+			d.active = nil
+		}
+	case "select":
+		n.props["selectionStart"], n.props["selectionEnd"] = 0.0, length
+	case "setSelectionRange":
+		start, end := min(argNum(args, 0), length), min(argNum(args, 1), length)
+		n.props["selectionStart"], n.props["selectionEnd"] = min(start, end), end
+	}
+}
+
+func utf16Len(s string) float64 { return float64(len(utf16.Encode([]rune(s)))) }
+
+func propNum(n *node, k string) float64 { v, _ := n.props[k].(float64); return v }
+
+// argNum reads a numeric ref.Call argument (a Go int or float, not yet JSON).
+func argNum(args []any, i int) float64 {
+	if i >= len(args) {
+		return 0
+	}
+	switch v := args[i].(type) {
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case float64:
+		return v
+	}
+	return 0
 }
 
 // readProp answers a ref.Get from what the fake DOM knows; layout values

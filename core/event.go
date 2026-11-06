@@ -81,6 +81,37 @@ func (e EventData) Value() string     { return e.str("value") }
 func (e EventData) Checked() bool     { return e.flag("checked") }
 func (e EventData) InputType() string { return e.str("inputType") }
 
+// Clipboard and drag and drop: the event's DataTransfer (clipboardData for
+// paste, cut and copy; dataTransfer for drag events). Files (see File)
+// carries the files a paste or drop brings.
+
+// DataText is the plain text a clipboard or drop event carries: the text a
+// paste or drop inserts, or the selection a cut or copy takes. "" for other
+// events.
+func (e EventData) DataText() string { return e.str("text") }
+
+// DataTypes lists the formats a paste or drag event carries, as the browser
+// names them: "text/plain", "text/html", and "Files" when files are attached.
+// During dragenter and dragover the files themselves aren't readable yet, so
+// a drop zone checks for "Files" here to decide whether to accept the drop
+// (PreventDefault on dragover):
+//
+//	On("dragover", func(e core.EventData) {
+//	    if slices.Contains(e.DataTypes(), "Files") {
+//	        e.PreventDefault() // allow dropping files here
+//	    }
+//	})
+func (e EventData) DataTypes() []string {
+	raw, _ := e.Data["types"].([]any)
+	out := make([]string, 0, len(raw))
+	for _, t := range raw {
+		if s, ok := t.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // Keyboard.
 func (e EventData) Key() string       { return e.str("key") }
 func (e EventData) Code() string      { return e.str("code") }

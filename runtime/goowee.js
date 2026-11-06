@@ -218,22 +218,23 @@ window.goListen = function (type, capture) {
     document.addEventListener(type, handler, capture);
 };
 
-// File inputs: the change/input payload carries each picked file's metadata
-// plus a handle, and the File objects themselves are parked here so Go can
-// read their bytes later (goowee.readFile, via core.File.Bytes). A node's
-// handles are released when its selection changes or the node is removed,
-// mirroring the lifetime of input.files; a File that survives a re-selection
-// keeps its handle, so an in-flight read is not cut off by the second event
-// of the same pick (input then change).
+// Files from a file input's change/input, a paste or a drop: the payload
+// carries each file's metadata plus a handle, and the File objects themselves
+// are parked here so Go can read their bytes later (goowee.readFile, via
+// core.File.Bytes). A node's handles are released when its next selection,
+// paste or drop replaces them, or when the node is removed, mirroring the
+// lifetime of input.files; a File that survives a re-selection keeps its
+// handle, so an in-flight read is not cut off by the second event of the same
+// pick (input then change).
 const fileStore = {};          // handle -> File
 const nodeFiles = new WeakMap(); // element -> Map(File -> handle)
 let nextFileHandle = 1;
 
-function stashFiles(el) {
+function stashFiles(el, files) {
     const prev = nodeFiles.get(el) || new Map();
     const next = new Map();
     const out = [];
-    for (const f of el.files) {
+    for (const f of files) {
         let h = prev.get(f);
         if (h === undefined) {
             h = nextFileHandle++;
@@ -288,6 +289,25 @@ function pointerish(e) {
         offsetX: e.offsetX, offsetY: e.offsetY, button: e.button, buttons: e.buttons}, modifiers(e));
 }
 
+// fileOwner is the element a paste's or drop's files are parked under: the
+// nearest goowee node (so they're released with it), else the target.
+function fileOwner(target) {
+    for (let el = target; el; el = el.parentNode) {
+        if (el._nodeID !== undefined) return el;
+    }
+    return target;
+}
+
+// selectedText is what a cut or copy takes: a text field's selection, else
+// the document's.
+function selectedText(t) {
+    if (t && typeof t.value === "string" && typeof t.selectionStart === "number") {
+        return t.value.slice(t.selectionStart, t.selectionEnd);
+    }
+    const sel = document.getSelection();
+    return sel ? sel.toString() : "";
+}
+
 function touchList(list) {
     const out = [];
     for (const t of list || []) out.push({identifier: t.identifier, clientX: t.clientX, clientY: t.clientY});
@@ -299,9 +319,29 @@ function buildPayload(type, e) {
         case "click": case "dblclick": case "auxclick": case "contextmenu":
         case "mousedown": case "mouseup": case "mousemove":
         case "mouseenter": case "mouseleave": case "mouseover": case "mouseout":
-        case "dragstart": case "drag": case "dragend": case "dragenter":
-        case "dragover": case "dragleave": case "drop":
             return pointerish(e);
+        case "dragstart": case "drag": case "dragend": case "dragenter":
+        case "dragover": case "dragleave": case "drop": {
+            // The browser exposes a drag's types throughout, but its data
+            // and files only on drop.
+            const p = pointerish(e), dt = e.dataTransfer;
+            if (dt) {
+                p.types = Array.from(dt.types || []);
+                if (type === "drop") {
+                    p.text = dt.getData("text/plain");
+                    p.files = stashFiles(fileOwner(e.target), dt.files || []);
+                }
+            }
+            return p;
+        }
+        case "paste": {
+            const cd = e.clipboardData;
+            if (!cd) return {};
+            return {text: cd.getData("text/plain"), types: Array.from(cd.types || []),
+                files: stashFiles(fileOwner(e.target), cd.files || [])};
+        }
+        case "cut": case "copy":
+            return {text: selectedText(e.target)};
         case "pointerdown": case "pointerup": case "pointermove": case "pointercancel":
         case "pointerenter": case "pointerleave": case "pointerover": case "pointerout":
             return Object.assign(pointerish(e),
@@ -318,7 +358,7 @@ function buildPayload(type, e) {
             if (t.type === "checkbox" || t.type === "radio")
                 return Object.assign({value: t.value, checked: t.checked}, extra);
             if (t.type === "file" && t.files)
-                return {value: t.value, files: stashFiles(t)};
+                return {value: t.value, files: stashFiles(t, t.files)};
             return Object.assign({value: t.value}, extra);
         }
         case "submit": {
@@ -408,6 +448,9 @@ window.applyMutations = function applyMutations(json) {
     // Reads (ref.Get) are answered after every write in the batch has been
     // applied, so a handler that updates state and measures sees the result.
     const reads = [];
+    // Calls with arguments (ref.Call) also wait for the batch's writes: a
+    // setSelectionRange must land after the value it positions the caret in.
+    const calls = [];
     const focus = saveFocus();
     let movedLive = false, focusCommand = false;
     for (const mut of muts) {
@@ -504,6 +547,9 @@ window.applyMutations = function applyMutations(json) {
             case 10: // Read — deferred to after the batch (see below)
                 reads.push(mut);
                 break;
+            case 11: // Call — a method with arguments, after the batch (see below)
+                calls.push(mut);
+                break;
             case 7: { // Hydrate — claim a server-rendered node by id
                 const pre = preexistingNodes[mut.nodeId];
                 const wantText = mut.value === "#text";
@@ -543,6 +589,14 @@ window.applyMutations = function applyMutations(json) {
     // An explicit ref.Focus/Blur in the batch decides focus; otherwise a move
     // that dropped it is undone.
     if (movedLive && !focusCommand) restoreFocus(focus);
+    for (const mut of calls) {
+        const el = nodeMap[mut.nodeId];
+        if (!el || typeof el[mut.key] !== "function") continue;
+        // A throwing method (setSelectionRange on an email input, say) must
+        // not abort the batch.
+        try { el[mut.key].apply(el, Array.isArray(mut.value) ? mut.value : []); }
+        catch (err) { console.error("goowee: ref.Call", mut.key, err); }
+    }
     if (reads.length === 0) return undefined;
     return JSON.stringify(reads.map(function (mut) {
         return {req: mut.value, value: readProp(nodeMap[mut.nodeId], mut.key)};

@@ -108,6 +108,8 @@ const chrome = spawn(chromePath(), [
   `--remote-debugging-port=${DP}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "goowee-net-chrome-"))}`, "about:blank",
 ], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A CDP reply that never comes (a crashed page, say) must fail the run, not hang it.
+setTimeout(() => { console.log("NET CHECK FAIL: timed out after 3 minutes"); chrome.kill(); process.exit(1); }, 180000).unref();
 let target; // up to 20s: Chrome can take ~8s to open its debug port
 for (let i = 0; i < 200 && !target; i++) { try { target = (await (await fetch(`http://localhost:${DP}/json`)).json()).find((t) => t.type === "page"); } catch {} if (!target) await sleep(100); }
 const ws = new WebSocket(target.webSocketDebuggerUrl);

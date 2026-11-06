@@ -387,6 +387,34 @@ func TestRefInvokeEnqueuesMutation(t *testing.T) {
 	}
 }
 
+// #106: Call enqueues the method with a copy of its arguments.
+func TestRefCallEnqueuesArguments(t *testing.T) {
+	s := NewScheduler()
+	SetActiveScheduler(s)
+	defer SetActiveScheduler(nil)
+
+	args := []any{3, 9}
+	(&Ref{ID: 7}).Call("setSelectionRange", args...)
+	args[0] = 0
+	(&Ref{ID: 7}).Call("select")
+	out := s.Flush()
+	if len(out) != 2 || out[0].Type != MutCall || out[0].NodeID != 7 || out[0].Key != "setSelectionRange" {
+		t.Fatalf("Call should enqueue MutCall{7,setSelectionRange}, got %+v", out)
+	}
+	if got, ok := out[0].Value.([]any); !ok || len(got) != 2 || got[0] != 3 || got[1] != 9 {
+		t.Fatalf("arguments %v, want a copy of [3 9]", out[0].Value)
+	}
+	if got, ok := out[1].Value.([]any); !ok || len(got) != 0 {
+		t.Fatalf("no-argument call: value %#v, want an empty list", out[1].Value)
+	}
+	(&Ref{}).Call("select") // not rendered yet: no-op
+	var nilRef *Ref
+	nilRef.Call("select")
+	if s.Len() != 0 {
+		t.Fatal("Call on an unrendered or nil ref must not enqueue")
+	}
+}
+
 func TestRefNoopWhenUnusable(t *testing.T) {
 	s := NewScheduler()
 	SetActiveScheduler(s)
@@ -500,6 +528,20 @@ func TestSchedulerCoalesceKeepsReads(t *testing.T) {
 	}
 	if out[0].Type != MutRead || out[1].Type != MutSetProperty || out[1].Value != "b" || out[2].Type != MutRead {
 		t.Fatalf("reads must survive coalescing in order, got %+v", out)
+	}
+}
+
+// #106: a paste or drop's text and types.
+func TestEventDataTransfer(t *testing.T) {
+	e := NewEventData("paste", 1, map[string]any{
+		"text": "hi", "types": []any{"text/plain", "Files", 7},
+	})
+	if e.DataText() != "hi" || strings.Join(e.DataTypes(), ",") != "text/plain,Files" {
+		t.Fatalf("DataText %q, DataTypes %v", e.DataText(), e.DataTypes())
+	}
+	none := NewEventData("click", 1, map[string]any{})
+	if none.DataText() != "" || len(none.DataTypes()) != 0 {
+		t.Fatalf("click: DataText %q, DataTypes %v", none.DataText(), none.DataTypes())
 	}
 }
 

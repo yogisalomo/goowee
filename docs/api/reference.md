@@ -164,7 +164,11 @@ OnChange(func(string))                    // element value on commit
 OnSubmit(func(map[string]string))         // form values keyed by Name
 OnFocus(func()), OnBlur(func())         // target only (don't bubble)
 OnKeyDown(func(key string)), OnKeyUp(func(key string))
-OnPaste(func(string)), OnCut(func(string)), OnCopy(func(string))
+OnPaste(func(text string))              // the pasted plain text
+OnCut(func(text string)), OnCopy(func(text string))   // the selected text
+OnPasteE(func(core.EventData))          // pasted files (screenshots), text, types
+OnDragEnter/OnDragOver/OnDragLeave(func(core.EventData))   // drop zone: PreventDefault on dragover to accept
+OnDrop(func(core.EventData))            // dropped files, text, position
 OnFocusIn(func()), OnFocusOut(func())   // bubble
 OnReset(func()), OnInvalid(func())
 OnMouseEnter(func()), OnMouseLeave(func())   // target only
@@ -197,7 +201,9 @@ e.DeltaX(), e.DeltaY(), e.DeltaZ() float64, e.DeltaMode() int   // wheel
 e.Touches(), e.ChangedTouches() []core.Touch
 e.ScrollTop(), e.ScrollLeft() float64
 e.FormValues() map[string]string        // submit
-e.Files() []core.File                   // change/input on <input type="file">
+e.Files() []core.File                   // file input change/input, paste, drop (not dragover)
+e.DataText() string                     // paste/drop: the text/plain data; cut/copy: the selection
+e.DataTypes() []string                  // paste/drag: "text/plain", "text/html", "Files", …
 
 // core.File: Name, Size, Type, LastModified; contents on demand.
 f.Bytes() ([]byte, error)               // blocks — call from a goroutine, apply via core.Schedule
@@ -242,6 +248,9 @@ ref.Focus()
 ref.Blur()
 ref.Click()
 ref.ScrollIntoView()
+// A method with arguments, after the frame's DOM updates (so after a value
+// the same handler set). Offsets are UTF-16 units, as in JS:
+ref.Call(method string, args ...any)    // ref.Call("setSelectionRange", at, at)
 // Read a value back (answered after the next frame's DOM updates; fn runs
 // on the render loop). v: float64 | string | bool | map[string]any | nil.
 // A prop naming a method (getBoundingClientRect) is called with no args.
@@ -410,6 +419,17 @@ el.Text(), el.HTML(), el.Attr(name), el.HasAttr(name), el.Value(), el.Checked(),
 ```
 
 Selectors: tag, `#id`, `.class`, `[attr]`, `[attr=value]`, descendant (space).
+
+Files, paste and drop (contents come back from `File.Bytes`):
+
+```go
+f := gooweetest.File{Name: "shot.png", Type: "image/png", Data: png}
+s.Paste(el, text, files...) bool          // paste; true = prevented
+s.Drop(el, files...) bool                 // drop; dispatch "dragover" with DragOverData() for the accept step
+s.SelectFiles(input, files...)            // file input: input + change
+el.Calls() []gooweetest.Call              // ref.Call history: {Method, Args}
+el.Prop("selectionStart")                 // caret, kept by Input, setSelectionRange, value writes
+```
 
 A fake `goowee/net` for components that fetch or open sockets (install it
 before `Render`; not for parallel tests):

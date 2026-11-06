@@ -26,6 +26,7 @@ var encodeSamples = []any{
 	0.0, math.Copysign(0, -1), 1.5, -12.375, 0.1, 1e-6, 9.99e-7, 1e-7, 1e20, 1e21, 123456789.125,
 	math.SmallestNonzeroFloat64, math.MaxFloat64, float32(0.1), float32(1e-7), float32(3.4e38),
 	celsius(21.5), []string{"a", "<b>"}, map[string]int{"z": 1, "a": 2}, json.RawMessage(`{"raw":true}`),
+	[]any{}, []any{3, 9, "forward"}, // ref.Call arguments
 }
 
 func randomMutation(rng *rand.Rand) core.Mutation {
