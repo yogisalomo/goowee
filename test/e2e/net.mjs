@@ -3,8 +3,9 @@
 // since Node has no WebSocket server built in). Checks Fetch (JSON both ways,
 // headers, an error status, a binary body, abort on cancel), the socket
 // (subprotocol, text and binary both ways, reconnection from a cursor after a
-// drop, Close), and that updates still apply while the page is hidden, when
-// the browser stops animation frames.
+// drop, Close), that updates still apply while the page is hidden, when the
+// browser stops animation frames, a 16 MB Form upload that never enters Go
+// memory (#99), and server-sent events through Subscribe (#100).
 // Usage: node test/e2e/net.mjs   (run.sh runs it)
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
@@ -28,7 +29,9 @@ function chromePath() {
 }
 
 // ---- HTTP ----
-const seen = { echoHeader: null, echoType: null, slowStarted: false, slowAborted: false };
+const seen = { echoHeader: null, echoType: null, slowStarted: false, slowAborted: false, lastEventIds: [] };
+// Server-sent events: each connection is kept so the test can end it.
+const sse = [];
 const index = `<!doctype html><html><head><meta charset="utf-8"><script src="/wasm_exec.js"></script><script src="/goowee.js"></script></head><body><div id="root"></div><script>goowee.boot()</script></body></html>`;
 const files = { "/wasm_exec.js": "text/javascript", "/goowee.js": "text/javascript", "/main.wasm": "application/wasm" };
 const server = createServer((req, res) => {
@@ -46,6 +49,36 @@ const server = createServer((req, res) => {
       res.writeHead(201, { "content-type": "application/json", "x-echo-method": req.method, "x-echo-type": req.headers["content-type"] });
       res.end(Buffer.concat(chunks));
     });
+    return;
+  }
+  if (path === "/api/upload") {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", async () => {
+      // Node's fetch Response parses multipart/form-data.
+      const form = await new Response(Buffer.concat(chunks), { headers: { "content-type": req.headers["content-type"] } }).formData();
+      const photo = form.get("photo");
+      const bytes = new Uint8Array(await photo.arrayBuffer());
+      let sum = 0;
+      for (const b of bytes) sum = (sum + b) % 65536;
+      res.writeHead(201, { "content-type": "text/plain" });
+      res.end(`caption=${form.get("caption")} photo=${photo.name} ${photo.type} ${bytes.length} sum=${sum}`);
+    });
+    return;
+  }
+  if (path === "/api/events") {
+    seen.lastEventIds.push(req.headers["last-event-id"] ?? null);
+    if (sse.length >= 2) { res.writeHead(503); return res.end(); } // the third attempt: give up
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+    res.write("retry: 100\n\n");
+    if (sse.length === 0) {
+      res.write("id: 1\ndata: hello\n\n");
+      res.write("event: presence\nid: 2\ndata: ada\n\n");
+      res.write("event: typing\ndata: ignored\n\n"); // not subscribed
+    } else {
+      res.write("data: resumed\n\n");
+    }
+    sse.push(res);
     return;
   }
   if (path === "/api/slow") {
@@ -145,6 +178,25 @@ try {
   await waitText("#slow-out", "error: context canceled", "cancelled Fetch returns ctx.Err()");
   await waitFor(() => seen.slowAborted, "the cancelled request was aborted on the wire");
 
+  // Upload: 16 MB through a Form, appended as the browser's File, so Go
+  // allocates far less than the file.
+  await ev(`(() => { const big = new Uint8Array(16 << 20); for (let i = 0; i < big.length; i += 4096) big[i] = i % 251;
+    const dt = new DataTransfer(); dt.items.add(new File([big], "beach.jpg", {type: "image/jpeg"}));
+    const input = document.querySelector("#upload"); input.files = dt.files; input.dispatchEvent(new Event("change", {bubbles: true})); })()`);
+  let sum = 0; for (let i = 0; i < (16 << 20); i += 4096) sum = (sum + (i % 251)) % 65536;
+  await waitText("#uploaded", new RegExp(String.raw`^201 caption=beach photo=beach\.jpg image/jpeg ${16 << 20} sum=${sum} alloc:\d+MB$`), "16 MB Form upload");
+  const alloc = Number((await text("#uploaded")).match(/alloc:(\d+)MB/)[1]);
+  check(alloc < 4, `the upload allocated ${alloc} MB in Go: the file was copied through WebAssembly memory`);
+
+  // Server-sent events: unnamed and named, an unsubscribed type ignored, a
+  // reconnection carrying Last-Event-ID, then the browser giving up on a 503.
+  await waitText("#sse", "open|message:hello#1|presence:ada#2|", "events");
+  sse[0].end();
+  await waitText("#sse", /error:true\|open\|message:resumed#2\|$/, "reconnected with the last event id");
+  check(seen.lastEventIds[1] === "2", `Last-Event-ID on reconnect: ${seen.lastEventIds[1]}`);
+  sse[1].end();
+  await waitText("#sse", /message:resumed#2\|error:true\|error:false\|$/, "the browser gives up after a 503");
+
   // Socket.
   await waitText("#status", "open", "socket open");
   await waitText("#msgs", "hello since=0");
@@ -184,7 +236,8 @@ try {
   check(await text("#status") === "closed by app" && await text("#closes") === "1006:true ", `after Close: status ${await text("#status")}, closes ${await text("#closes")}`);
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "NET CHECK FAIL:\n- " + fail.join("\n- ") : "NET CHECK PASS: fetch (JSON, headers, 404, bytes, abort), socket (subprotocol, text+binary, reconnect from cursor, close), updates while hidden");
+console.log(fail.length ? "NET CHECK FAIL:\n- " + fail.join("\n- ") : "NET CHECK PASS: fetch (JSON, headers, 404, bytes, abort, 16 MB zero-copy Form upload), event stream (named, reconnect with Last-Event-ID, give up), socket (subprotocol, text+binary, reconnect from cursor, close), updates while hidden");
+for (const r of sse) r.destroy();
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 // Delete the Chrome profile (tens of MB) once Chrome has exited.
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });

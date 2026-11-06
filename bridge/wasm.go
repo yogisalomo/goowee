@@ -228,3 +228,25 @@ func Element(ref *core.Ref) js.Value {
 	}
 	return js.Global().Get("goowee").Call("node", ref.ID)
 }
+
+// FileValue returns the browser's File object behind f (picked on a file
+// input, pasted or dropped), for handing to a JavaScript library or browser
+// API without copying its contents through WebAssembly memory:
+//
+//	OnChangeE(func(e core.EventData) {
+//	    for _, f := range e.Files() {
+//	        js.Global().Get("URL").Call("createObjectURL", bridge.FileValue(f)) // a preview
+//	    }
+//	})
+//
+// To upload a file, use goowee/net's Form, which does this for you. It
+// returns js.Undefined() once the file is no longer available (the input's
+// selection changed, the next paste or drop replaced it, or its element was
+// removed), or for a File that didn't come from the browser. Only available in
+// js/wasm builds.
+func FileValue(f core.File) js.Value {
+	if f.Handle() == 0 {
+		return js.Undefined()
+	}
+	return js.Global().Get("goowee").Call("fileValue", f.Handle())
+}

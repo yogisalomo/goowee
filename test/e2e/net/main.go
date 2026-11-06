@@ -3,13 +3,16 @@
 // Command net is the app test/e2e/net.mjs drives: goowee/net against a real
 // server in a real browser. Fetch: a JSON load through UseResource, a JSON
 // POST with a custom header, an error status, a binary body and a cancelled
-// request. Socket: text and binary messages both ways, a subprotocol, a
-// reconnection that resumes from a cursor, and Close.
+// request, and a file upload in a Form whose bytes never enter Go memory.
+// Socket: text and binary messages both ways, a subprotocol, a reconnection
+// that resumes from a cursor, and Close. Subscribe: server-sent events, named
+// and unnamed, a reconnection with Last-Event-ID, and the browser giving up.
 package main
 
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -37,6 +40,18 @@ func app() core.Node {
 		bytes, setBytes := hooks.UseState("")
 		slow, setSlow := hooks.UseState("")
 		cancelSlow := func() {}
+
+		uploaded, setUploaded := hooks.UseState("")
+		sse, setSSE := hooks.UseState("")
+		hooks.OnMount(func() func() {
+			sub := net.Subscribe("/api/events", net.SubscribeOptions{
+				Events:  []string{"presence"},
+				OnOpen:  func() { setSSE(sse.Get() + "open|") },
+				OnEvent: func(e net.Event) { setSSE(sse.Get() + e.Type + ":" + e.Data + "#" + e.ID + "|") },
+				OnError: func(r bool) { setSSE(sse.Get() + fmt.Sprintf("error:%v|", r)) },
+			})
+			return sub.Close
+		})
 
 		msgs, setMsgs := hooks.UseState([]string{})
 		closes, setCloses := hooks.UseState("")
@@ -123,6 +138,26 @@ func app() core.Node {
 			}), Text("slow")),
 			Button(ID("cancel"), OnClick(func() { cancelSlow() }), Text("cancel")),
 			P(ID("slow-out"), TextS(slow)),
+			Input(ID("upload"), Type("file"), OnChangeE(func(e core.EventData) {
+				form := new(net.Form).Add("caption", "beach")
+				for _, f := range e.Files() {
+					form.AddFile("photo", f)
+				}
+				run(setUploaded, func() (string, error) {
+					// TotalAlloc counts every byte Go allocates: a copy of the
+					// file into Go memory would add its whole size.
+					var before, after runtime.MemStats
+					runtime.ReadMemStats(&before)
+					resp, err := net.Fetch(context.Background(), net.Request{Method: "POST", URL: "/api/upload", Form: form})
+					runtime.ReadMemStats(&after)
+					if err != nil {
+						return "", err
+					}
+					return fmt.Sprintf("%d %s alloc:%dMB", resp.Status, resp.Text(), (after.TotalAlloc-before.TotalAlloc)>>20), nil
+				})
+			})),
+			P(ID("uploaded"), TextS(uploaded)),
+			P(ID("sse"), TextS(sse)),
 
 			P(ID("status"), TextS(status)),
 			P(ID("msgs"), TextS(core.Computed([]core.SignalAccessor{msgs}, func() string {

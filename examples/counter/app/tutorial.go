@@ -201,8 +201,12 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
 - Tree-scoped values (session, theme, API client): var Theme =
   core.NewContext(def); Theme.Provide(sig, children...) near the root;
   Theme.Use(func(t *core.Signal[T]) core.Node {...}) below. SSR-safe.
+- Uploads: net.Request{Form: new(net.Form).AddFile("photo", f)} (no copy
+  through Go). Server-sent events: net.Subscribe. Browser storage:
+  storage.Local / storage.Session (read in OnMount).
 - Test components headlessly with gooweetest.Render(t, node); fake the
-  network with gooweetest.NewFakeNet(t) before Render.
+  network with gooweetest.NewFakeNet(t) before Render. Keep syscall/js out
+  of component packages (docs/guides/testing.md).
 
 Full guide: https://github.com/yogisalomo/goowee/blob/main/AGENTS.md`
 

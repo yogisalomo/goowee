@@ -16,7 +16,9 @@
 //
 // Every interaction flushes, so assertions see the updated DOM. For work that
 // finishes on another goroutine (hooks.UseResource), use WaitFor/WaitForText.
-// Components that use goowee/net get an in-memory network from NewFakeNet.
+// Components that use goowee/net get an in-memory network from NewFakeNet;
+// goowee/storage is in memory outside the browser (seed it before Render;
+// Render's cleanup clears it).
 // Layout doesn't exist here: ref reads of sizes and positions return nil.
 package gooweetest
 
@@ -29,6 +31,7 @@ import (
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/dom"
+	"github.com/yogisalomo/goowee/storage"
 )
 
 // Screen is a mounted tree. Its methods fail the test (t.Fatal) when a
@@ -56,6 +59,9 @@ func Render(t testing.TB, n core.Node) *Screen {
 		s.Unmount()
 		core.SetActiveScheduler(nil)
 		core.SetFileReader(nil)
+		// goowee/storage is in memory here; start the next test empty.
+		storage.Local.Clear()
+		storage.Session.Clear()
 	})
 	return s
 }
