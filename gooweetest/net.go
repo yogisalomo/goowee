@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +33,7 @@ import (
 // Socket callbacks run on the Screen's render loop, like in the browser, so
 // call Screen.Flush (or WaitFor) after sending to see their effect. For a
 // socket the app dials later (after a load, say), use Screen.WaitForSocket.
+// Event streams (net.Subscribe) work the same way: Stream, WaitForStream.
 type FakeNet struct {
 	t testing.TB
 
@@ -40,6 +42,7 @@ type FakeNet struct {
 	mux      *http.ServeMux                                     // matches requests to routes' patterns
 	requests []net.Request
 	sockets  []*FakeSocket
+	streams  []*FakeStream
 	delay    *time.Duration // SetReconnectDelay; nil keeps the sockets' own backoff
 }
 
@@ -375,4 +378,128 @@ func (c fakeConn) Close(code int, reason string) {
 	if c.s.close() {
 		c.s.ev.Close(net.CloseEvent{Code: code, Reason: reason})
 	}
+}
+
+// Subscribe implements net.StreamTransport. The stream opens at once.
+func (n *FakeNet) Subscribe(url string, events []string, withCredentials bool, ev net.StreamEvents) (net.Stream, error) {
+	s := &FakeStream{URL: url, Events: events, WithCredentials: withCredentials, n: n, ev: ev}
+	n.mu.Lock()
+	n.streams = append(n.streams, s)
+	n.mu.Unlock()
+	ev.Open()
+	return fakeStreamConn{s}, nil
+}
+
+// Stream returns the most recent event stream the app subscribed to whose URL
+// path is path (query excluded). It fails the test when there is none; for a
+// subscription made after an async step, use Screen.WaitForStream.
+func (n *FakeNet) Stream(path string) *FakeStream {
+	n.t.Helper()
+	if s := n.openStream(path, true); s != nil {
+		return s
+	}
+	n.t.Fatalf("gooweetest: the app subscribed to no event stream at %s", path)
+	return nil
+}
+
+func (n *FakeNet) openStream(path string, anyState bool) *FakeStream {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for i := len(n.streams) - 1; i >= 0; i-- {
+		if s := n.streams[i]; urlPath(s.URL) == path && (anyState || !s.Closed()) {
+			return s
+		}
+	}
+	return nil
+}
+
+// WaitForStream flushes until the app has an open event stream at path
+// (query excluded) through n, and returns the most recent one. It fails the
+// test after timeout (default 2s).
+func (s *Screen) WaitForStream(n *FakeNet, path string, timeout ...time.Duration) *FakeStream {
+	s.t.Helper()
+	limit := 2 * time.Second
+	if len(timeout) > 0 {
+		limit = timeout[0]
+	}
+	for deadline := time.Now().Add(limit); ; time.Sleep(time.Millisecond) {
+		s.Flush()
+		if st := n.openStream(path, false); st != nil {
+			return st
+		}
+		if time.Now().After(deadline) {
+			s.t.Fatalf("gooweetest: no open event stream at %s within %v", path, limit)
+			return nil
+		}
+	}
+}
+
+// FakeStream is the server end of an event stream the app opened with
+// net.Subscribe through a FakeNet.
+type FakeStream struct {
+	// URL, Events and WithCredentials are what the app subscribed with.
+	URL             string
+	Events          []string
+	WithCredentials bool
+
+	n  *FakeNet
+	ev net.StreamEvents
+
+	mu     sync.Mutex
+	closed bool
+}
+
+// Send sends the app an unnamed ("message") event; its OnEvent runs on the
+// next flush.
+func (s *FakeStream) Send(data string) { s.SendEvent(net.Event{Data: data}) }
+
+// SendEvent sends the app an event. Like the browser, a named event reaches
+// the app only if it subscribed to that type (SubscribeOptions.Events).
+func (s *FakeStream) SendEvent(e net.Event) {
+	s.n.t.Helper()
+	if e.Type == "" {
+		e.Type = "message"
+	}
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		s.n.t.Fatalf("gooweetest: sending on the closed event stream at %s", s.URL)
+	}
+	if e.Type != "message" && !slices.Contains(s.Events, e.Type) {
+		return
+	}
+	s.ev.Event(e)
+}
+
+// Fail drops the connection, as a server restart or a lost network would: the
+// app's OnError runs with reconnecting. When reconnecting, the stream stays
+// usable and Reopen reports the browser's successful reconnection; otherwise
+// it is closed, as the browser does after an HTTP error.
+func (s *FakeStream) Fail(reconnecting bool) {
+	if !reconnecting {
+		s.mu.Lock()
+		s.closed = true
+		s.mu.Unlock()
+	}
+	s.ev.Error(reconnecting)
+}
+
+// Reopen reports a reconnection after Fail(true): the app's OnOpen runs again.
+func (s *FakeStream) Reopen() { s.ev.Open() }
+
+// Closed reports whether the stream is closed, by the app or by Fail(false).
+func (s *FakeStream) Closed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
+
+// fakeStreamConn is the app's end of a FakeStream.
+type fakeStreamConn struct{ s *FakeStream }
+
+func (c fakeStreamConn) Close() {
+	c.s.mu.Lock()
+	c.s.closed = true
+	c.s.mu.Unlock()
 }

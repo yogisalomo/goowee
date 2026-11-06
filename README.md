@@ -92,6 +92,7 @@ cd web && python3 -m http.server 8080
 |-------|-------------------|
 | [Getting Started](docs/guides/getting-started.md) | Project scaffold, first component, WASM build, adding routing and SSR |
 | [Concepts](docs/guides/concepts.md) | Signals, run-once components, Show/For, effects, SSR, routing, refs, bindings |
+| [Testing](docs/guides/testing.md) | gooweetest, faking the network and storage, keeping browser code testable |
 | [API Reference](docs/api/reference.md) | Complete public surface for core, h, hooks, router, ssr, dom, bridge |
 
 ### Serving & compression

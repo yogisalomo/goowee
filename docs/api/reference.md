@@ -457,6 +457,7 @@ n.Handle("GET /api/user", func(r net.Request) (net.Response, error) {  // net/ht
 n.Handle("POST /api/", gooweetest.Status(204))   // everything under /api/; "/rooms/{id}" wildcards
 n.Handle("/", gooweetest.Status(204))            // every request nothing more specific matches
 ws := s.WaitForSocket(n, "/ws")                  // flushes until the app has an open socket there
+es := s.WaitForStream(n, "/api/events")          // an open net.Subscribe stream: Send, SendEvent, Fail(reconnecting), Reopen
 n.SetReconnectDelay(0)                           // sockets reconnect without their real backoff
 n.Requests() []net.Request                 // what the app sent (JSON already in Body)
 ws := n.Socket("/ws")                      // latest socket dialed to that path (query ignored)
@@ -487,6 +488,19 @@ resp.Status, resp.StatusText, resp.URL, resp.Header /* lowercase names */, resp.
 resp.OK() bool, resp.Text() string
 resp.JSON(&v) error                           // a non-2xx status → *net.StatusError
 
+// Upload: a multipart body; files go as the browser's own File (no copy through Go).
+form := new(net.Form).Add("caption", c).AddFile("photo", f)   // f: a core.File from e.Files()
+net.Fetch(ctx, net.Request{Method: "POST", URL: "/api/photos", Form: form})
+
+// Server-sent events (EventSource): reconnects by itself, sending Last-Event-ID.
+sub := net.Subscribe("/api/events", net.SubscribeOptions{
+    Events:  []string{"presence"},              // named types, besides "message"
+    OnOpen:  func(),
+    OnEvent: func(e net.Event),                 // e.Type, e.Data, e.ID
+    OnError: func(reconnecting bool),           // false: the browser gave up
+})
+sub.Close()
+
 // A WebSocket; returns at once. Callbacks run on the render loop (no
 // core.Schedule) and stop after Close.
 sock := net.Dial("/ws", net.SocketOptions{      // ws(s):// or relative (page's scheme)
@@ -505,6 +519,22 @@ net.SetTransport(t net.Transport) (previous net.Transport) // swap the network (
 
 ---
 
+## `storage` — localStorage and sessionStorage
+
+```go
+import "github.com/yogisalomo/goowee/storage"
+
+storage.Local.Get(key) (string, bool)     // also storage.Session
+storage.Local.Set(key, value) error       // ErrUnavailable where storage is disabled; quota errors
+storage.Local.Remove(key), .Clear(), .Keys() []string
+```
+
+Read it in `OnMount` (client-only): during a server render it is empty and
+writes do nothing. Outside the browser it's an in-memory store, which
+gooweetest clears when a test ends. See [the testing guide](../guides/testing.md).
+
+---
+
 ## `bridge` — WASM entry point
 
 ```go
@@ -515,6 +545,9 @@ bridge.Run(app core.Node)
 // js/wasm only: the live DOM element a ref points at, for JS libraries.
 // js.Undefined() before render / after removal. Call from OnMount or later.
 bridge.Element(ref *core.Ref) js.Value
+// js/wasm only: the browser's File behind a core.File (picked, pasted,
+// dropped), for a JS library or browser API, without copying its bytes.
+bridge.FileValue(f core.File) js.Value
 ```
 
 `Run` mounts `app` into the page, hydrates it if the HTML was server-rendered,

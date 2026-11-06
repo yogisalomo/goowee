@@ -55,3 +55,6 @@ node test/e2e/clipboard.mjs
 
 echo "==> running wasm MIME e2e (goowee.boot fallbacks and errors)"
 node test/e2e/wasmmime.mjs
+
+echo "==> running storage e2e (localStorage, sessionStorage, storage disabled)"
+node test/e2e/storage.mjs

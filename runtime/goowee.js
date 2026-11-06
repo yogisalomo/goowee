@@ -324,6 +324,13 @@ function releaseFiles(el) {
     nodeFiles.delete(el);
 }
 
+// fileValue is the parked File itself (undefined once released), so Go can
+// hand it to fetch/FormData or a JS library without copying its bytes
+// (bridge.FileValue, goowee/net's Form).
+goowee.fileValue = function fileValue(handle) {
+    return fileStore[handle];
+};
+
 // readFile resolves to the bytes of a parked File as a Uint8Array. Called by
 // the Go bridge for core.File.Bytes.
 goowee.readFile = function readFile(handle) {

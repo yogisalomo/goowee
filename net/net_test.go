@@ -3,6 +3,7 @@ package net
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -327,5 +328,101 @@ func TestSocketBackoff(t *testing.T) {
 	flush()
 	if len(reasons) != n || tr.dials() != 0 {
 		t.Fatalf("attempts continued after Close: %d more failures, %d dials", len(reasons)-n, tr.dials())
+	}
+}
+
+// scriptedStream records its events for Subscribe tests.
+type scriptedStream struct {
+	url    string
+	events []string
+	creds  bool
+	ev     StreamEvents
+	closed bool
+}
+
+func (s *scriptedStream) Close() { s.closed = true }
+
+type streaming struct {
+	scripted
+	streams []*scriptedStream
+}
+
+func (s *streaming) Subscribe(url string, events []string, creds bool, ev StreamEvents) (Stream, error) {
+	st := &scriptedStream{url: url, events: events, creds: creds, ev: ev}
+	s.streams = append(s.streams, st)
+	return st, nil
+}
+
+// #100: event-stream callbacks run on the render loop and stop at Close.
+func TestSubscribe(t *testing.T) {
+	tr := &streaming{}
+	flush := install(t, tr)
+	var log []string
+	sub := Subscribe("/events", SubscribeOptions{
+		Events:          []string{"presence"},
+		WithCredentials: true,
+		OnOpen:          func() { log = append(log, "open") },
+		OnEvent:         func(e Event) { log = append(log, e.Type+":"+e.Data+"#"+e.ID) },
+		OnError:         func(r bool) { log = append(log, fmt.Sprint("error reconnecting=", r)) },
+	})
+	st := tr.streams[0]
+	if st.url != "/events" || len(st.events) != 1 || !st.creds {
+		t.Fatalf("subscribed with %+v", st)
+	}
+	st.ev.Open()
+	st.ev.Event(Event{Type: "message", Data: "a", ID: "1"})
+	st.ev.Error(true)
+	if len(log) != 0 {
+		t.Fatalf("callbacks ran off the render loop: %v", log)
+	}
+	flush()
+	if got := strings.Join(log, ","); got != "open,message:a#1,error reconnecting=true" {
+		t.Fatalf("callbacks: %s", got)
+	}
+	st.ev.Event(Event{Type: "message", Data: "queued"})
+	sub.Close()
+	flush()
+	if len(log) != 3 || !st.closed {
+		t.Fatalf("after Close: %v, stream closed %v", log, st.closed)
+	}
+}
+
+// A transport without event streams fails the subscription on the loop.
+func TestSubscribeUnsupported(t *testing.T) {
+	flush := install(t, &scripted{})
+	reconnecting := true
+	sub := Subscribe("/events", SubscribeOptions{OnError: func(r bool) { reconnecting = r }})
+	defer sub.Close()
+	flush()
+	if reconnecting {
+		t.Fatal("OnError(false) expected for a transport without event streams")
+	}
+}
+
+// #99: a Form body excludes Body, JSON and an explicit Content-Type.
+func TestFetchForm(t *testing.T) {
+	var got Request
+	install(t, &scripted{fetch: func(_ context.Context, req Request) (Response, error) {
+		got = req
+		return Response{Status: 200}, nil
+	}})
+	form := new(Form).Add("caption", "beach").AddFile("photo", core.File{Name: "a.jpg"})
+	if _, err := Fetch(context.Background(), Request{Method: "POST", URL: "/up", Form: form}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Form.Value("caption") != "beach" || got.Header["Content-Type"] != "" {
+		t.Fatalf("transport got %+v", got)
+	}
+	if f, ok := got.Form.File("photo"); !ok || f.Name != "a.jpg" {
+		t.Fatalf("file field %+v %v", f, ok)
+	}
+	for _, req := range []Request{
+		{URL: "/up", Form: form, Body: []byte("x")},
+		{URL: "/up", Form: form, JSON: 1},
+		{URL: "/up", Form: form, Header: map[string]string{"content-type": "multipart/form-data"}},
+	} {
+		if _, err := Fetch(context.Background(), req); err == nil {
+			t.Errorf("no error for %+v", req)
+		}
 	}
 }

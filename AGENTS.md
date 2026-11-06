@@ -173,11 +173,20 @@ import (
   Reconnect: true, ReconnectURL: func() string})` → `sock.Send(text)`, `sock.SendBinary(b)`,
   `sock.Close()`. Callbacks run **on the render loop** (set signals directly).
   Dial in `OnMount` and `return sock.Close`.
+- Upload a picked/pasted file without copying it through Go: `net.Request{Method: "POST",
+  URL: "/up", Form: new(net.Form).Add("caption", c).AddFile("photo", f)}`.
+- Server-sent events: `sub := net.Subscribe("/events", net.SubscribeOptions{Events: []string{"presence"},
+  OnEvent: func(e net.Event), OnError: func(reconnecting bool)})` → `sub.Close()`; the browser
+  reconnects itself (Last-Event-ID). Callbacks on the render loop.
 - Tests: `n := gooweetest.NewFakeNet(t)` before `Render`; `n.Handle("GET /api/x",
   func(r net.Request) (net.Response, error) { return gooweetest.JSONResponse(200, v) })`
   (net/http.ServeMux patterns: `"POST /api/"`, `"/rooms/{id}"`, `"/"` = catch-all,
   `gooweetest.Status(204)`); `ws := s.WaitForSocket(n, "/ws"); ws.Send("…"); s.Flush()`;
   `ws.Received()`, `ws.Close(1006, "")`; `n.SetReconnectDelay(0)` for reconnect tests.
+
+**Browser storage** (`goowee/storage`): `storage.Local` / `storage.Session` →
+`Get(key) (string, bool)`, `Set(key, v) error`, `Remove`, `Clear`, `Keys`. Read it in `OnMount`
+(empty during SSR); in memory under gooweetest (seed before `Render`).
 
 **Router** (`router`)
 - `r := router.New(router.CurrentPath())`; `r.BindHistory()` (browser back/forward).
@@ -342,6 +351,10 @@ Paste, drop and file inputs: `s.Paste(el, text, gooweetest.File{Name, Type, Data
 `s.Drop(el, files...)`, `s.SelectFiles(input, files...)`; `f.Bytes()` returns `Data`.
 `el.Calls()` lists `ref.Call`s; `el.Prop("selectionStart")` is the caret.
 
+**Keep `syscall/js` out of component packages** so tests can build them: use
+`goowee/net`, `goowee/storage`, the router and refs; put anything else behind a
+`_js.go` / `_other.go` seam ([docs/guides/testing.md](docs/guides/testing.md)).
+
 Components that use `goowee/net` stay testable: install `gooweetest.NewFakeNet(t)`
 before `Render`, answer requests with `n.Handle(pattern, fn)`, and drive sockets
 from the server side with `n.Socket("/ws")` (see Networking above).
@@ -359,7 +372,9 @@ from the server side with `n.Socket("/ws")` (see Networking above).
 - ❌ Non-deterministic SSR output (`time.Now()`, random) without `h.Dynamic()` or the
   placeholder-plus-`OnMount` pattern.
 - ❌ Reaching into the DOM with `syscall/js` from app code. Use a `Ref` (`Focus`, etc.).
-- ❌ `fetch`/`WebSocket` through `syscall/js`, or `net/http` (+7 MB). Use `goowee/net`.
+- ❌ `fetch`/`WebSocket`/`EventSource` through `syscall/js`, or `net/http` (+7 MB). Use `goowee/net`.
+- ❌ `localStorage` through `syscall/js`. Use `goowee/storage` (testable, SSR-safe).
+- ❌ `f.Bytes()` just to upload a file. Put it in a `net.Form` (zero-copy).
 - ❌ `return Group()` for "nothing" in a func returning `core.Node` (Group is an
   Item). Use `Empty()`.
 

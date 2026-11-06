@@ -39,6 +39,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/yogisalomo/goowee/core"
 )
 
 // ErrUnavailable is returned by Fetch, and reported by a Socket that cannot
@@ -60,12 +62,77 @@ type Request struct {
 	// Body is the request body. For a JSON body, set JSON instead.
 	Body []byte
 	// JSON, when non-nil, is encoded with encoding/json as the body, and
-	// Content-Type defaults to application/json. Set Body or JSON, not both.
+	// Content-Type defaults to application/json.
 	JSON any
+	// Form, when non-nil, is sent as a multipart/form-data body (the
+	// browser's FormData), e.g. to upload a picked or pasted file; the browser
+	// sets Content-Type with the boundary. Set one of Body, JSON and Form.
+	Form *Form
 	// Credentials is the fetch credentials mode: "same-origin" (the browser's
 	// default, used when empty), "include" (send cookies cross-origin too) or
 	// "omit".
 	Credentials string
+}
+
+// Form is a multipart/form-data body: text fields and files, in order. In the
+// browser each file is appended as the browser's own File object, so its
+// contents go to the network without being copied into WebAssembly memory:
+//
+//	OnChangeE(func(e core.EventData) {
+//	    form := new(net.Form).Add("caption", caption.Get())
+//	    for _, f := range e.Files() {
+//	        form.AddFile("photo", f)
+//	    }
+//	    go func() {
+//	        resp, err := net.Fetch(ctx, net.Request{Method: "POST", URL: "/api/photos", Form: form})
+//	        core.Schedule(func() { /* show resp/err */ })
+//	    }()
+//	})
+//
+// A file stays sendable as long as File.Bytes could read it: until its input's
+// selection changes, the next paste or drop replaces it, or its element is
+// removed.
+type Form struct {
+	Fields []FormField
+}
+
+// FormField is one field of a Form: a text Value, or a File.
+type FormField struct {
+	Name  string
+	Value string
+	File  *core.File
+}
+
+// Add appends a text field and returns f, for chaining.
+func (f *Form) Add(name, value string) *Form {
+	f.Fields = append(f.Fields, FormField{Name: name, Value: value})
+	return f
+}
+
+// AddFile appends a file field (sent with the file's name) and returns f.
+func (f *Form) AddFile(name string, file core.File) *Form {
+	f.Fields = append(f.Fields, FormField{Name: name, File: &file})
+	return f
+}
+
+// Value returns the first text field called name ("" if none).
+func (f *Form) Value(name string) string {
+	for _, fd := range f.Fields {
+		if fd.Name == name && fd.File == nil {
+			return fd.Value
+		}
+	}
+	return ""
+}
+
+// File returns the first file field called name.
+func (f *Form) File(name string) (core.File, bool) {
+	for _, fd := range f.Fields {
+		if fd.Name == name && fd.File != nil {
+			return *fd.File, true
+		}
+	}
+	return core.File{}, false
 }
 
 // Response is an HTTP response. Fetch returns one for every status the server
@@ -130,6 +197,14 @@ func (e *StatusError) Error() string {
 // callback: waiting there would stall the WASM event loop the response needs.
 // Apply the result with core.Schedule, as with any off-loop work.
 func Fetch(ctx context.Context, req Request) (Response, error) {
+	if req.Form != nil {
+		if req.Body != nil || req.JSON != nil {
+			return Response{}, errors.New("goowee/net: Request sets Form together with Body or JSON")
+		}
+		if hasHeader(req.Header, "Content-Type") {
+			return Response{}, errors.New("goowee/net: Request.Form sets its own Content-Type (with the multipart boundary); leave it out")
+		}
+	}
 	if req.JSON != nil {
 		if req.Body != nil {
 			return Response{}, errors.New("goowee/net: Request sets both Body and JSON")
@@ -173,7 +248,8 @@ func hasHeader(h map[string]string, name string) bool {
 // its own with SetTransport.
 type Transport interface {
 	// Fetch performs req, whose Method is set and whose JSON is already
-	// encoded into Body, honoring ctx.
+	// encoded into Body, honoring ctx. A Form's files carry the Handle of the
+	// browser's File objects; read their contents with File.Bytes.
 	Fetch(ctx context.Context, req Request) (Response, error)
 	// Dial starts opening a WebSocket to url and returns without waiting. It
 	// reports the connection through events, from any goroutine: Open once

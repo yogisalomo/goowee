@@ -87,6 +87,12 @@ func SetFileReader(fn func(handle int) ([]byte, error)) {
 // element is removed; after that Bytes returns an error. Outside the browser
 // it returns ErrNoFileReader (gooweetest's Paste, Drop and SelectFiles supply
 // contents).
+// Handle is the browser runtime's key for the file's contents, 0 when there
+// are none to read. It is how bridge.FileValue and goowee/net find the
+// browser's File object, so a file can be uploaded or handed to a JavaScript
+// library without copying it through Go; apps don't need it otherwise.
+func (f File) Handle() int { return f.handle }
+
 func (f File) Bytes() ([]byte, error) {
 	fileReaderMu.Lock()
 	read := fileReader

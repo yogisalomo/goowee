@@ -30,6 +30,25 @@ func (browser) Fetch(ctx context.Context, req Request) (Response, error) {
 		js.CopyBytesToJS(body, req.Body)
 		init.Set("body", body)
 	}
+	if req.Form != nil {
+		form := global.Get("FormData").New()
+		for _, f := range req.Form.Fields {
+			if f.File == nil {
+				form.Call("append", f.Name, f.Value)
+				continue
+			}
+			// The parked File itself: its bytes never pass through Go.
+			file := js.Undefined()
+			if f.File.Handle() != 0 {
+				file = global.Get("goowee").Call("fileValue", f.File.Handle())
+			}
+			if file.IsUndefined() {
+				return Response{}, fmt.Errorf("goowee/net: %s %s: file %q is no longer available (its input's selection changed, a later paste or drop replaced it, or its element was removed)", req.Method, req.URL, f.File.Name)
+			}
+			form.Call("append", f.Name, file, f.File.Name)
+		}
+		init.Set("body", form)
+	}
 	if req.Credentials != "" {
 		init.Set("credentials", req.Credentials)
 	}
@@ -201,4 +220,69 @@ func (c *browserConn) release() {
 	c.onOpen.Release()
 	c.onMessage.Release()
 	c.onClose.Release()
+}
+
+// Subscribe opens an EventSource.
+func (browser) Subscribe(url string, events []string, withCredentials bool, ev StreamEvents) (st Stream, err error) {
+	defer func() { // the constructor throws on a malformed URL
+		if r := recover(); r != nil {
+			st, err = nil, fmt.Errorf("goowee/net: subscribe %s: %v", url, r)
+		}
+	}()
+	global := js.Global()
+	init := global.Get("Object").New()
+	init.Set("withCredentials", withCredentials)
+	es := global.Get("EventSource").New(url, init)
+	bs := &browserStream{es: es}
+	bs.onOpen = js.FuncOf(func(js.Value, []js.Value) any {
+		ev.Open()
+		return nil
+	})
+	bs.onEvent = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		e := args[0]
+		ev.Event(Event{Type: e.Get("type").String(), Data: e.Get("data").String(), ID: e.Get("lastEventId").String()})
+		return nil
+	})
+	bs.onError = js.FuncOf(func(js.Value, []js.Value) any {
+		reconnecting := es.Get("readyState").Int() != 2 // CLOSED: the browser gave up
+		if !reconnecting {
+			bs.release()
+		}
+		ev.Error(reconnecting)
+		return nil
+	})
+	es.Set("onopen", bs.onOpen)
+	es.Set("onerror", bs.onError)
+	bs.types = append([]string{"message"}, events...)
+	for _, t := range bs.types {
+		es.Call("addEventListener", t, bs.onEvent)
+	}
+	return bs, nil
+}
+
+type browserStream struct {
+	es                       js.Value
+	types                    []string
+	onOpen, onEvent, onError js.Func
+	released                 bool
+}
+
+func (s *browserStream) Close() {
+	s.es.Call("close") // no event follows close
+	s.release()
+}
+
+func (s *browserStream) release() {
+	if s.released {
+		return
+	}
+	s.released = true
+	s.es.Set("onopen", js.Null())
+	s.es.Set("onerror", js.Null())
+	for _, t := range s.types {
+		s.es.Call("removeEventListener", t, s.onEvent)
+	}
+	s.onOpen.Release()
+	s.onEvent.Release()
+	s.onError.Release()
 }

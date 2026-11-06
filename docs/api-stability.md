@@ -23,7 +23,8 @@ These are the supported API. Import them freely.
 | `h`       | The typed DSL: elements, attributes, events, control flow (`Show`/`For`/`Switch`), `Svg`, `Ref`/`Portal`, `ErrorBoundary`. |
 | `hooks`   | `UseState`, `UseEffect`, `Watch`, `OnMount`, `UseResource`, `UseScope`. |
 | `router`  | `Route`, params (`ParamSignal`), navigation, guards, sub-routes, base path. |
-| `net`     | `Fetch` and `Dial` (WebSocket) on the browser's own APIs; `Transport`/`SetTransport` to swap the network. |
+| `net`     | `Fetch` (incl. `Form` uploads), `Dial` (WebSocket) and `Subscribe` (server-sent events) on the browser's own APIs; `Transport`/`SetTransport` to swap the network. |
+| `storage` | `Local` and `Session`: the browser's storage, in memory outside the browser. |
 | `ssr`     | Server-side rendering: `ssr.Handler`, `ssr.RoutedPage`, `ssr.New().Render(node)`. |
 | `bridge`  | The client entry point: `bridge.Run(node)`. |
 | `devtools`| Optional dev-mode inspector: `devtools.Enable()`, `devtools.Snapshot()`. |

@@ -11,6 +11,30 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Added
+- **Zero-copy file uploads** (#99): `net.Request{Form: new(net.Form).Add(…).AddFile(name, f)}`
+  sends a multipart body in which a picked, pasted or dropped file goes as the
+  browser's own `File`, so its contents never pass through WebAssembly memory
+  (a 16 MB upload allocates under 1 MB in Go; `File.Bytes` then a `Blob`
+  allocated all 16). `bridge.FileValue(f)` hands the `File` to a JavaScript
+  library, and `core.File.Handle` is the key both use.
+- **`net.Subscribe`: server-sent events** (#100) through the browser's
+  `EventSource`, with named event types, callbacks on the render loop, and
+  the browser's own reconnection (`OnError(reconnecting)`). It needs a
+  transport implementing the new optional `net.StreamTransport`; the browser
+  and `FakeNet` do. In tests: `s.WaitForStream(n, path)` → `Send`,
+  `SendEvent`, `Fail`, `Reopen`.
+- **`goowee/storage`** (#100): `storage.Local` and `storage.Session` on the
+  browser's `localStorage`/`sessionStorage`, an in-memory store outside the
+  browser (gooweetest clears it when a test ends), empty during server
+  renders so requests can't see each other's values, and `ErrUnavailable`
+  where the browser refuses storage.
+- [docs/guides/testing.md](docs/guides/testing.md): gooweetest, a table of the
+  browser APIs goowee covers and their test doubles, and the `_js.go` seam
+  for the rest (#100).
+- `test/e2e/storage.mjs` (part of `make e2e`), and the net e2e now covers a
+  16 MB Form upload and an event stream.
+
 ## [0.2.5] — 2026-11-07
 
 A patch release with a tree-scoped context API, a `goowee.boot()` that starts
