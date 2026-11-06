@@ -40,16 +40,17 @@ GOOS=js GOARCH=wasm go test -exec="$(go env GOROOT)/lib/wasm/go_js_wasm_exec" \
 benchmark suite as of 2026-10-16 (which adds the layout-tick benchmarks), so the
 first comparison covers them too.
 
-**Record on a quiet machine, and check the spread.** Machine state (load,
-power and thermal state) shifts every timing at once, including benchmarks of
-code the release didn't touch, and often widens the `±` column; when timings
-move uniformly or the spread is wide, re-record. `v0.2.3.txt` is such an
-outlier: its timings run about 35% fast across the board (v0.2.2 and v0.2.4,
-recorded on the same M1, agree with each other within noise), so compare
-timings against another release. Its allocations and sizes are sound.
-`v0.2.5.txt` was recorded with about five of the M1's eight cores busy: its
-sequential timings agree with v0.2.4 within noise, but `SSRParallel`, which
-uses every core, reads ~45% slow (an interleaved A/B of v0.2.4 and v0.2.5
-under the same load measured 234.9 µs vs 233.1 µs, p = 1.0).
+**This M1 runs in two speed states.** The release records fall on one of two
+levels about 1.6× apart, uniformly across every benchmark, including code a
+release didn't touch: `BenchmarkSignalSetFanout` is ~1.13 µs in v0.2.3 and
+v0.2.6, and ~1.83 µs in v0.2.1, v0.2.2, v0.2.4 and v0.2.5. The cause isn't pinned
+down (Low Power Mode was off and no thermal warning was recorded for the fast
+v0.2.6 run). So when every timing moves together between two records, it is
+the machine: compare records from the same state, or run an interleaved A/B of
+the two trees under the same conditions (as the v0.2.5 release did).
+Allocations and sizes compare across states. Load matters too: `v0.2.5.txt`
+was recorded with about five of the eight cores busy, so its `SSRParallel`,
+which uses every core, reads slower still (an interleaved A/B of v0.2.4 and
+v0.2.5 measured 234.9 µs vs 233.1 µs, p = 1.0).
 
 [benchstat]: https://pkg.go.dev/golang.org/x/perf/cmd/benchstat

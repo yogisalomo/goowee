@@ -11,6 +11,14 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.2.6] — 2026-11-07
+
+A patch release that makes browser code testable and cheaper: picked and
+pasted files upload without passing through WebAssembly memory, server-sent
+events and browser storage get goowee APIs with test doubles, and a testing
+guide covers the pattern for everything else. Upgrade from 0.2.5 without code
+changes.
+
 ### Added
 - **Zero-copy file uploads** (#99): `net.Request{Form: new(net.Form).Add(…).AddFile(name, f)}`
   sends a multipart body in which a picked, pasted or dropped file goes as the
@@ -564,7 +572,8 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/yogisalomo/goowee/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/yogisalomo/goowee/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/yogisalomo/goowee/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/yogisalomo/goowee/compare/v0.2.2...v0.2.3
