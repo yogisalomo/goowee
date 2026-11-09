@@ -459,3 +459,12 @@ func TestSSRMetadataMultiple(t *testing.T) {
 		t.Fatalf("expected meta, got %q", head)
 	}
 }
+
+// #121: TitleS renders its signal's current value into the head.
+func TestSSRTitleS(t *testing.T) {
+	title := core.NewSignal("(2) dure")
+	_, head := New().Render(h.Div(h.Metadata(h.TitleS(title)), h.P(h.Text("x"))))
+	if !strings.Contains(head, "<title>(2) dure</title>") {
+		t.Fatalf("head: %s", head)
+	}
+}

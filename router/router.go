@@ -58,22 +58,50 @@ func (r *Router) SetNavFn(fn func(string)) {
 	r.navFn = fn
 }
 
-func (r *Router) Navigate(path string) {
-	r.Path.Set(path)
-	if r.navFn != nil {
-		r.navFn(r.base + path) // route matching is base-relative; the URL carries the base
+// Navigate goes to target, a base-relative URL: "/rooms/2", or with a query
+// and fragment, "/rooms/2?thread=20#latest". Path gets the path and Query the
+// parsed query (a target without one clears it, as the browser's URL does);
+// the history entry gets the whole URL. A target that is only "?query" keeps
+// the current path, and only "#fragment" keeps the path and query.
+func (r *Router) Navigate(target string) {
+	if url := r.setURL(target); r.navFn != nil {
+		r.navFn(url)
 	}
 }
 
-// NavigateReplace updates the path without pushing a new history entry
-// (calls replaceState instead of pushState). Use it for non-destructive
-// transitions — tab switches, search params, wizard steps where back
-// should skip the intermediate step.
-func (r *Router) NavigateReplace(path string) {
-	r.Path.Set(path)
-	if r.replaceFn != nil {
-		r.replaceFn(r.base + path)
+// NavigateReplace is Navigate without a new history entry (replaceState
+// instead of pushState). Use it for non-destructive transitions — tab
+// switches, search params, wizard steps where back should skip the
+// intermediate step.
+func (r *Router) NavigateReplace(target string) {
+	if url := r.setURL(target); r.replaceFn != nil {
+		r.replaceFn(url)
 	}
+}
+
+// setURL sets Path and Query from target, together so dependents see one
+// consistent URL, and returns the browser URL (base-prefixed) for history.
+func (r *Router) setURL(target string) string {
+	rest, fragment, hasFragment := strings.Cut(target, "#")
+	path, query, hasQuery := strings.Cut(rest, "?")
+	if path == "" && (hasQuery || hasFragment) {
+		path = r.Path.Peek() // "?t=3" or "#top": same page
+		if !hasQuery {
+			query, hasQuery = encodeQuery(r.Query.Peek()), true
+		}
+	}
+	core.Batch(func() {
+		r.Query.Set(parseQuery(query))
+		r.Path.Set(path)
+	})
+	url := r.base + path
+	if hasQuery && query != "" {
+		url += "?" + query
+	}
+	if hasFragment {
+		url += "#" + fragment
+	}
+	return url
 }
 
 // Back navigates backward in browser history. Only works after BindHistory.

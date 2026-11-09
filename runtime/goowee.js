@@ -459,6 +459,16 @@ function dispatchToGo(type, e, targetOnly) {
     }
 }
 
+// claimTitle makes the app's <title> the document's: document.title reads the
+// first <title> in the document, so the page's own (the HTML shell's, or the
+// server-rendered one, neither created by goowee) would shadow the app's. It
+// removes those; titles goowee rendered stay, in tree order, as on the server.
+function claimTitle() {
+    for (const t of document.head.querySelectorAll(":scope > title")) {
+        if (t._nodeID === undefined) t.remove();
+    }
+}
+
 // moveNode inserts child into parent before ref (null = at the end). A node
 // already in the document is moved with moveBefore where the browser has it —
 // an atomic move that keeps focus, text selection, scroll position and running
@@ -602,6 +612,7 @@ window.applyMutations = function applyMutations(json) {
                 const child = nodeMap[mut.childId];
                 if (parent && child && child.parentNode !== parent) {
                     movedLive = moveNode(parent, child, null) || movedLive;
+                    if (child.nodeName === "TITLE" && parent === document.head) claimTitle();
                 }
                 break;
             }

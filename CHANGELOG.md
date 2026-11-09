@@ -11,6 +11,26 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Added
+- `h.TitleS(sig)`: a document title that follows a signal, e.g. an unread
+  count in the tab title; the server renders its current value (#121).
+- gooweetest: `s.Title()`, the title the browser would show.
+
+### Fixed
+- `r.Navigate` and `r.NavigateReplace` (and so `Link`/`LinkTo`) kept a target's
+  query in `Path`: `/r/2?t=20` matched `:id` as `"2?t=20"` and left `Query`
+  at the previous URL's values. They now split off the query and fragment,
+  set `Path` and `Query` together, and push the whole URL; a target without a
+  query clears it, `"?t=3"` keeps the current path, and `"#x"` keeps the path
+  and query (#120).
+- The app's `Metadata` title never became the document's title when the page
+  already had a `<title>` (the HTML shell's, or the server-rendered one),
+  because `document.title` reads the first `<title>` and goowee's was
+  appended after it. The runtime now removes the page's own title when goowee
+  renders one, and hydration renders the title for real instead of skipping
+  it, so `TitleS` updates reach the tab. With several titles mounted, the
+  first in the tree wins, as in the server-rendered head (#121).
+
 ## [0.2.6] — 2026-11-07
 
 A patch release that makes browser code testable and cheaper: picked and

@@ -147,11 +147,34 @@ Metadata(
 )
 ```
 
-> **Head children must be static elements.** `Metadata` children are rendered to
-> the head as plain HTML — `Title`, `Meta`, `Link`, `Script`, `StyleEl`, and
-> `Fragment`/`Page` groupings of those. Reactive head content (`Show`, `Switch`,
-> a component, or a signal-bound value) is **not** collected into the SSR head
-> and is not supported; keep head metadata static and per-route.
+> **Head children are elements, not reactive regions.** `Metadata` children are
+> rendered to the head as plain HTML — `Title`, `Meta`, `Link`, `Script`,
+> `StyleEl`, and `Fragment`/`Page` groupings of those. Structural reactivity
+> (`Show`, `Switch`, a component) inside `Metadata` is **not** collected into the
+> SSR head and is not supported. The one live value is the title: `TitleS(sig)`
+> follows a signal (an unread count, say), and the server renders its current
+> value.
+
+### The document title
+
+On the client, goowee's `<title>` replaces the page's own (the HTML shell's, or
+the server-rendered one), so the browser shows the app's title. With several
+titles mounted, the first in the tree is the document's, the same rule as the
+server-rendered head, so set it in one place, typically the root layout. For a
+title per page or a live count, drive that one title from a signal:
+
+```go
+var pageTitle = core.NewSignal("goowee")
+
+func Layout(children ...core.Node) core.Node {
+    return Div(Metadata(TitleS(pageTitle)), Main(Nodes(children)...))
+}
+
+// a page, on mount:
+hooks.OnMount(func() func() { pageTitle.Set("Settings · goowee"); return nil })
+```
+
+In tests, `s.Title()` is the title the browser would show.
 
 ---
 

@@ -194,6 +194,8 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
   r.LinkTo (modifier clicks still open new tabs).
 - SSR: ssr.Handler(...) serves pages (real 404s via the router). Keep
   markup deterministic; wrap non-deterministic content in h.Dynamic().
+- Document title: Metadata(TitleS(sig)) follows a signal (an unread count);
+  the first title in the tree wins, so set it once at the root.
 - Imperative DOM: h.Ref()+h.RefTo(ref), then ref.Focus() / ref.Get(prop, fn) /
   ref.Call("setSelectionRange", at, at) (after the frame; UTF-16 offsets).
   Pasted/dropped files: OnPasteE / OnDrop → e.Files(), f.Bytes() in a goroutine.
