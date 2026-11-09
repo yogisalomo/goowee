@@ -11,6 +11,15 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.2.7] — 2026-11-10
+
+A patch release with two fixes found building Dure: `Navigate` with a query
+string, and the document title. The second turned out wider than reported: a
+`Metadata` title never became the tab's title when the page already had a
+`<title>`, which is now fixed, and the title can follow a signal. Upgrade from
+0.2.6 without code changes; if your app set a `Metadata` title, the tab now
+shows it instead of the HTML shell's.
+
 ### Added
 - `h.TitleS(sig)`: a document title that follows a signal, e.g. an unread
   count in the tab title; the server renders its current value (#121).
@@ -592,7 +601,8 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/yogisalomo/goowee/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/yogisalomo/goowee/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/yogisalomo/goowee/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/yogisalomo/goowee/compare/v0.2.3...v0.2.4

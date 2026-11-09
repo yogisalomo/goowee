@@ -43,7 +43,9 @@ first comparison covers them too.
 **This M1 runs in two speed states.** The release records fall on one of two
 levels about 1.6× apart, uniformly across every benchmark, including code a
 release didn't touch: `BenchmarkSignalSetFanout` is ~1.13 µs in v0.2.3 and
-v0.2.6, and ~1.83 µs in v0.2.1, v0.2.2, v0.2.4 and v0.2.5. The cause isn't pinned
+v0.2.6, and ~1.83 µs in v0.2.1, v0.2.2, v0.2.4, v0.2.5 and v0.2.7 (an
+interleaved A/B of v0.2.6 and v0.2.7 measured every benchmark the same, p > 0.1,
+with v0.2.6's code at 1.825 µs that day). The cause isn't pinned
 down (Low Power Mode was off and no thermal warning was recorded for the fast
 v0.2.6 run). So when every timing moves together between two records, it is
 the machine: compare records from the same state, or run an interleaved A/B of

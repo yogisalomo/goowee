@@ -36,7 +36,8 @@ inline `SetKey`; `v0.2.4` (2026-11-06) adds paste/drop files and text and
 `ref.Call` (#106); `v0.2.5` (2026-11-07) adds tree-scoped context (ADR-027),
 the boot MIME fallback and FakeNet patterns (#109–#111, #114, #115); `v0.2.6`
 (2026-11-07) adds zero-copy Form uploads, `net.Subscribe` and `goowee/storage`
-(#99, #100). **S**
+(#99, #100); `v0.2.7` (2026-11-10) fixes `Navigate` with a query and makes
+the app's title the document's, with `TitleS` (#120, #121). **S**
 
 **0.2 User-facing documentation.** ✅ **Done** (#39). Getting Started, a
 Concepts guide, and an API reference, kept current with each change (the second
