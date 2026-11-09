@@ -150,6 +150,17 @@ func (s *Screen) Head() string {
 	return b.String()
 }
 
+// Title is the document's title as the browser shows it: the text of the
+// first <title> in the head ("" if none). It follows a TitleS signal.
+func (s *Screen) Title() string {
+	for _, c := range s.doc.head.children {
+		if c.kind == elementNode && c.tag == "title" {
+			return c.textContent()
+		}
+	}
+	return ""
+}
+
 // Portal is the content rendered into a portal target (the selector passed to
 // h.Portal) — nil if nothing was.
 func (s *Screen) Portal(selector string) *Element {

@@ -23,8 +23,25 @@ func Metadata(children ...core.Node) *core.MetadataNode {
 	return &core.MetadataNode{Children: children}
 }
 
-// Title declares the document title (<title>).
+// Title declares the document title (<title>). On the client it replaces the
+// page's own <title> (the HTML shell's, or the server-rendered one). With more
+// than one Title mounted, the first in the tree is the document's title, as in
+// the server-rendered head: set it in one place, typically the root layout.
 func Title(text string) *core.ElementNode { return El("title", Text(text)) }
+
+// TitleS is a document title that follows sig, e.g. an unread count:
+//
+//	unread := core.Computed([]core.SignalAccessor{count}, func() string {
+//	    if count.Get() == 0 {
+//	        return "dure"
+//	    }
+//	    return fmt.Sprintf("(%d) dure", count.Get())
+//	})
+//	Metadata(TitleS(unread))
+//
+// The server renders its current value. For a per-page title, drive one
+// TitleS at the root from a signal the pages set.
+func TitleS(sig core.SignalAccessor) *core.ElementNode { return El("title", TextS(sig)) }
 
 // Meta adds a <meta> tag. Pass attribute items like Name(), Content(), etc.
 func Meta(items ...core.Item) *core.ElementNode { return El("meta", items...) }

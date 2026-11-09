@@ -26,7 +26,7 @@ function chromePath() {
   return "google-chrome"; // Linux/CI on PATH
 }
 
-const page = (c) => `<!doctype html><html><head><meta charset="utf-8"><script src="/wasm_exec.js"></script><script src="/goowee.js"></script></head><body><div id="root"><p class="splash">Loading…</p></div><script>goowee.boot({wasm: "/${c}/main.wasm"})</script></body></html>`;
+const page = (c) => `<!doctype html><html><head><meta charset="utf-8"><title>Shell title</title><script src="/wasm_exec.js"></script><script src="/goowee.js"></script></head><body><div id="root"><p class="splash">Loading…</p></div><script>goowee.boot({wasm: "/${c}/main.wasm"})</script></body></html>`;
 // How each case serves its main.wasm.
 const wasmFor = {
   ok: (res) => { res.writeHead(200, { "content-type": "application/wasm" }); res.end(wasm); },
@@ -92,6 +92,9 @@ try {
   await ev(`document.querySelector("#inc").click()`);
   await sleep(200);
   check(await ev(`document.querySelector("#hello").textContent`) === "clicked 1", "app not interactive after a streaming boot");
+  // #121: the app's TitleS replaced the shell's <title> and follows the count.
+  const title = await ev(`JSON.stringify([document.title, document.head.querySelectorAll("title").length])`);
+  check(title === `["(1) hello",1]`, `reactive document title: ${title}`);
   // Wrong or missing MIME type: compiled from the bytes, with one warning.
   for (const c of ["octet", "none"]) {
     r = await load(c);
@@ -106,7 +109,7 @@ try {
       `${c}: ${JSON.stringify(r)} log: ${log.join(" | ")}`);
   }
 } catch (e) { fail.push(e.message); }
-console.log(fail.length ? "WASM MIME CHECK FAIL:\n- " + fail.join("\n- ") : "WASM MIME CHECK PASS: streaming with application/wasm; octet-stream and no type fall back with a warning; HTML and 404 give one actionable error");
+console.log(fail.length ? "WASM MIME CHECK FAIL:\n- " + fail.join("\n- ") : "WASM MIME CHECK PASS: streaming with application/wasm (+ reactive title); octet-stream and no type fall back with a warning; HTML and 404 give one actionable error");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 // Delete the Chrome profile (tens of MB) once Chrome has exited.
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });

@@ -96,7 +96,9 @@ Bind a signal instead.
     injected into `<head>` by both SSR and DOM renderers. For the full set of
     SEO/social/structured-data tags, use `Page(PageMeta{...})` which expands a
     single config into title, OG, Twitter Cards, JSON-LD, and LLM elements.
-    A single `Page(PageMeta{Title: "…"})` is enough for most pages.
+    A single `Page(PageMeta{Title: "…"})` is enough for most pages. The document
+    title can follow a signal: `Metadata(TitleS(sig))` (an unread count); the first
+    title in the tree wins, so set it once (root layout) and drive it from a signal.
 
 ---
 
@@ -196,7 +198,8 @@ import (
   `r.Params()`.
 - Query params: `r.QueryParam("tag")` (snapshot), `r.QueryParamSignal("tag")` (reactive),
   `r.SetQueryParam("tag", "value")` (replaceState), `r.SetQueryParamPush("tag", "value")` (pushState).
-- Navigation: `r.Navigate(path)`, `r.NavigateReplace(path)`, `r.Back()`, `r.Forward()`,
+- Navigation: `r.Navigate(url)`, `r.NavigateReplace(url)` (a query and fragment are split off:
+  `r.Navigate("/r/2?t=20")` sets Path "/r/2" and query t=20), `r.Back()`, `r.Forward()`,
   `r.Link(to, text, items...)` (cmd/ctrl/middle-click still opens a new tab).
 - Nesting/util: `r.SubRoute(prefix, routes)`, `router.Guard(check, fallback, route)`,
   `router.Lazy(load)`.

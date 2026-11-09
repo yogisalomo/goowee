@@ -1,6 +1,7 @@
 package gooweetest_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/yogisalomo/goowee/core"
@@ -99,5 +100,29 @@ func TestContextRestoredAfterPanic(t *testing.T) {
 	))
 	if s.Find("span.after").Text() != "light" || s.Find("span.fallback").Text() != "light" {
 		t.Fatalf("context leaked past a panic: %s", s.HTML())
+	}
+}
+
+// #121: Title follows a TitleS signal; with two titles mounted, the first in
+// the tree is the document's, as in the browser.
+func TestTitleS(t *testing.T) {
+	unread := core.NewSignal(0)
+	title := core.Computed([]core.SignalAccessor{unread}, func() string {
+		if unread.Get() == 0 {
+			return "dure"
+		}
+		return fmt.Sprintf("(%d) dure", unread.Get())
+	})
+	s := gooweetest.Render(t, Div(
+		Metadata(TitleS(title)),
+		Metadata(Title("ignored: a later title")),
+	))
+	if s.Title() != "dure" {
+		t.Fatalf("title %q", s.Title())
+	}
+	unread.Set(3)
+	s.Flush()
+	if s.Title() != "(3) dure" {
+		t.Fatalf("title after update %q", s.Title())
 	}
 }

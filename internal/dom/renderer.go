@@ -309,23 +309,41 @@ func (r *DOMRenderer) VisitMetadata(mn *core.MetadataNode, walkChild func(core.N
 		// Metadata children into its head buffer). Walk the children so node-id
 		// allocation stays in parity with SSR — otherwise the body nodes after
 		// this Metadata would hydrate against the wrong server nodes — but
-		// discard the mutations. Re-creating and appending head nodes here would
-		// duplicate the server's tags (two <title>, duplicate <meta>, etc.),
-		// since the server-rendered head nodes carry no ids to claim. Head
-		// content is static (see ssr renderHeadChildren), so there are no live
-		// bindings/handlers to preserve.
+		// discard the mutations: re-creating them would duplicate the server's
+		// tags, which carry no ids to claim. A <title> is the exception. It may
+		// be bound to a signal (TitleS), so it is rendered for real and the
+		// runtime swaps it for the server's (only the first <title> counts).
 		saved := r.muts
 		var discard []core.Mutation
-		r.muts = &discard
-		for _, child := range mn.Children {
+		for _, child := range flatHead(mn.Children) {
+			if el, ok := child.(*core.ElementNode); ok && el != nil && el.Tag == "title" {
+				r.renderInto("head", []core.Node{child}, saved)
+				continue
+			}
+			r.muts = &discard
 			walkChild(child)
+			r.muts = saved
 		}
-		r.muts = saved
 		return
 	}
 	// Fresh render (pure-client app, or a re-render): create the head nodes and
 	// append them to <head>.
 	r.renderInto("head", mn.Children, r.muts)
+}
+
+// flatHead expands fragments (Page returns one) so each head element can be
+// handled on its own; a fragment allocates no id, so the walk's ids are the
+// same either way.
+func flatHead(children []core.Node) []core.Node {
+	var out []core.Node
+	for _, c := range children {
+		if f, ok := c.(*core.FragmentNode); ok && f != nil {
+			out = append(out, flatHead(f.Children)...)
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 func (r *DOMRenderer) VisitPortal(pn *core.PortalNode, walkChild func(core.Node) int) {

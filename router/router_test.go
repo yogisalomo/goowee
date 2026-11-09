@@ -588,3 +588,64 @@ func TestLinkToAndSetBasePath(t *testing.T) {
 		t.Fatal("a plain click navigates in-app (base-relative)")
 	}
 }
+
+// #120: a target with a query (and fragment) sets Path and Query apart, and
+// history gets the whole URL.
+func TestNavigateSplitsQueryAndFragment(t *testing.T) {
+	r := New("/")
+	r.base = "/app"
+	var pushed, replaced string
+	r.navFn = func(url string) { pushed = url }
+	r.replaceFn = func(url string) { replaced = url }
+	var id, thread string
+	view := r.Route(map[string]func() core.Node{
+		"/r/:id": func() core.Node {
+			id, thread = r.Param("id"), r.QueryParam("t")
+			return &core.ElementNode{Tag: "div"}
+		},
+	})
+
+	r.Navigate("/r/2?t=20&q=a%20b#latest")
+	view.Render()
+	if r.Path.Get() != "/r/2" || id != "2" || thread != "20" || r.QueryParam("q") != "a b" {
+		t.Fatalf("Path %q, id %q, t %q, q %q", r.Path.Get(), id, thread, r.QueryParam("q"))
+	}
+	if pushed != "/app/r/2?t=20&q=a%20b#latest" {
+		t.Fatalf("pushState url %q", pushed)
+	}
+
+	// No query: the old one doesn't linger.
+	r.Navigate("/r/3")
+	if r.Path.Get() != "/r/3" || len(r.Query.Get()) != 0 || pushed != "/app/r/3" {
+		t.Fatalf("Path %q, Query %v, url %q", r.Path.Get(), r.Query.Get(), pushed)
+	}
+
+	// Query only: same page; fragment only: same page and query.
+	r.NavigateReplace("?t=5")
+	if r.Path.Get() != "/r/3" || r.QueryParam("t") != "5" || replaced != "/app/r/3?t=5" {
+		t.Fatalf("query-only: Path %q, t %q, url %q", r.Path.Get(), r.QueryParam("t"), replaced)
+	}
+	r.NavigateReplace("#bottom")
+	if r.Path.Get() != "/r/3" || r.QueryParam("t") != "5" || replaced != "/app/r/3?t=5#bottom" {
+		t.Fatalf("fragment-only: Path %q, t %q, url %q", r.Path.Get(), r.QueryParam("t"), replaced)
+	}
+}
+
+// QueryParamSignal and ParamSignal follow a link with a query, the way Dure
+// opens a room with a thread (/r/<room>?t=<thread>).
+func TestLinkWithQueryUpdatesSignals(t *testing.T) {
+	r := New("/")
+	view := r.Route(map[string]func() core.Node{
+		"/":      func() core.Node { return &core.ElementNode{Tag: "p"} },
+		"/r/:id": func() core.Node { return &core.ElementNode{Tag: "div"} },
+	})
+	room, thread := r.ParamSignal("id"), r.QueryParamSignal("t")
+	if href := r.Link("/r/7?t=42", "open").Attrs[0].Value; href != "/r/7?t=42" {
+		t.Fatalf("href %q", href)
+	}
+	r.Navigate("/r/7?t=42") // what a plain click on that link does
+	view.Render()
+	if room.Get() != "7" || thread.Get() != "42" {
+		t.Fatalf("ParamSignal %q, QueryParamSignal %q", room.Get(), thread.Get())
+	}
+}

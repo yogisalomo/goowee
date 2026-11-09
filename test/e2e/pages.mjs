@@ -61,6 +61,9 @@ try {
   await send("Page.navigate", { url: base + "/" });
   await waitFor(`/Reactive web UIs, written in Go\\./.test(document.body.innerText)`, "landing");
   check(await ev(hrefsOK), "landing: an in-app link lacks the /goowee base");
+  // #121: the app's Metadata title replaces the shell's <title> (document.title
+  // reads the first one, so the shell's used to win).
+  check(await ev(`(()=>{const ts=[...document.head.querySelectorAll(':scope > title')];return ts.length===1 && ts[0]._nodeID!==undefined && document.title==='goowee — Reactive web UIs in Go';})()`), `document title: ${await ev("JSON.stringify([document.title, document.head.querySelectorAll('title').length])")}`);
   // #104: the shell's full-height "Loading…" splash sits in #root; mounting
   // the app replaces it instead of rendering below it.
   check(await ev(`fetch(location.href).then(r=>r.text()).then(t=>t.includes('<div class="splash">'))`), "the page shell has no splash to replace");
@@ -91,7 +94,7 @@ try {
   await waitFor(`/Loaded at /.test(document.body.innerText)`, "async resource with ctx");
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "PAGES CHECK FAIL:\n- " + fail.join("\n- ") : "PAGES CHECK PASS: base-path links, splash replaced on mount, navigation, deep links, v0.2.0 content, canvas, async");
+console.log(fail.length ? "PAGES CHECK FAIL:\n- " + fail.join("\n- ") : "PAGES CHECK PASS: base-path links, splash replaced on mount, app title, navigation, deep links, v0.2.0 content, canvas, async");
 ws.close(); server?.close();
 // Delete the Chrome profile (tens of MB) once Chrome has exited.
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });

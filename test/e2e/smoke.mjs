@@ -106,6 +106,9 @@ async function main() {
   // runtime logs a mismatch or a missing server node otherwise.
   const hydrationErrors = consoleLines.filter((l) => /hydration mismatch|no server node/.test(l));
   check(hydrationErrors.length === 0, "hydration logged mismatches:\n" + hydrationErrors.join("\n"));
+  // #121: the client renders the Metadata <title> for real and drops the
+  // server's copy, so a TitleS binding can update the document's title.
+  check(await evalJS(`(()=>{const ts=[...document.head.querySelectorAll(':scope > title')];return ts.length===1 && ts[0]._nodeID!==undefined && document.title==='goowee — Reactive web UIs in Go';})()`), `after hydration the document title isn't the app's own <title>: ${await evalJS("JSON.stringify([document.title, document.head.querySelectorAll('title').length])")}`);
   check(await evalJS(`(()=>{let n=0;const w=document.createTreeWalker(document.getElementById('root'),NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^\\/\\d+$/.test(w.currentNode.data))n++;return n;})()`) > 0, "scope anchors missing after hydration");
   // Inline SVG (h.Svg) must carry the SVG namespace end-to-end, root and descendants.
   check(await evalJS(`(()=>{const s=document.querySelector('.logo');const ns='http://www.w3.org/2000/svg';return !!s && s.namespaceURI===ns && s.querySelector('rect')?.namespaceURI===ns;})()`), "inline SVG logo namespaced correctly");

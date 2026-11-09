@@ -118,6 +118,9 @@ Textarea(items...)
 // Generic element:
 El("tag", items...)
 
+// Head (see docs/guides/metadata.md): Metadata(Title("…"), Meta(…), Link(…), Page(PageMeta{…}))
+TitleS(sig core.SignalAccessor)         // a document title that follows sig; the first title in the tree wins
+
 // Raw HTML, inside a <div> (untrusted input must be sanitized):
 Raw(html string)                        // renders pre-rendered HTML verbatim
 RawS(sig *core.Signal[string])          // replaces the HTML when sig changes
@@ -368,8 +371,8 @@ r.SetQueryParam(name, value string)                    // replaceState
 r.SetQueryParamPush(name, value string)                // pushState
 
 // Navigation.
-r.Navigate(path string)
-r.NavigateReplace(path string)
+r.Navigate(url string)          // "/r/2?t=20#end": Path "/r/2", Query {t: 20}; no query clears it
+r.NavigateReplace(url string)   // same, replaceState; "?t=3" keeps the path, "#x" the path and query
 r.Back()
 r.Forward()
 r.Link(path, text string, items ...core.Item) *core.ElementNode // <a>; plain clicks navigate in-app,
@@ -429,7 +432,7 @@ s.Find(sel) / s.Query(sel) / s.FindAll(sel) / s.FindByText(text) *Element
 s.Click(el), s.Input(el, v), s.Change(el, v), s.Check(el, bool), s.Focus(el)
 s.Submit(form) bool, s.KeyDown(el, key) bool, s.Dispatch(el, event, data) bool  // true = prevented
 s.Flush(), s.WaitFor(func() bool), s.WaitForText(text)
-s.Text(), s.HTML(), s.Head(), s.Portal(selector), s.Focused(), s.Unmount()
+s.Text(), s.HTML(), s.Head(), s.Title(), s.Portal(selector), s.Focused(), s.Unmount()
 el.Text(), el.HTML(), el.Attr(name), el.HasAttr(name), el.Value(), el.Checked(), el.Prop(name), el.Children(), el.Find(sel)
 ```
 
