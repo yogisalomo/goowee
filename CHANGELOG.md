@@ -11,6 +11,23 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Added
+- `hooks.UsePersist(sig, key)`: keeps a signal in localStorage (or, with
+  `hooks.PersistOptions{Store: storage.Session}`, sessionStorage) as JSON. It
+  loads once the component has mounted, so a server-rendered page hydrates
+  with the server's markup; a stored value that no longer decodes is logged
+  and left alone.
+- Dev mode (`?goowee-dev`) change log: `goowee.changes()` lists each signal
+  write with its value before and after and the code that made it (the first
+  caller outside goowee, e.g. `app/store.go:31 app.(*Store).AddToCart`); in Go,
+  `devtools.Changes()` and `devtools.ClearChanges()`.
+- `sig.Named("cart")` labels a signal in the inspector and the change log;
+  a no-op without dev mode. Signals in a package-level store are named before
+  dev mode is known, and the browser build keeps those names until it is. The
+  router names its signals `router.path`, `router.query` and `router.params`.
+- The inspector lists a `core.NewSignal` signal once it is named or written,
+  and formats struct values with field names (`{Name:tea Price:3}`).
+
 ## [0.2.7] — 2026-11-10
 
 A patch release with two fixes found building Dure: `Navigate` with a query

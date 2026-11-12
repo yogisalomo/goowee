@@ -29,6 +29,7 @@ s.Get() int
 s.Set(v T)
 s.WithEquals(func(a, b T) bool)          // custom equality (default: ==)
 s.Peek() T                               // read without counting as a dependency (dev checks)
+s.Named("cart")                          // a label in ?goowee-dev's inspector and change log; no-op otherwise
 
 // Group writes: each written signal notifies once, when fn returns. Event
 // handlers, Schedule callbacks, ref reads and effects are batched already.
@@ -330,6 +331,9 @@ hooks.OnMount(func() func())                  // run once after mount (DOM appli
 hooks.Watch([]core.SignalAccessor{deps}, func())  // react to signal changes
 hooks.UseEffect([]core.SignalAccessor{deps}, func() func())  // mount + deps + cleanup
 
+// Persistence: load sig from localStorage once mounted, save it (JSON) on each change
+hooks.UsePersist(sig, "cart")                 // also hooks.PersistOptions{Store: storage.Session}
+
 // Scope (for manual scope re-renders — internal use for Show/For/Switch)
 hooks.UseScope()                              // *core.ScopeNode
 
@@ -533,7 +537,8 @@ storage.Local.Remove(key), .Clear(), .Keys() []string
 ```
 
 Read it in `OnMount` (client-only): during a server render it is empty and
-writes do nothing. Outside the browser it's an in-memory store, which
+writes do nothing. To keep a signal in storage, `hooks.UsePersist(sig, key)`
+does the loading and saving. Outside the browser it's an in-memory store, which
 gooweetest clears when a test ends. See [the testing guide](../guides/testing.md).
 
 ---

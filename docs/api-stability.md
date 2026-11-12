@@ -21,13 +21,13 @@ These are the supported API. Import them freely.
 | Package | What you use it for |
 |---------|--------------------|
 | `h`       | The typed DSL: elements, attributes, events, control flow (`Show`/`For`/`Switch`), `Svg`, `Ref`/`Portal`, `ErrorBoundary`. |
-| `hooks`   | `UseState`, `UseEffect`, `Watch`, `OnMount`, `UseResource`, `UseScope`. |
+| `hooks`   | `UseState`, `UseEffect`, `Watch`, `OnMount`, `UseResource`, `UseScope`, `UsePersist`. |
 | `router`  | `Route`, params (`ParamSignal`), navigation, guards, sub-routes, base path. |
 | `net`     | `Fetch` (incl. `Form` uploads), `Dial` (WebSocket) and `Subscribe` (server-sent events) on the browser's own APIs; `Transport`/`SetTransport` to swap the network. |
 | `storage` | `Local` and `Session`: the browser's storage, in memory outside the browser. |
 | `ssr`     | Server-side rendering: `ssr.Handler`, `ssr.RoutedPage`, `ssr.New().Render(node)`. |
 | `bridge`  | The client entry point: `bridge.Run(node)`. |
-| `devtools`| Optional dev-mode inspector: `devtools.Enable()`, `devtools.Snapshot()`. |
+| `devtools`| Optional dev-mode inspector: `devtools.Enable()`, `devtools.Snapshot()`, `devtools.Changes()`. |
 | `gooweetest` | Headless component tests: `gooweetest.Render(t, node)` → a `Screen` to find, click, type, flush; `NewFakeNet` fakes `net`. |
 | `core`    | **Only the subset listed below.** |
 
@@ -37,7 +37,7 @@ These are the supported API. Import them freely.
 internals (the renderer contract, scheduler, mutation types, component-frame
 stack, node structs). Only these identifiers are public:
 
-- **Reactivity:** `Signal[T]` (incl. `Peek`), `NewSignal`, `Computed`,
+- **Reactivity:** `Signal[T]` (incl. `Peek`, `Named`), `NewSignal`, `Computed`,
   `SignalAccessor`, `Batch`, `Schedule` (off-loop updates).
 - **Composition:** `Node`, `Component`, `ComponentWithProps`, `ComponentNode`,
   `SetKey`, `Context` (`NewContext`, `Provide`, `Use`).
@@ -47,6 +47,8 @@ Everything else exported from `core` — `Scheduler`, `RenderContext`,
 `BindingRegistry`, `Mutation`/`MutationType`, `ComponentFrame`, `PushComponent`/
 `PopComponent`, `SaveFrameStack`/`RestoreFrameStack`, `CurrentComponent`,
 `CurrentEnv`, `UseContext`, `SetActiveScheduler`, `FlatTree`, `CollectIDs`, the
+devtools wiring (`RegisterSignalHook`, `NameSignalHook`, `SetSignalWriteHook`,
+`TakeEarlyNames`, …), the
 concrete node structs (`ElementNode`, `TextNode`, …), `Bind`/`Attr`/`Prop`/
 `Handler` — exists **only because the renderer packages share it across package
 boundaries**. It is not part of the v0 contract; do not depend on it. (It stays

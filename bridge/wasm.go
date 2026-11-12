@@ -44,6 +44,8 @@ func initObservability() {
 	if js.Global().Get("goowee").Call("devEnabled").Bool() {
 		devtools.Enable()
 		initInspector()
+	} else {
+		core.TakeEarlyNames() // no inspector to give Named signals to: let them go
 	}
 }
 
@@ -73,6 +75,19 @@ func initInspector() {
 		var snap map[string]any
 		_ = json.Unmarshal(data, &snap)
 		return snap
+	}))
+	js.Global().Get("goowee").Set("changesGo", js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) > 0 && args[0].Truthy() {
+			devtools.ClearChanges()
+			return []any{}
+		}
+		data, err := json.Marshal(devtools.Changes())
+		if err != nil {
+			return map[string]any{"error": err.Error()}
+		}
+		var rows []any
+		_ = json.Unmarshal(data, &rows)
+		return rows
 	}))
 }
 

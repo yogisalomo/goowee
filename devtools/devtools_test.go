@@ -69,3 +69,32 @@ func TestSignalIDUnknown(t *testing.T) {
 		t.Fatalf("unregistered signal id = %d", SignalID(sig))
 	}
 }
+
+func TestPackageOf(t *testing.T) {
+	for fn, want := range map[string]string{
+		"github.com/yogisalomo/goowee/core.(*Signal[go.shape.int]).Set":            "github.com/yogisalomo/goowee/core",
+		"github.com/me/app.(*Store[go.shape.struct { github.com/x/y.Z }]).Add":     "github.com/me/app",
+		"github.com/yogisalomo/goowee/examples/counter/app.heroDemo.func1.1":       "github.com/yogisalomo/goowee/examples/counter/app",
+		"github.com/yogisalomo/goowee/hooks.UsePersist[go.shape.[]string].func1.1": "github.com/yogisalomo/goowee/hooks",
+		"syscall/js.handleEvent": "syscall/js",
+		"runtime.goexit":         "runtime",
+		"main.main":              "main",
+	} {
+		if got := packageOf(fn); got != want {
+			t.Errorf("packageOf(%q) = %q, want %q", fn, got, want)
+		}
+	}
+	for pkg, want := range map[string]bool{
+		"github.com/yogisalomo/goowee/h":                    true,
+		"github.com/yogisalomo/goowee/internal/dom":         true,
+		"github.com/yogisalomo/goowee/examples/counter/app": false,
+		"github.com/yogisalomo/goowee/devtools_test":        false,
+		"syscall/js":        true,
+		"main":              false,
+		"github.com/me/app": false,
+	} {
+		if got := framework(pkg); got != want {
+			t.Errorf("framework(%q) = %v", pkg, got)
+		}
+	}
+}

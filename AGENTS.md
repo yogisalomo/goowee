@@ -123,7 +123,8 @@ import (
 
 **State & reactivity** (`core`, `hooks`)
 - `count, setCount := hooks.UseState(0)` → `*core.Signal[int]`, `func(int)`
-- `sig.Get()`, `sig.Set(v)`, `core.NewSignal(v)`, `sig.WithEquals(eq)`
+- `sig.Get()`, `sig.Set(v)`, `core.NewSignal(v)`, `sig.WithEquals(eq)`, `sig.Named("cart")`
+  (a label in dev mode's inspector and change log: `?goowee-dev`, then `goowee.changes()`)
 - `core.Computed(deps, compute) *Signal[T]`
 - `hooks.UseEffect(deps, func() func())`, `hooks.Watch(deps, func())`, `hooks.OnMount(func() func())`
 - `hooks.UseResource(deps, func(ctx) (T, error)) *Resource[T]` — async load (`Data`/`Loading`/`Err` + `Refetch`; ctx cancelled on refetch/unmount)
@@ -188,7 +189,9 @@ import (
 
 **Browser storage** (`goowee/storage`): `storage.Local` / `storage.Session` →
 `Get(key) (string, bool)`, `Set(key, v) error`, `Remove`, `Clear`, `Keys`. Read it in `OnMount`
-(empty during SSR); in memory under gooweetest (seed before `Render`).
+(empty during SSR); in memory under gooweetest (seed before `Render`). To keep a signal across
+reloads: `hooks.UsePersist(sig, "key")` (JSON; loads once mounted, so hydration matches the
+server; `hooks.PersistOptions{Store: storage.Session}` for the tab only).
 
 **Router** (`router`)
 - `r := router.New(router.CurrentPath())`; `r.BindHistory()` (browser back/forward).

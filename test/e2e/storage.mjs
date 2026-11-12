@@ -70,15 +70,32 @@ try {
   await ev(`document.querySelector("#clear").click()`);
   await waitText("#restored", "removed");
   check(await ev(`localStorage.getItem("draft")`) === null, "Remove left the key");
+  // hooks.UsePersist: the counter survives a reload, loaded once mounted.
+  await waitText("#like", "likes 0");
+  await ev(`document.querySelector("#like").click()`); await ev(`document.querySelector("#like").click()`);
+  await waitText("#like", "likes 2");
+  check(await ev(`localStorage.getItem("likes")`) === "2", "UsePersist didn't save the count");
+  await send("Page.reload");
+  await waitText("#like", "likes 2", "UsePersist restored the count after a reload");
+  // A stored value of another shape is ignored (a console warning), then saved over.
+  await ev(`localStorage.setItem("likes", '"many"')`);
+  await send("Page.reload");
+  await waitText("#restored", /keys=likes$/, "reloaded with a bad value");
+  await waitText("#like", "likes 0", "a value that doesn't decode leaves the default");
+  await ev(`document.querySelector("#like").click()`);
+  await waitText("#like", "likes 1");
+  check(await ev(`localStorage.getItem("likes")`) === "1", "UsePersist didn't save over the bad value");
   // Storage disabled: reading localStorage throws.
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `if (location.pathname === "/disabled") Object.defineProperty(window, "localStorage", { get() { throw new DOMException("denied", "SecurityError"); } });` });
   await send("Page.navigate", { url: base + "/disabled" });
   await waitText("#restored", /^draft="" found=false visits="(x+)?" keys=$/, "disabled: nothing found");
   await type("lost");
   await waitText("#save", "goowee/storage: storage is unavailable in this browser context", "disabled: Set reports ErrUnavailable");
+  await ev(`document.querySelector("#like").click()`);
+  await waitText("#like", "likes 1", "disabled: a persisted counter still counts");
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "STORAGE CHECK FAIL:\n- " + fail.join("\n- ") : "STORAGE CHECK PASS: localStorage + sessionStorage, reload, remove, storage disabled");
+console.log(fail.length ? "STORAGE CHECK FAIL:\n- " + fail.join("\n- ") : "STORAGE CHECK PASS: localStorage + sessionStorage, reload, remove, UsePersist, storage disabled");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 // Delete the Chrome profile (tens of MB) once Chrome has exited.
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });

@@ -59,6 +59,21 @@ goowee.inspect = function inspect() {
     return snap;
 };
 
+// goowee.changes() prints and returns dev mode's change log: each signal write
+// (oldest first, the last 500) with the value before and after and the code
+// that made it. goowee.changes({ clear: true }) empties it.
+goowee.changes = function changes(opts) {
+    if (typeof goowee.changesGo !== "function") {
+        console.warn(
+            "[goowee] change log unavailable — enable dev mode with ?goowee-dev or localStorage.setItem('goowee-dev','1') and reload."
+        );
+        return null;
+    }
+    const rows = goowee.changesGo(!!(opts && opts.clear));
+    if (!(opts && opts.clear)) console.table(rows);
+    return rows;
+};
+
 function mark(name) {
     try { performance.mark(name); } catch (_) {}
 }

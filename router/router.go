@@ -32,9 +32,9 @@ type Router struct {
 
 func New(initial string) *Router {
 	return &Router{
-		Path:   core.NewSignal(initial),
-		Query:  core.NewSignal(map[string]string{}).WithEquals(sameParams),
-		params: core.NewSignal(map[string]string{}).WithEquals(sameParams),
+		Path:   core.NewSignal(initial).Named("router.path"),
+		Query:  core.NewSignal(map[string]string{}).WithEquals(sameParams).Named("router.query"),
+		params: core.NewSignal(map[string]string{}).WithEquals(sameParams).Named("router.params"),
 	}
 }
 

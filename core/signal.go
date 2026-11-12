@@ -44,6 +44,16 @@ func (s *Signal[T]) WithEquals(eq func(a, b T) bool) *Signal[T] {
 	return s
 }
 
+// Named labels s in dev mode's inspector and change log (?goowee-dev, see
+// docs/devtools.md), so a store's signals read as "cart" rather than a number.
+// Without dev mode it does nothing. Chain it at construction, like WithEquals:
+//
+//	Cart: core.NewSignal([]Item(nil)).Named("cart"),
+func (s *Signal[T]) Named(name string) *Signal[T] {
+	nameSignal(s, name)
+	return s
+}
+
 // Get returns the current value. For a Computed it is always up to date: if a
 // dependency changed since the last evaluation (an unobserved Computed, or a
 // read inside a Batch before notifications ran), it recomputes first.
@@ -144,6 +154,9 @@ const maxNotifyPasses = 1000
 func (s *Signal[T]) Set(v T) {
 	if s.equal(s.value, v) {
 		return
+	}
+	if signalWriteHook != nil {
+		signalWriteHook(s, s.value, v) // dev mode's change log
 	}
 	s.value = v
 	s.version++
