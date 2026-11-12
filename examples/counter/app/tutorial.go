@@ -205,7 +205,10 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
   Theme.Use(func(t *core.Signal[T]) core.Node {...}) below. SSR-safe.
 - Uploads: net.Request{Form: new(net.Form).AddFile("photo", f)} (no copy
   through Go). Server-sent events: net.Subscribe. Browser storage:
-  storage.Local / storage.Session (read in OnMount).
+  storage.Local / storage.Session (read in OnMount); keep a signal across
+  reloads with hooks.UsePersist(sig, "key").
+- Debugging state: sig.Named("cart"); open the app with ?goowee-dev and run
+  goowee.changes() in the console for every write and the code behind it.
 - Test components headlessly with gooweetest.Render(t, node); fake the
   network with gooweetest.NewFakeNet(t) before Render. Keep syscall/js out
   of component packages (docs/guides/testing.md).

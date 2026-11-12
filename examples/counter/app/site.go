@@ -53,6 +53,7 @@ func hero(r *router.Router) core.Node {
 func heroDemo() core.Node {
 	return core.Component("HeroDemo", func() core.Node {
 		count, setCount := hooks.UseState(0)
+		count.Named("hero.count") // in ?goowee-dev's inspector and change log
 		show, setShow := hooks.UseState(true)
 		return Div(Class("panel"),
 			Div(Class("panel-bar"),

@@ -105,6 +105,11 @@ async function main() {
   check(snap && typeof snap === "object", "goowee.inspect() returns a snapshot object");
   check(snap?.tree?.type === "component", "snapshot tree root is a component");
   check(Array.isArray(snap?.signals) && snap.signals.length > 0, "snapshot lists registered signals");
+  // Named signals: the router's, named in main before bridge.Run (held until
+  // dev mode was known), and the hero counter's, named in its component.
+  const named = (n) => snap?.signals?.find((sg) => sg.name === n);
+  check(named("router.path")?.value === "/", "snapshot lists the router's named path signal: " + JSON.stringify(named("router.path")));
+  check(named("hero.count")?.kind === "state" && named("hero.count")?.value === "0", "snapshot lists hero.count: " + JSON.stringify(named("hero.count")));
 
   // --- Hydration + interactivity still work with dev mode on ---
   await waitFor(hydrationReady, "landing hydrated with dev mode");
@@ -112,10 +117,19 @@ async function main() {
   await waitFor(`${heroCount} === '1'`, "hero increment with dev mode");
   check(await evalJS(heroCount) === "1", "counter did not update with dev mode");
 
+  // --- Change log: the write, its values, and the code behind it ---
+  const lastChange = (name) => evalJS(`(goowee.changes() || []).filter((c) => c.name === ${JSON.stringify(name)}).pop() || null`);
+  const inc = await lastChange("hero.count");
+  check(inc && inc.from === "0" && inc.to === "1", "change log has hero.count 0 → 1: " + JSON.stringify(inc));
+  check(/^app\/site\.go:\d+$/.test(inc?.at || "") && /^app\..*\bheroDemo\./.test(inc?.func || ""), "the write is traced to the click handler in site.go: " + JSON.stringify(inc));
+
   // --- Routing smoke with dev mode ---
   await clickText("a", "Tutorial");
   await waitFor(`/Learn goowee by example/.test(document.body.innerText)`, "tutorial with dev mode");
   check(await evalJS(`location.pathname`) === "/tutorial", "tutorial path with dev mode");
+  const nav = await lastChange("router.path");
+  check(nav && nav.from === "/" && nav.to === "/tutorial", "change log has the navigation: " + JSON.stringify(nav));
+  check(Array.isArray(await evalJS(`goowee.changes({ clear: true })`)) && (await evalJS(`goowee.changes().length`)) === 0, "goowee.changes({ clear: true }) empties the log");
 
   // --- Structured recover.error_boundary log on /error ---
   consoleLogs.length = 0;
@@ -134,7 +148,7 @@ async function main() {
 
   if (consoleLogs.length) console.log("--- captured console ---\n" + consoleLogs.map((l) => `[${l.type}] ${l.text}`).join("\n"));
   if (fail.length) { console.log("DEVTOOLS E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }
-  else console.log("DEVTOOLS E2E PASS: inspector snapshot, dev mode, structured error-boundary log.");
+  else console.log("DEVTOOLS E2E PASS: inspector snapshot, named signals, change log, dev mode, structured error-boundary log.");
 }
 
 main().catch((e) => {

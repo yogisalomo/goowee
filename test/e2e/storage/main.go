@@ -2,7 +2,7 @@
 
 // Command storage is the app test/e2e/storage.mjs drives: goowee/storage
 // against the browser's localStorage and sessionStorage, across a reload and
-// with storage disabled (#100).
+// with storage disabled (#100), and a counter kept by hooks.UsePersist.
 package main
 
 import (
@@ -21,6 +21,8 @@ func main() {
 		draft, setDraft := hooks.UseState("")
 		restored, setRestored := hooks.UseState("")
 		saveErr, setSaveErr := hooks.UseState("")
+		likes, setLikes := hooks.UseState(0)
+		hooks.UsePersist(likes, "likes")
 		hooks.OnMount(func() func() {
 			d, ok := storage.Local.Get("draft")
 			visits, _ := storage.Session.Get("visits")
@@ -40,6 +42,7 @@ func main() {
 			P(ID("restored"), TextS(restored)),
 			P(ID("save"), TextS(saveErr)),
 			Button(ID("clear"), OnClick(func() { storage.Local.Remove("draft"); setRestored("removed") }), Text("clear")),
+			Button(ID("like"), OnClick(func() { setLikes(likes.Get() + 1) }), Textf("likes %d", likes)),
 		)
 	}))
 }

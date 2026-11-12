@@ -14,7 +14,8 @@
 // Storage is client state: during a server render reads find nothing and
 // writes do nothing (the server has no browser storage, and a process-wide
 // store would leak between requests), so read it in OnMount, not in setup,
-// or the server and client markup differ.
+// or the server and client markup differ. hooks.UsePersist(sig, key) does all
+// of the above for a signal.
 package storage
 
 import (
