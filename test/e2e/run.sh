@@ -6,6 +6,9 @@ cd "$(dirname "$0")/../.."
 
 PORT="${PORT:-8137}"
 
+echo "==> binary batch decoder vs JSON.parse"
+node test/e2e/batch.mjs
+
 echo "==> building WASM + assets + SSR server"
 GOOS=js GOARCH=wasm go build -o examples/counter/main.wasm ./examples/counter
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" examples/counter/ 2>/dev/null \
@@ -41,8 +44,11 @@ if [ "$BR" = 1 ]; then
   echo "==> main.wasm served brotli-encoded"
 fi
 
-echo "==> running smoke test"
+echo "==> running smoke test (binary transport, the default)"
 URL="http://localhost:$PORT" node test/e2e/smoke.mjs
+
+echo "==> running smoke test (JSON transport)"
+URL="http://localhost:$PORT" TRANSPORT=json node test/e2e/smoke.mjs
 
 echo "==> running devtools e2e"
 URL="http://localhost:$PORT" node test/e2e/devtools.mjs

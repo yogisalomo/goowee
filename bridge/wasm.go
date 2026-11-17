@@ -35,7 +35,7 @@ func Run(app core.Node) {
 	if devtools.Enabled() {
 		devtools.SetRoot(app)
 	}
-	initBridge(renderer.Scheduler, renderer.Registry)
+	initBridge(renderer.Scheduler, renderer.Registry, newTransport())
 	select {}
 }
 
@@ -79,7 +79,7 @@ func initInspector() {
 // initBridge wires the render loop to the JS runtime: it registers the event
 // dispatcher, announces the event types the app listens for, and drives one
 // requestAnimationFrame flush whenever work appears.
-func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry) {
+func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry, tr *transport) {
 	core.SetFileReader(readFile)
 
 	js.Global().Set("handleEvent", js.FuncOf(func(this js.Value, args []js.Value) any {
@@ -100,17 +100,17 @@ func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry) {
 		announce(t, dom.EventCapture(t))
 	}
 
-	startScheduler(sched)
+	startScheduler(sched, tr)
 }
 
-func startScheduler(sched *core.Scheduler) {
+func startScheduler(sched *core.Scheduler, tr *transport) {
 	scheduled := false
 	var rAF js.Func
 	rAF = js.FuncOf(func(this js.Value, args []js.Value) any {
 		scheduled = false
 		muts := sched.Flush()
 		if len(muts) > 0 {
-			sendMutations(sched, muts)
+			sendMutations(sched, tr, muts)
 		}
 		// Effects queued by this frame's renders (OnMount, UseEffect) run now
 		// that their DOM is in the document.
@@ -130,13 +130,86 @@ func startScheduler(sched *core.Scheduler) {
 	sched.OnWork()
 }
 
-// sendMutations applies a batch and delivers the replies to any reads
-// (ref.Get) it carried: applyMutations returns them as JSON once every write in
-// the batch is in the DOM. The callbacks run here, on the render loop.
-func sendMutations(sched *core.Scheduler, muts []core.Mutation) {
-	data, dropped := dom.EncodeBatch(muts)
+// transport carries each frame's batch to the runtime. By default that is the
+// binary format (internal/dom/batch.go), copied into a Uint8Array reused from
+// frame to frame and read there in place; it sends JSON instead when the page
+// asks for it (goowee.transport = "json") or its goowee.js predates the binary
+// format.
+type transport struct {
+	enc   dom.BatchEncoder
+	apply js.Value // goowee.applyBatch; undefined when sending JSON
+	buf   js.Value // the Uint8Array batches are copied into
+	size  int      // buf's length
+	small int      // consecutive batches that used under an eighth of a big buf
+}
+
+// Like BatchEncoder's own buffers, buf is released after shrinkAfter batches in
+// a row that used under an eighth of it once it is past shrinkAbove bytes.
+const (
+	shrinkAbove = 1 << 20
+	shrinkAfter = 64
+)
+
+// newTransport picks the transport and records it in goowee.transport.
+func newTransport() *transport {
+	t := &transport{}
+	g := js.Global().Get("goowee")
+	apply, version := g.Get("applyBatch"), g.Get("batchVersion")
+	switch {
+	case g.Get("transport").Equal(js.ValueOf("json")):
+	case apply.Type() != js.TypeFunction || version.Type() != js.TypeNumber || version.Int() != dom.BatchVersion:
+		core.Log(core.LogWarn, "this page's goowee.js doesn't read the app's DOM update format, so updates are sent as JSON; serve the goowee.js from the app's goowee version", map[string]any{
+			"batchVersion": dom.BatchVersion,
+		})
+	default:
+		t.apply = apply
+	}
+	if t.apply.IsUndefined() {
+		g.Set("transport", "json")
+	} else {
+		g.Set("transport", "binary")
+	}
+	return t
+}
+
+// send applies muts in the runtime and returns what it answered: the replies
+// to the batch's reads, as JSON, or undefined.
+func (t *transport) send(muts []core.Mutation) js.Value {
+	if t.apply.IsUndefined() {
+		data, dropped := dom.EncodeBatch(muts)
+		dom.LogDropped(dropped)
+		return js.Global().Call("applyMutations", string(data))
+	}
+	data, dropped := t.enc.Encode(muts)
 	dom.LogDropped(dropped)
-	ret := js.Global().Call("applyMutations", string(data))
+	t.fit(len(data))
+	js.CopyBytesToJS(t.buf, data)
+	return t.apply.Invoke(t.buf, len(data))
+}
+
+// fit makes buf hold an n-byte batch, growing it to the next power of two.
+func (t *transport) fit(n int) {
+	if n <= t.size {
+		if t.size <= shrinkAbove || n >= t.size/8 {
+			t.small = 0
+			return
+		}
+		if t.small++; t.small < shrinkAfter {
+			return
+		}
+	}
+	size := 4096
+	for size < n {
+		size *= 2
+	}
+	t.buf, t.size, t.small = js.Global().Get("Uint8Array").New(size), size, 0
+}
+
+// sendMutations applies a batch and delivers the replies to any reads
+// (ref.Get) it carried: the runtime returns them as JSON once every write in
+// the batch is in the DOM. The callbacks run here, on the render loop.
+func sendMutations(sched *core.Scheduler, tr *transport, muts []core.Mutation) {
+	ret := tr.send(muts)
 	if ret.Type() != js.TypeString {
 		return
 	}

@@ -17,3 +17,6 @@ _site/
 
 # graphify knowledge graph — generated locally (graphify update .), machine-specific
 graphify-out/
+
+# Local drafts (LinkedIn posts, blog posts), not part of the repo
+/contents/

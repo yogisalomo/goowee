@@ -70,9 +70,13 @@ function markOnce(name) {
 
 // boot loads and runs the WASM module, replacing the copy-pasted loader that
 // used to live in each HTML shell. `opts.wasm` overrides the module URL (default
-// "main.wasm", resolved against <base> like the other assets).
+// "main.wasm", resolved against <base> like the other assets). `opts.transport`
+// sets goowee.transport, how Go sends DOM updates: "binary" (the default) or
+// "json", the earlier format, kept as a fallback. The bridge reads it once at
+// startup and sets it to the transport it actually uses.
 goowee.boot = function boot(opts) {
     opts = opts || {};
+    if (opts.transport) goowee.transport = opts.transport;
     const wasmURL = opts.wasm || "main.wasm";
     const go = new Go();
     mark("goowee:fetch-start");
@@ -388,157 +392,276 @@ function restoreFocus(s) {
     if (s.start !== null) try { s.el.setSelectionRange(s.start, s.end, s.dir || undefined); } catch (_) {}
 }
 
-window.applyMutations = function applyMutations(json) {
+// A batch of DOM updates is applied in one pass, whichever transport carried
+// it: startBatch, applyMutation for each update in order, then finishBatch.
+function startBatch() {
     hydrateOnce();
     // First flush = first paint of app-produced DOM = interactive (roadmap 3.2).
     if (!goowee._interactive) {
         goowee._interactive = true;
         mark("goowee:interactive");
     }
-    const muts = JSON.parse(json);
     // Reads (ref.Get) are answered after every write in the batch has been
     // applied, so a handler that updates state and measures sees the result.
-    const reads = [];
-    const focus = saveFocus();
-    let movedLive = false, focusCommand = false;
-    for (const mut of muts) {
-        let el;
-        switch (mut.type) {
-            case 0: // CreateElement
-                if (preexistingNodes[mut.nodeId]) {
-                    el = preexistingNodes[mut.nodeId];
-                    delete preexistingNodes[mut.nodeId];
-                } else if (mut.value === "#text") {
-                    el = document.createTextNode("");
-                } else if (mut.value === "#comment") {
-                    el = document.createComment(""); // a scope's end anchor
-                } else if (mut.ns) {
-                    el = document.createElementNS(mut.ns, mut.value); // SVG etc.
-                } else {
-                    el = document.createElement(mut.value);
-                }
-                el._nodeID = mut.nodeId;
-                nodeMap[mut.nodeId] = el;
-                break;
-            case 1: // RemoveNode — Go sends only a removed subtree's roots
-                el = nodeMap[mut.nodeId];
-                if (el) {
-                    if (el.parentNode) el.parentNode.removeChild(el);
-                    forget(el);
-                }
-                delete nodeMap[mut.nodeId];
-                break;
-            case 2: // SetAttribute
-                el = nodeMap[mut.nodeId];
-                // Go validates names; a throw here must not abort the batch.
-                if (el) try { el.setAttribute(mut.key, mut.value); } catch (err) { console.error("goowee: setAttribute", mut.key, err); }
-                break;
-            case 3: // SetProperty
-                el = nodeMap[mut.nodeId];
-                if (el) {
-                    // Setting .value resets the caret to the end. For a focused
-                    // text field, preserve the selection so typing doesn't jump
-                    // (and programmatic updates still apply — we don't skip the
-                    // write, we restore the caret after it).
-                    if (mut.key === "value" && el === document.activeElement &&
-                        typeof el.selectionStart === "number") {
-                        if (el.value !== mut.value) {
-                            const s = el.selectionStart, end = el.selectionEnd;
-                            el.value = mut.value;
-                            try { el.setSelectionRange(s, end); } catch (_) {}
-                        }
-                    } else {
-                        el[mut.key] = mut.value;
-                    }
-                }
-                break;
-            case 4: { // AppendChild
-                const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
-                const child = nodeMap[mut.childId];
-                if (parent && child && !child.parentNode) {
-                    parent.appendChild(child);
-                }
-                break;
-            }
-            case 5: { // InsertBefore
-                // The reference node's actual parent wins: a scope's content is
-                // inserted before its anchor wherever the anchor lives (inside a
-                // portal target, the root container, …).
-                const child = nodeMap[mut.childId];
-                const ref = mut.refId ? nodeMap[mut.refId] : null;
-                const parent = ref && ref.parentNode ? ref.parentNode
-                    : (mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId]);
-                if (parent && child) {
-                    movedLive = moveNode(parent, child, ref && ref.parentNode === parent ? ref : null) || movedLive;
-                }
-                break;
-            }
-            case 6: { // RemoveAttribute
-                el = nodeMap[mut.nodeId];
-                if (el) try { el.removeAttribute(mut.key); } catch (err) { console.error("goowee: removeAttribute", mut.key, err); }
-                break;
-            }
-            case 8: { // Invoke — call a method on a node (refs: focus/blur/…)
-                el = nodeMap[mut.nodeId];
-                if (mut.key === "focus" || mut.key === "blur") focusCommand = true;
-                if (el && typeof el[mut.key] === "function") el[mut.key]();
-                break;
-            }
-            case 9: { // PortalAppend — append child to a container by selector
-                const parent = document.querySelector(mut.value);
-                const child = nodeMap[mut.childId];
-                if (parent && child && child.parentNode !== parent) {
-                    movedLive = moveNode(parent, child, null) || movedLive;
-                }
-                break;
-            }
-            case 10: // Read — deferred to after the batch (see below)
-                reads.push(mut);
-                break;
-            case 7: { // Hydrate — claim a server-rendered node by id
-                const pre = preexistingNodes[mut.nodeId];
-                const wantText = mut.value === "#text";
-                const wantComment = mut.value === "#comment";
-                // The claimed node must match what the client expects; a wrong
-                // tag/type means the server and client rendered different trees.
-                const matches = pre && (wantText ? pre.nodeType === 3
-                    : wantComment ? pre.nodeType === 8
-                    : pre.nodeType === 1 && pre.nodeName.toLowerCase() === mut.value);
-                if (matches) {
-                    el = pre;
-                    delete preexistingNodes[mut.nodeId];
-                } else {
-                    if (pre) {
-                        console.error(
-                            "goowee: hydration mismatch at node " + mut.nodeId +
-                            " — client expected <" + mut.value + ">, server rendered <" +
-                            (pre.nodeName || pre.nodeType).toString().toLowerCase() + ">. " +
-                            "Render deterministic markup, or wrap non-deterministic content with h.Dynamic().");
-                        delete preexistingNodes[mut.nodeId];
-                    } else {
-                        console.error(
-                            "goowee: no server node for " + mut.nodeId + " (<" + mut.value +
-                            ">). SSR/client structure diverged; creating it bare.");
-                    }
-                    // Best-effort recovery so the app keeps running.
-                    el = wantText ? document.createTextNode("")
-                        : wantComment ? document.createComment("")
-                        : document.createElement(mut.value);
-                }
-                el._nodeID = mut.nodeId;
-                nodeMap[mut.nodeId] = el;
-                break;
-            }
-        }
-    }
+    return {reads: [], focus: saveFocus(), movedLive: false, focusCommand: false};
+}
+
+function finishBatch(b) {
     // An explicit ref.Focus/Blur in the batch decides focus; otherwise a move
     // that dropped it is undone.
-    if (movedLive && !focusCommand) restoreFocus(focus);
-    if (reads.length === 0) return undefined;
-    return JSON.stringify(reads.map(function (mut) {
-        return {req: mut.value, value: readProp(nodeMap[mut.nodeId], mut.key)};
+    if (b.movedLive && !b.focusCommand) restoreFocus(b.focus);
+    if (b.reads.length === 0) return undefined;
+    return JSON.stringify(b.reads.map(function (r) {
+        return {req: r.value, value: readProp(nodeMap[r.nodeId], r.key)};
     }));
+}
+
+// applyMutations applies a batch sent as JSON: the fallback transport
+// (goowee.transport = "json"), and what a wasm built before the binary format
+// sends.
+window.applyMutations = function applyMutations(json) {
+    const b = startBatch();
+    for (const mut of JSON.parse(json)) applyMutation(mut, b);
+    return finishBatch(b);
 };
+
+// goowee.applyBatch applies a binary batch: the first len bytes of u8, which
+// the bridge copies in from Go. It is the default transport; the format is
+// documented with its encoder, internal/dom/batch.go. batchVersion is the
+// format this runtime reads, and the bridge sends JSON instead when it doesn't
+// match its own.
+goowee.batchVersion = 1;
+goowee.applyBatch = function applyBatch(u8, len) {
+    const b = startBatch();
+    decodeBatch(u8, len, applyMutation, b);
+    return finishBatch(b);
+};
+
+// One decoder for every batch. ignoreBOM keeps a string that starts with
+// U+FEFF intact: by default a TextDecoder drops a leading byte order mark,
+// which would shift every string after it.
+const batchText = new TextDecoder("utf-8", {ignoreBOM: true});
+
+// decodeBatch calls apply(mut, ctx) for each update in a binary batch, with
+// the fields JSON.parse would have produced for it: absent ones undefined.
+// mut is one object reused for the whole batch.
+function decodeBatch(u8, len, apply, ctx) {
+    const r = new BatchReader(u8, len);
+    const mut = {type: 0, nodeId: 0, key: undefined, value: undefined, childId: undefined, refId: undefined, ns: undefined};
+    while (r.pos < r.end) {
+        const type = u8[r.pos], flags = u8[r.pos + 1];
+        r.pos += 2;
+        mut.type = type;
+        mut.nodeId = r.varint();
+        mut.key = flags & 1 ? r.string() : undefined;
+        switch ((flags >> 4) & 7) {
+            case 0: mut.value = undefined; break;
+            case 1:
+                mut.value = r.string();
+                // The DOM copies text and markup; a property a page keeps in
+                // JS (a custom element's, an expando) gets a string of its own.
+                if (type === 3 && mut.key !== "textContent" && mut.key !== "innerHTML") mut.value = ownString(mut.value);
+                break;
+            case 2: mut.value = r.varint(); break;
+            case 3: mut.value = r.float(); break;
+            case 4: mut.value = false; break;
+            case 5: mut.value = true; break;
+            case 6: mut.value = JSON.parse(r.string()); break;
+            default: throw new Error("goowee: unknown value kind in a DOM update batch");
+        }
+        mut.childId = flags & 2 ? r.varint() : undefined;
+        mut.refId = flags & 4 ? r.varint() : undefined;
+        mut.ns = flags & 8 ? r.string() : undefined;
+        apply(mut, ctx);
+    }
+}
+
+// BatchReader reads one binary batch: the header, varints and floats from the
+// op section, and strings sliced in turn out of the string section, decoded
+// once up front.
+class BatchReader {
+    constructor(u8, len) {
+        this.u8 = u8;
+        this.end = 4 + ((u8[0] | u8[1] << 8 | u8[2] << 16 | u8[3] << 24) >>> 0);
+        this.pos = 4;
+        this.strs = this.end < len ? batchText.decode(u8.subarray(this.end, len)) : "";
+        this.spos = 0;
+        this.view = null;
+    }
+    uvarint() {
+        const u8 = this.u8;
+        let b = u8[this.pos++];
+        if (b < 0x80) return b;
+        // Past 31 bits, bit operations would overflow: accumulate in doubles,
+        // exact below 2^53 (the encoder keeps varints below it).
+        let v = b & 0x7f, scale = 0x80;
+        do {
+            b = u8[this.pos++];
+            v += (b & 0x7f) * scale;
+            scale *= 0x80;
+        } while (b >= 0x80);
+        return v;
+    }
+    varint() { // zigzag: 0, -1, 1, -2, … as 0, 1, 2, 3, …
+        const u = this.uvarint();
+        return u % 2 === 0 ? u / 2 : -(u + 1) / 2;
+    }
+    string() { // its length in UTF-16 code units, then the next that many
+        const n = this.uvarint(), s = this.strs.substring(this.spos, this.spos + n);
+        this.spos += n;
+        return s;
+    }
+    float() {
+        if (!this.view) this.view = new DataView(this.u8.buffer, this.u8.byteOffset);
+        const f = this.view.getFloat64(this.pos, true);
+        this.pos += 8;
+        return f;
+    }
+}
+
+// ownString returns s as a string that doesn't share memory with the batch's
+// string section. A substring of 13 or more characters is a view into the
+// string it was cut from, so a value the page keeps would keep the whole
+// section alive; concatenating and slicing flattens it into a copy.
+function ownString(s) {
+    return s.length < 13 ? s : (" " + s).slice(1);
+}
+
+// For test/e2e/batch.mjs, which checks decodeBatch against JSON.parse.
+goowee._decodeBatch = decodeBatch;
+
+// applyMutation applies one update. mut is only valid during the call: the
+// binary decoder reuses one object for the whole batch.
+function applyMutation(mut, b) {
+    let el;
+    switch (mut.type) {
+        case 0: // CreateElement
+            if (preexistingNodes[mut.nodeId]) {
+                el = preexistingNodes[mut.nodeId];
+                delete preexistingNodes[mut.nodeId];
+            } else if (mut.value === "#text") {
+                el = document.createTextNode("");
+            } else if (mut.value === "#comment") {
+                el = document.createComment(""); // a scope's end anchor
+            } else if (mut.ns) {
+                el = document.createElementNS(mut.ns, mut.value); // SVG etc.
+            } else {
+                el = document.createElement(mut.value);
+            }
+            el._nodeID = mut.nodeId;
+            nodeMap[mut.nodeId] = el;
+            break;
+        case 1: // RemoveNode — Go sends only a removed subtree's roots
+            el = nodeMap[mut.nodeId];
+            if (el) {
+                if (el.parentNode) el.parentNode.removeChild(el);
+                forget(el);
+            }
+            delete nodeMap[mut.nodeId];
+            break;
+        case 2: // SetAttribute
+            el = nodeMap[mut.nodeId];
+            // Go validates names; a throw here must not abort the batch.
+            if (el) try { el.setAttribute(mut.key, mut.value); } catch (err) { console.error("goowee: setAttribute", mut.key, err); }
+            break;
+        case 3: // SetProperty
+            el = nodeMap[mut.nodeId];
+            if (el) {
+                // Setting .value resets the caret to the end. For a focused
+                // text field, preserve the selection so typing doesn't jump
+                // (and programmatic updates still apply — we don't skip the
+                // write, we restore the caret after it).
+                if (mut.key === "value" && el === document.activeElement &&
+                    typeof el.selectionStart === "number") {
+                    if (el.value !== mut.value) {
+                        const s = el.selectionStart, end = el.selectionEnd;
+                        el.value = mut.value;
+                        try { el.setSelectionRange(s, end); } catch (_) {}
+                    }
+                } else {
+                    el[mut.key] = mut.value;
+                }
+            }
+            break;
+        case 4: { // AppendChild
+            const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
+            const child = nodeMap[mut.childId];
+            if (parent && child && !child.parentNode) {
+                parent.appendChild(child);
+            }
+            break;
+        }
+        case 5: { // InsertBefore
+            // The reference node's actual parent wins: a scope's content is
+            // inserted before its anchor wherever the anchor lives (inside a
+            // portal target, the root container, …).
+            const child = nodeMap[mut.childId];
+            const ref = mut.refId ? nodeMap[mut.refId] : null;
+            const parent = ref && ref.parentNode ? ref.parentNode
+                : (mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId]);
+            if (parent && child) {
+                b.movedLive = moveNode(parent, child, ref && ref.parentNode === parent ? ref : null) || b.movedLive;
+            }
+            break;
+        }
+        case 6: { // RemoveAttribute
+            el = nodeMap[mut.nodeId];
+            if (el) try { el.removeAttribute(mut.key); } catch (err) { console.error("goowee: removeAttribute", mut.key, err); }
+            break;
+        }
+        case 8: { // Invoke — call a method on a node (refs: focus/blur/…)
+            el = nodeMap[mut.nodeId];
+            if (mut.key === "focus" || mut.key === "blur") b.focusCommand = true;
+            if (el && typeof el[mut.key] === "function") el[mut.key]();
+            break;
+        }
+        case 9: { // PortalAppend — append child to a container by selector
+            const parent = document.querySelector(mut.value);
+            const child = nodeMap[mut.childId];
+            if (parent && child && child.parentNode !== parent) {
+                b.movedLive = moveNode(parent, child, null) || b.movedLive;
+            }
+            break;
+        }
+        case 10: // Read — deferred to after the batch (see below)
+            b.reads.push({nodeId: mut.nodeId, key: mut.key, value: mut.value});
+            break;
+        case 7: { // Hydrate — claim a server-rendered node by id
+            const pre = preexistingNodes[mut.nodeId];
+            const wantText = mut.value === "#text";
+            const wantComment = mut.value === "#comment";
+            // The claimed node must match what the client expects; a wrong
+            // tag/type means the server and client rendered different trees.
+            const matches = pre && (wantText ? pre.nodeType === 3
+                : wantComment ? pre.nodeType === 8
+                : pre.nodeType === 1 && pre.nodeName.toLowerCase() === mut.value);
+            if (matches) {
+                el = pre;
+                delete preexistingNodes[mut.nodeId];
+            } else {
+                if (pre) {
+                    console.error(
+                        "goowee: hydration mismatch at node " + mut.nodeId +
+                        " — client expected <" + mut.value + ">, server rendered <" +
+                        (pre.nodeName || pre.nodeType).toString().toLowerCase() + ">. " +
+                        "Render deterministic markup, or wrap non-deterministic content with h.Dynamic().");
+                    delete preexistingNodes[mut.nodeId];
+                } else {
+                    console.error(
+                        "goowee: no server node for " + mut.nodeId + " (<" + mut.value +
+                        ">). SSR/client structure diverged; creating it bare.");
+                }
+                // Best-effort recovery so the app keeps running.
+                el = wantText ? document.createTextNode("")
+                    : wantComment ? document.createComment("")
+                    : document.createElement(mut.value);
+            }
+            el._nodeID = mut.nodeId;
+            nodeMap[mut.nodeId] = el;
+            break;
+        }
+    }
+}
 
 // readProp evaluates a ref.Get: a method is called with no arguments, a
 // property is read as-is. Anything JSON can't carry (undefined, a function, a

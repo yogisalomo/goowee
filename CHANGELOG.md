@@ -11,6 +11,28 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Changed
+- **DOM updates cross from Go to JavaScript in a binary format** instead of
+  JSON (ADR-026). The encoder reuses its buffers, so a frame no longer
+  allocates its own payload, and the runtime decodes each batch's strings with
+  one call. On a 5,000-update frame in Chrome the payload is 74% smaller
+  (255 → 67 KiB) and the frame is 63–67% faster (9.3 → 3.4 ms on an M1),
+  most of the saving being Go garbage collection the JSON frame's
+  allocations paid for; frames of 1–10 updates are 16–37% faster. The runtime sees the same values as before. No
+  API changes. The wasm and `goowee.js` should come from the same goowee
+  version: with an older `goowee.js` the bridge falls back to JSON and logs a
+  warning.
+
+### Added
+- `goowee.boot({transport: "json"})` selects the JSON transport, for
+  comparing the two or as a workaround; `goowee.transport` reports the one in
+  use.
+- `test/e2e/transport.mjs` measures both transports in headless Chrome,
+  replaying real frames and timing the real WASM app frame by frame;
+  `test/e2e/batch.mjs` (part of `make e2e`) checks the runtime's binary
+  decoder against `JSON.parse` on a Go-written corpus; the E2E smoke test runs
+  on both transports and on an older `goowee.js`.
+
 ## [0.2.2] — 2026-10-19
 
 A patch release that closes the smaller deferred roadmap items: SVG content
