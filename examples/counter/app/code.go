@@ -27,7 +27,7 @@ func copyButton(text string) core.Node {
 		return Button(Class("copy"), Type("button"), Attr("aria-live", "polite"),
 			OnClick(func() {
 				gen++
-				mine := gen
+				mine, wait := gen, copyFeedback // read here, on the render loop
 				writeClipboard(text, func(ok bool) {
 					core.Schedule(func() {
 						if mine != gen {
@@ -40,7 +40,7 @@ func copyButton(text string) core.Node {
 						}
 					})
 					go func() {
-						time.Sleep(copyFeedback)
+						time.Sleep(wait)
 						core.Schedule(func() {
 							if mine == gen {
 								setLabel("Copy")
