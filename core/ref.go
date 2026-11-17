@@ -76,6 +76,34 @@ func (r *Ref) Get(prop string, fn func(v any)) {
 	}
 }
 
+// Draw sends a goowee/canvas command buffer to the referenced <canvas>. It is
+// drawn on the next frame, after that frame's DOM updates, and replaces the
+// canvas's previous picture unless the buffer says not to clear. The slice is
+// read when the frame is sent: until then, change it only to record a newer
+// picture for the same canvas; after that, reuse it freely. A later Draw to
+// the same canvas before the frame replaces this one. No-op before the element
+// has rendered.
+//
+// Most apps use canvas.View, which records and draws for you; use Draw with a
+// canvas.Ctx when the drawing is driven from elsewhere:
+//
+//	c := canvas.NewCtx(300, 150)
+//	c.FillRect(10, 10, 50, 50)
+//	ref.Draw(c.Commands())
+//
+// The runtime sizes the canvas's backing store for the screen's device pixel
+// ratio from the width and height in the buffer; give the element the same
+// size in CSS pixels (canvas.View does), or it is displayed at the backing
+// store's size.
+func (r *Ref) Draw(cmds []uint32) {
+	if r == nil || r.ID == 0 || len(cmds) == 0 {
+		return
+	}
+	if s := scheduler(); s != nil {
+		s.Enqueue(Mutation{Type: MutDraw, NodeID: r.ID, Value: cmds})
+	}
+}
+
 // invoke queues a method call on the node via the active scheduler, which the
 // bridge applies to the real DOM node. Safe to call from event handlers and
 // effects (and, like Schedule, from goroutines).

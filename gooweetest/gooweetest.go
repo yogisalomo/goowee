@@ -24,6 +24,7 @@ package gooweetest
 
 import (
 	"encoding/json"
+	"github.com/yogisalomo/goowee/canvas"
 	"strings"
 	"sync"
 	"testing"
@@ -396,6 +397,29 @@ type Call struct {
 
 // Calls returns the methods called on the element through ref.Call, in order.
 func (e *Element) Calls() []Call { return append([]Call(nil), e.n.calls...) }
+
+// Canvas decodes the latest goowee/canvas buffer drawn on this <canvas> (by
+// canvas.View or core.Ref.Draw): the commands, in order, after the frames
+// flushed so far. nil if nothing was drawn. It fails the test if the buffer
+// doesn't decode. Compare with canvas.Command.String for readable asserts:
+//
+//	cmds := screen.Find("canvas").Canvas()
+//	if cmds[1].String() != "FillRect(0, 60, 20, 40)" { … }
+func (e *Element) Canvas() []canvas.Command {
+	e.s.t.Helper()
+	if e.n.drawing == nil {
+		return nil
+	}
+	_, _, _, cmds, err := canvas.Decode(e.n.drawing)
+	if err != nil {
+		e.s.t.Fatalf("gooweetest: <canvas> buffer: %v", err)
+	}
+	return cmds
+}
+
+// DrawCount is how many buffers were drawn on this <canvas> — one per frame
+// that redrew it.
+func (e *Element) DrawCount() int { return e.n.draws }
 
 // Value is the element's value property (or value attribute).
 func (e Element) Value() string {

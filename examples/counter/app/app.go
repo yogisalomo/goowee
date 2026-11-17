@@ -28,6 +28,7 @@ func App(r *router.Router) core.Node {
 				"/ai":              func() core.Node { return aiGuidePage(r) },
 				"/greet/:name":     func() core.Node { return greetPage(r) },
 				"/events":          func() core.Node { return eventsPage(r) },
+				"/canvas":          func() core.Node { return canvasPage(r) },
 			}),
 		)
 	})
@@ -601,7 +602,8 @@ var tutorialSteps = []tutorialStep{
 	{"07", "/error", "Error Boundary"},
 	{"08", "/greet/alice", "Greeting"},
 	{"09", "/events", "Events"},
-	{"10", "/ai", "Coding with AI"},
+	{"10", "/canvas", "Canvas"},
+	{"11", "/ai", "Coding with AI"},
 }
 
 func tutorialStepNav(r *router.Router, current string) core.Node {

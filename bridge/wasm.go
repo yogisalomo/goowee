@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"syscall/js"
+	"unsafe"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/devtools"
@@ -165,10 +166,23 @@ func startScheduler(sched *core.Scheduler) {
 	sched.OnWork()
 }
 
-// sendMutations applies a batch and delivers the replies to any reads
-// (ref.Get) it carried: applyMutations returns them as JSON once every write in
-// the batch is in the DOM. The callbacks run here, on the render loop.
+// sendMutations sends a frame to the runtime: the DOM batch first, then each
+// canvas draw (ref.Draw, canvas.View) as raw bytes, so a draw sees the frame's
+// DOM — a <canvas> created in the same frame exists by then.
 func sendMutations(sched *core.Scheduler, muts []core.Mutation) {
+	muts, draws := dom.SplitDraws(muts)
+	if len(muts) > 0 {
+		applyBatch(sched, muts)
+	}
+	for _, d := range draws {
+		sendDraw(d)
+	}
+}
+
+// applyBatch applies a batch and delivers the replies to any reads (ref.Get)
+// it carried: applyMutations returns them as JSON once every write in the
+// batch is in the DOM. The callbacks run here, on the render loop.
+func applyBatch(sched *core.Scheduler, muts []core.Mutation) {
 	data, dropped := dom.EncodeBatch(muts)
 	dom.LogDropped(dropped)
 	ret := js.Global().Call("applyMutations", string(data))
@@ -186,6 +200,50 @@ func sendMutations(sched *core.Scheduler, muts []core.Mutation) {
 	for _, r := range replies {
 		sched.Resolve(r.Req, r.Value)
 	}
+}
+
+// drawBuf is the Uint8Array draws are copied into, reused from frame to frame
+// and grown by powers of two.
+var (
+	drawBuf     js.Value
+	drawBufLen  int
+	drawChecked bool
+	drawOK      bool
+	drawFn      js.Value
+)
+
+// sendDraw copies a goowee/canvas buffer into JS memory in one copy and hands
+// it to the runtime's replayer (goowee.draw), which issues the canvas calls.
+func sendDraw(m core.Mutation) {
+	cmds, _ := m.Value.([]uint32)
+	if len(cmds) == 0 {
+		return
+	}
+	if !drawChecked {
+		drawChecked = true
+		g := js.Global().Get("goowee")
+		drawFn = g.Get("draw")
+		v := g.Get("canvasVersion")
+		drawOK = drawFn.Type() == js.TypeFunction && v.Type() == js.TypeNumber && v.Int() == core.DrawVersion
+		if !drawOK {
+			core.Log(core.LogWarn, "this page's goowee.js can't draw goowee/canvas buffers; serve the goowee.js of the same version", map[string]any{"want": core.DrawVersion})
+		}
+	}
+	if !drawOK {
+		return
+	}
+	n := len(cmds) * 4
+	if n > drawBufLen {
+		size := 1 << 16
+		for size < n {
+			size <<= 1
+		}
+		drawBuf = js.Global().Get("Uint8Array").New(size)
+		drawBufLen = size
+	}
+	// wasm is little-endian, so the words' memory is the buffer's byte form.
+	js.CopyBytesToJS(drawBuf, unsafe.Slice((*byte)(unsafe.Pointer(&cmds[0])), n))
+	drawFn.Invoke(drawBuf, n, m.NodeID)
 }
 
 // readFile backs core.File.Bytes: it asks the runtime for the parked File's

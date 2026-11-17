@@ -25,6 +25,15 @@ time. The public surface freezes under semver at v1.
   a no-op without dev mode. Signals in a package-level store are named before
   dev mode is known, and the browser build keeps those names until it is. The
   router names its signals `router.path`, `router.query` and `router.params`.
+- `goowee/canvas` (#159): draw on a `<canvas>` from Go. `canvas.View(Size,
+  Draw(deps, fn), Label, Attrs, Fallback, NoClear)` records a frame into a
+  command buffer whenever a dep changes, and the runtime replays it in one
+  call (the #159 spike measured 2–3 ms for 10,000 lines and 10,000 circles,
+  against 15–17 ms through `syscall/js`). Coordinates are CSS pixels, scaled for the device pixel ratio.
+  `core.Ref.Draw` sends a buffer recorded by hand; gooweetest's
+  `Element.Canvas()` and `DrawCount()` check what was drawn. New mutation type
+  `core.MutDraw`; the runtime and the app must come from the same goowee version
+  (`goowee.canvasVersion`). The tutorial has a Canvas lesson.
 - The inspector lists a `core.NewSignal` signal once it is named or written,
   and formats struct values with field names (`{Name:tea Price:3}`).
 

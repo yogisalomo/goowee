@@ -690,6 +690,122 @@ window.applyMutations = function applyMutations(json) {
     }));
 };
 
+// goowee/canvas: Go records drawing commands into a buffer of 32-bit words
+// and sends the whole buffer per frame (ref.Draw, canvas.View); goowee.draw
+// replays it onto the <canvas>'s 2D context. The format is versioned:
+// goowee.canvasVersion must match core.DrawVersion in Go. Each command is one
+// word, op | operandCount << 8, then its operands (float32s, integers, or a
+// string as a byte length plus UTF-8 padded to 4 bytes). Unknown ops are
+// skipped, so an older runtime ignores newer commands instead of failing.
+goowee.canvasVersion = 1;
+const canvasState = new WeakMap(); // <canvas> -> {ctx, last}
+const canvasText = new TextDecoder();
+const CANVAS_CAPS = ["butt", "round", "square"];
+const CANVAS_JOINS = ["miter", "round", "bevel"];
+const CANVAS_ALIGNS = ["start", "end", "left", "right", "center"];
+const CANVAS_BASELINES = ["alphabetic", "top", "hanging", "middle", "ideographic", "bottom"];
+const TAU = Math.PI * 2;
+let canvasVersionWarned = false;
+
+goowee.draw = function draw(u8, nbytes, nodeId) {
+    const el = nodeMap[nodeId];
+    if (!el || el.nodeName !== "CANVAS") return;
+    let st = canvasState.get(el);
+    if (!st) {
+        st = {ctx: el.getContext("2d"), last: null};
+        canvasState.set(el, st);
+    }
+    if (!st.ctx) return; // the context couldn't be created (another context type owns the canvas)
+    st.last = u8.slice(0, nbytes); // a copy: the caller reuses u8, and a resize can replay it
+    replayCanvas(el, st);
+};
+
+function replayCanvas(el, st) {
+    const bytes = st.last;
+    const words = bytes.byteLength >> 2;
+    const u = new Uint32Array(bytes.buffer, 0, words);
+    const f = new Float32Array(bytes.buffer, 0, words);
+    if (words < 4 || u[0] !== goowee.canvasVersion) {
+        if (!canvasVersionWarned) {
+            canvasVersionWarned = true;
+            console.error("goowee: canvas buffer format " + u[0] + " is not " + goowee.canvasVersion +
+                "; serve the goowee.js of the same goowee version as the app");
+        }
+        return;
+    }
+    // The runtime owns the backing store's size: the buffer's CSS size times
+    // the device pixel ratio. Compared with the element itself, so anything
+    // else that resized it (a width attribute) is corrected on the next draw.
+    const w = f[2], h = f[3], dpr = globalThis.devicePixelRatio || 1;
+    const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+    if (el.width !== bw) el.width = bw; // also clears the canvas and resets its state
+    if (el.height !== bh) el.height = bh;
+    const ctx = st.ctx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // app coordinates are CSS pixels
+    if (u[1] & 1) ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    let depth = 1;
+    const str = function (i) { return canvasText.decode(bytes.subarray(i * 4 + 4, i * 4 + 4 + u[i])); };
+    for (let i = 4; i < words;) {
+        const word = u[i++], op = word & 0xff, n = word >>> 8;
+        if (i + n > words) break; // truncated: Go never sends one
+        switch (op) {
+            case 1: ctx.save(); depth++; break;
+            case 2: if (depth > 1) { ctx.restore(); depth--; } break;
+            case 3: ctx.translate(f[i], f[i + 1]); break;
+            case 4: ctx.scale(f[i], f[i + 1]); break;
+            case 5: ctx.rotate(f[i]); break;
+            case 6: ctx.transform(f[i], f[i + 1], f[i + 2], f[i + 3], f[i + 4], f[i + 5]); break;
+            case 10: ctx.fillStyle = str(i); break;
+            case 11: ctx.strokeStyle = str(i); break;
+            case 12: ctx.lineWidth = f[i]; break;
+            case 13: ctx.lineCap = CANVAS_CAPS[u[i]] || "butt"; break;
+            case 14: ctx.lineJoin = CANVAS_JOINS[u[i]] || "miter"; break;
+            case 15: ctx.globalAlpha = f[i]; break;
+            case 16: ctx.setLineDash(Array.from(f.subarray(i, i + n))); break;
+            case 17: ctx.font = str(i); break;
+            case 18: ctx.textAlign = CANVAS_ALIGNS[u[i]] || "start"; break;
+            case 19: ctx.textBaseline = CANVAS_BASELINES[u[i]] || "alphabetic"; break;
+            case 30: ctx.beginPath(); break;
+            case 31: ctx.closePath(); break;
+            case 32: ctx.moveTo(f[i], f[i + 1]); break;
+            case 33: ctx.lineTo(f[i], f[i + 1]); break;
+            case 34: ctx.arc(f[i], f[i + 1], f[i + 2], f[i + 3], f[i + 4]); break;
+            case 35: ctx.rect(f[i], f[i + 1], f[i + 2], f[i + 3]); break;
+            case 36: ctx.quadraticCurveTo(f[i], f[i + 1], f[i + 2], f[i + 3]); break;
+            case 37: ctx.bezierCurveTo(f[i], f[i + 1], f[i + 2], f[i + 3], f[i + 4], f[i + 5]); break;
+            case 38: ctx.fill(); break;
+            case 39: ctx.stroke(); break;
+            case 40: ctx.clip(); break;
+            case 50: ctx.clearRect(f[i], f[i + 1], f[i + 2], f[i + 3]); break;
+            case 51: ctx.fillRect(f[i], f[i + 1], f[i + 2], f[i + 3]); break;
+            case 52: ctx.strokeRect(f[i], f[i + 1], f[i + 2], f[i + 3]); break;
+            case 53: ctx.fillText(str(i + 2), f[i], f[i + 1]); break;
+            case 54: ctx.strokeText(str(i + 2), f[i], f[i + 1]); break;
+            case 60: // Segments: x1 y1 x2 y2 …
+                for (let j = i, e = i + n; j < e; j += 4) { ctx.moveTo(f[j], f[j + 1]); ctx.lineTo(f[j + 2], f[j + 3]); }
+                break;
+            case 61: // Circles: x y r …
+                for (let j = i, e = i + n; j < e; j += 3) { ctx.moveTo(f[j] + f[j + 2], f[j + 1]); ctx.arc(f[j], f[j + 1], f[j + 2], 0, TAU); }
+                break;
+            case 62: // Rects: x y w h …
+                for (let j = i, e = i + n; j < e; j += 4) ctx.rect(f[j], f[j + 1], f[j + 2], f[j + 3]);
+                break;
+            case 63: // Polyline: x y …
+                if (n >= 2) {
+                    ctx.moveTo(f[i], f[i + 1]);
+                    for (let j = i + 2, e = i + n; j < e; j += 2) ctx.lineTo(f[j], f[j + 1]);
+                }
+                break;
+            case 64: // FillRects: x y w h …
+                for (let j = i, e = i + n; j < e; j += 4) ctx.fillRect(f[j], f[j + 1], f[j + 2], f[j + 3]);
+                break;
+        }
+        i += n;
+    }
+    while (depth-- > 0) ctx.restore(); // the next frame starts from the default state
+}
+
 // readProp evaluates a ref.Get: a method is called with no arguments, a
 // property is read as-is. Anything JSON can't carry (undefined, a function, a
 // throwing getter, a missing node) comes back as null.

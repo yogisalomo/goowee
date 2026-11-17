@@ -25,6 +25,7 @@ These are the supported API. Import them freely.
 | `router`  | `Route`, params (`ParamSignal`), navigation, guards, sub-routes, base path. |
 | `net`     | `Fetch` (incl. `Form` uploads), `Dial` (WebSocket) and `Subscribe` (server-sent events) on the browser's own APIs; `Transport`/`SetTransport` to swap the network. |
 | `storage` | `Local` and `Session`: the browser's storage, in memory outside the browser. |
+| `canvas`  | `View` and its options, `Ctx` (recording), `Decode`/`Command` (tests). The buffer format is internal to goowee and versioned with the runtime. |
 | `ssr`     | Server-side rendering: `ssr.Handler`, `ssr.RoutedPage`, `ssr.New().Render(node)`. |
 | `bridge`  | The client entry point: `bridge.Run(node)`. |
 | `devtools`| Optional dev-mode inspector: `devtools.Enable()`, `devtools.Snapshot()`, `devtools.Changes()`. |
@@ -41,7 +42,7 @@ stack, node structs). Only these identifiers are public:
   `SignalAccessor`, `Batch`, `Schedule` (off-loop updates).
 - **Composition:** `Node`, `Component`, `ComponentWithProps`, `ComponentNode`,
   `SetKey`, `Context` (`NewContext`, `Provide`, `Use`).
-- **Events / misc:** `EventData` (+ `Touch`, `File`), `Ref`, `SVGNamespace`.
+- **Events / misc:** `EventData` (+ `Touch`, `File`), `Ref` (incl. `Draw`), `SVGNamespace`.
 
 Everything else exported from `core` — `Scheduler`, `RenderContext`,
 `BindingRegistry`, `Mutation`/`MutationType`, `ComponentFrame`, `PushComponent`/

@@ -100,3 +100,31 @@ func TestSiteLinksCarryBasePathAndAllowNewTabs(t *testing.T) {
 		t.Fatalf("only %d links checked — the walk missed pages", checked)
 	}
 }
+
+func TestCanvasPageWithGooweetest(t *testing.T) {
+	s := gooweetest.Render(t, canvasPage(router.New("/canvas")))
+	bars := s.Find("canvas.bars-canvas")
+	cmds := bars.Canvas()
+	if len(cmds) != 8 || cmds[0].String() != `FillStyle("#00728f")` || cmds[1].String() != "FillRect(4, 80, 32, 40)" {
+		t.Fatalf("bars: %v", cmds)
+	}
+	s.Click(s.FindByText("Shuffle"))
+	if got := bars.Canvas()[1].String(); got != "FillRect(4, 42, 32, 78)" || bars.DrawCount() != 2 {
+		t.Fatalf("after Shuffle: %s (%d draws)", got, bars.DrawCount())
+	}
+
+	field := s.Find("canvas.field-canvas")
+	dots := 0
+	for _, c := range field.Canvas() {
+		if c.Op.String() == "Circles" {
+			dots += len(c.Args) / 3
+		}
+	}
+	if dots != 10000 || !strings.HasPrefix(s.Find(".field-stats").Text(), "10,000 dots · 117 KB per frame") {
+		t.Fatalf("field: %d dots, stats %q", dots, s.Find(".field-stats").Text())
+	}
+	s.Input(s.Find(`input[type="range"]`), "20000")
+	if !strings.HasPrefix(s.Find(".field-stats").Text(), "20,000 dots") || field.DrawCount() != 2 {
+		t.Fatalf("after the slider: %q, %d draws", s.Find(".field-stats").Text(), field.DrawCount())
+	}
+}

@@ -79,7 +79,7 @@ func TestExampleAppDeclaresItsDependencies(t *testing.T) {
 	r := router.New("/")
 	h := mount(t, App(r))
 	for _, path := range []string{"/tutorial", "/counter", "/form", "/todos", "/dashboard", "/stopwatch",
-		"/async", "/greet/alice", "/greet/bob", "/events", "/getting-started", "/about", "/nope", "/"} {
+		"/async", "/greet/alice", "/greet/bob", "/events", "/canvas", "/getting-started", "/about", "/nope", "/"} {
 		r.Navigate(path)
 		h.flush()
 	}
