@@ -88,12 +88,12 @@ func greetPage(r *router.Router) core.Node {
 			),
 		)
 		return lessonLayout(r, "URL params",
-			"The route /greet/:name captures a param. This one component is preserved across name changes and reads the param reactively, so switching names updates the text in place, no remount.",
+			"The route `/greet/:name` captures a param. This one component is preserved across name changes and reads the param reactively, so switching names updates the text in place, no remount.",
 			demo, "greet.go", greetCode,
 			howItWorks(
-				"Register a param route: r.Route(map[string]...{ \"/greet/:name\": ... }).",
-				"r.ParamSignal(\"name\") is a derived signal; binding it (via Textf) updates the text when only the param changes.",
-				"Use r.Param(\"name\") for a one-shot read inside an event handler instead.",
+				"Register a param route: `r.Route(map[string]func() core.Node{\"/greet/:name\": …})`.",
+				"`r.ParamSignal(\"name\")` is a derived signal; binding it (via `Textf`) updates the text when only the param changes.",
+				"Use `r.Param(\"name\")` for a one-shot read inside an event handler instead.",
 			),
 			tutorialStepNav(r, "/greet/alice"),
 		)
@@ -118,12 +118,12 @@ func counterPage(r *router.Router) core.Node {
 			),
 		)
 		return lessonLayout(r, "Counter",
-			"State is a signal. Reading it inside Textf binds that text to the signal, so clicking updates only the number, nothing else re-renders.",
+			"State is a signal. Reading it inside `Textf` binds that text to the signal, so clicking updates only the number, nothing else re-renders.",
 			demo, "counter.go", counterCode,
 			howItWorks(
-				"hooks.UseState(0) returns a signal and a setter; read with count.Get(), write with setCount(v).",
-				"Textf(\"Count: %d\", count) binds the signal, so the setter updates just that text node, not the component.",
-				"ShowElse swaps between two views based on a boolean signal.",
+				"`hooks.UseState(0)` returns a signal and a setter; read with `count.Get()`, write with `setCount(v)`.",
+				"`Textf(\"Count: %d\", count)` binds the signal, so the setter updates just that text node, not the component.",
+				"`ShowElse` swaps between two views based on a boolean signal.",
 			),
 			tutorialStepNav(r, "/counter"),
 		)
@@ -218,15 +218,15 @@ func formPage(r *router.Router) core.Node {
 			),
 		)
 		return lessonLayout(r, "Forms & inputs",
-			"BindValue keeps an input and a signal in sync both ways. OnSubmit hands you the named field values, and a ref lets you focus a field imperatively.",
+			"`BindValue` keeps an input and a signal in sync both ways. `OnSubmit` hands you the named field values, and a ref lets you focus a field imperatively.",
 			demo, "form.go", formCode,
 			howItWorks(
-				"BindValue(name) fills the input from the signal and updates the signal on every keystroke, two-way.",
-				"OnSubmit(func(vals map[string]string){...}) receives values keyed by each input's Name; preventDefault is handled for you.",
-				"ref := Ref(); attach with RefTo(ref); ref.Focus() from a handler focuses the node.",
-				"ref.Get(\"offsetWidth\", func(v any){...}) reads a value back from the node on the next frame; the callback runs on the render loop.",
-				"OnChangeE on a file input gives e.Files(): name, size, type. f.Bytes() reads the contents, from a goroutine, applied with core.Schedule.",
-				"For(entries, key, render) renders the keyed, reactive list of submissions.",
+				"`BindValue(name)` fills the input from the signal and updates the signal on every keystroke, two-way.",
+				"`OnSubmit(func(vals map[string]string) {…})` receives values keyed by each input's `Name`; the browser's default submit is prevented for you.",
+				"`ref := Ref()`, attached with `RefTo(ref)`; `ref.Focus()` in a handler focuses the node.",
+				"`ref.Get(\"offsetWidth\", func(v any) {…})` reads a value back from the node on the next frame; the callback runs on the render loop.",
+				"`OnChangeE` on a file input gives `e.Files()`: name, size, type. `f.Bytes()` reads the contents in a goroutine, and `core.Schedule` applies the result.",
+				"`For(entries, key, render)` renders the keyed, reactive list of submissions.",
 			),
 			tutorialStepNav(r, "/form"),
 		)
@@ -341,9 +341,9 @@ func todosPage(r *router.Router) core.Node {
 			"This list holds 100 items but only renders the rows on screen. Each row is keyed, so toggling or removing one touches just that row.",
 			demo, "todos.go", todosCode,
 			howItWorks(
-				"VirtualList(sig, rowHeight, render, VirtualListHeight(h)) renders only the visible window of a large list.",
-				"Each row updates its slice immutably (copy, then setTodos) so the signal notices the change.",
-				"doneCount is a Computed over todos; it recomputes only when the list changes.",
+				"`VirtualList(sig, rowHeight, render, VirtualListHeight(h))` renders only the visible window of a large list.",
+				"Each row updates its slice immutably (copy, then `setTodos`) so the signal notices the change.",
+				"`doneCount` is a `Computed` over `todos`; it recomputes only when the list changes.",
 			),
 			tutorialStepNav(r, "/todos"),
 		)
@@ -365,7 +365,7 @@ func errorPage(r *router.Router) core.Node {
 			"The box below panics on purpose. The boundary catches the failure and renders a fallback, so the rest of the page keeps working instead of going blank.",
 			demo, "error.go", errorCode,
 			howItWorks(
-				"h.ErrorBoundary(fallback, child) renders fallback(err) if rendering child panics.",
+				"`h.ErrorBoundary(fallback, child)` renders `fallback(err)` if rendering `child` panics.",
 				"A panic while the child renders — at mount, or when a re-render reaches the boundary — shows the fallback; whatever the failed render had set up is cleaned up, and a later successful render brings the child back.",
 				"Everything outside the boundary renders normally, so the failure is scoped.",
 			),
@@ -401,12 +401,12 @@ func asyncPage(r *router.Router) core.Node {
 			Button(Type("button"), OnClick(func() { res.Refetch() }), Text("Reload")),
 		)
 		return lessonLayout(r, "Async data",
-			"Real work runs in a goroutine, off the render loop, and UseResource applies the result back safely. The view just binds the loading and data signals.",
+			"Real work runs in a goroutine, off the render loop, and `UseResource` applies the result back safely. The view just binds the loading and data signals.",
 			demo, "async.go", asyncCode,
 			howItWorks(
-				"hooks.UseResource(deps, fetch) runs fetch in a goroutine; its result lands on the render loop via core.Schedule.",
-				"fetch gets a context that is cancelled when a newer load starts or the page unmounts — pass it to your request.",
-				"It exposes Data/Loading/Err signals and a Refetch() method; a generation guard drops stale results.",
+				"`hooks.UseResource(deps, fetch)` runs `fetch` in a goroutine; its result lands on the render loop through `core.Schedule`.",
+				"`fetch` gets a context that is cancelled when a newer load starts or the page unmounts — pass it to your request.",
+				"It exposes `Data`, `Loading` and `Err` signals and a `Refetch()` method; a generation guard drops stale results.",
 				"Fetching is client-side, so SSR renders the loading state and the client fills it in after hydration.",
 			),
 			tutorialStepNav(r, "/async"),
@@ -467,12 +467,12 @@ func stopwatchPage(r *router.Router) core.Node {
 			),
 		)
 		return lessonLayout(r, "Lifecycle & off-loop timers",
-			"OnMount starts a ticker goroutine when the component mounts and stops it on unmount. Because the ticker runs off the render loop, it updates state through core.Schedule.",
+			"`OnMount` starts a ticker goroutine when the component mounts and stops it on unmount. Because the ticker runs off the render loop, it updates state through `core.Schedule`.",
 			demo, "stopwatch.go", stopwatchCode,
 			howItWorks(
-				"hooks.OnMount(fn) runs once on mount (client only) and returns a cleanup that runs on unmount, so no goroutine leaks.",
-				"The ticker is off the render loop, so it wraps the update in core.Schedule(func(){...}) instead of calling the setter directly.",
-				"display is a Computed that formats elapsed tenths as mm:ss.d.",
+				"`hooks.OnMount(fn)` runs once on mount (client only) and returns a cleanup that runs on unmount, so no goroutine leaks.",
+				"The ticker is off the render loop, so it wraps the update in `core.Schedule(func() {…})` instead of calling the setter directly.",
+				"`display` is a `Computed` that formats elapsed tenths as mm:ss.d.",
 			),
 			tutorialStepNav(r, "/stopwatch"),
 		)
@@ -547,13 +547,13 @@ func dashboardPage(r *router.Router) core.Node {
 			}), Text("Randomize Values")),
 		)
 		return lessonLayout(r, "Computed values & selection",
-			"Two Computed values derive from signals: a running total, and a description of the selected row. Each recomputes only when its inputs change. Click a row or randomize to see it.",
+			"Two `Computed` values derive from signals: a running total, and a description of the selected row. Each recomputes only when its inputs change. Click a row or randomize to see it.",
 			demo, "dashboard.go", dashboardCode,
 			howItWorks(
-				"core.Computed(deps, fn) is a read-only signal derived from others; it recomputes only when a listed dep changes.",
-				"selectedText depends on both selected and data, so it updates when either changes.",
-				"Clicking a row calls setSelected(i); Randomize replaces data immutably so dependents recompute.",
-				"The bars are drawn on a <canvas> from OnMount via bridge.Element(ref) — how you hand an element to a JavaScript library (a chart, a map, an editor).",
+				"`core.Computed(deps, fn)` is a read-only signal derived from others; it recomputes only when a listed dep changes.",
+				"`selectedText` depends on both `selected` and `data`, so it updates when either changes.",
+				"Clicking a row calls `setSelected(i)`; Randomize replaces `data` immutably so dependents recompute.",
+				"The bars are drawn on a `<canvas>` from `OnMount` via `bridge.Element(ref)` — how you hand an element to a JavaScript library (a chart, a map, an editor).",
 			),
 			tutorialStepNav(r, "/dashboard"),
 		)
@@ -641,10 +641,10 @@ func gettingStartedPage(r *router.Router) core.Node {
 			H1(Text("Getting started")),
 			H3(Text("Install goowee")),
 			P(Text("Add the module to your project (Go 1.25+):")),
-			Pre(Class("code"), Text("go get github.com/yogisalomo/goowee@latest")),
+			snippet("sh", "go get github.com/yogisalomo/goowee@latest"),
 			H3(Text("App structure")),
 			P(Text("A goowee project has two parts: a WASM binary and an optional SSR server. The minimal layout:")),
-			Pre(Class("code"), Text(`myapp/
+			snippet("", `myapp/
   cmd/
     app/
       main.go    WASM entry point
@@ -653,9 +653,9 @@ func gettingStartedPage(r *router.Router) core.Node {
   app/
     app.go       component tree
   web/
-    index.html   page shell`)),
-			P(Text("The WASM entry point (cmd/app/main.go):")),
-			Pre(Class("code"), Text(`//go:build js && wasm
+    index.html   page shell`),
+			P(rich("The WASM entry point (`cmd/app/main.go`):")),
+			snippet("go", `//go:build js && wasm
 
 package main
 
@@ -671,10 +671,10 @@ func main() {
     // bridge.Run mounts the app, hydrates if the page was
     // server-rendered, and drives the render loop. It never returns.
     bridge.Run(app.App(r))
-}`)),
+}`),
 			H3(Text("Hello World")),
 			P(Text("A component is a function that returns a node tree:")),
-			Pre(Class("code"), Text(`func Hello() core.Node {
+			snippet("go", `func Hello() core.Node {
     return core.Component("Hello", func() core.Node {
         name, setName := hooks.UseState("World")
         return Div(
@@ -682,12 +682,12 @@ func main() {
             Input(BindValue(name)),
         )
     })
-}`)),
+}`),
 			H3(Text("Build & serve")),
 			P(Text("Compile the WASM binary:")),
-			Pre(Class("code"), Text("GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app")),
-			P(Text("The page shell (web/index.html) loads the Go runtime glue and goowee's runtime, then boots main.wasm into #root:")),
-			Pre(Class("code"), Text(`<!doctype html>
+			snippet("sh", "GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app"),
+			P(rich("The page shell (`web/index.html`) loads the Go runtime glue and goowee's runtime, then boots `main.wasm` into `#root`:")),
+			snippet("html", `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -698,13 +698,13 @@ func main() {
   <div id="root">Loading…</div>
   <script>goowee.boot();</script>
 </body>
-</html>`)),
-			P(Text("Whatever #root holds until the app mounts (here a loading message) is replaced by its first frame.")),
-			P(Text("Copy the runtime files and serve the web directory:")),
-			Pre(Class("code"), Text(`cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
+</html>`),
+			P(rich("Whatever `#root` holds until the app mounts (here a loading message) is replaced by its first frame.")),
+			P(rich("Copy the runtime files and serve the `web` directory:")),
+			snippet("sh", `cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
 cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/
-cd web && python3 -m http.server 8080`)),
-			P(Text("Open "), Text("http://localhost:8080"), Text(" in your browser.")),
+cd web && python3 -m http.server 8080`),
+			P(rich("Open `http://localhost:8080` in your browser.")),
 			tutorialStepNav(r, "/getting-started"),
 		)
 	})
