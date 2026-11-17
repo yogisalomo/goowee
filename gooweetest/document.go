@@ -20,8 +20,10 @@ type node struct {
 	props    map[string]any
 	parent   *node
 	children []*node
-	raw      string // innerHTML set as a property (h.Raw)
-	calls    []Call // methods called through ref.Call
+	raw      string   // innerHTML set as a property (h.Raw)
+	calls    []Call   // methods called through ref.Call
+	drawing  []uint32 // the latest goowee/canvas buffer drawn (a copy)
+	draws    int      // how many buffers were drawn
 }
 
 type nodeKind int
@@ -301,6 +303,12 @@ func (d *document) apply(muts []core.Mutation) {
 			reads = append(reads, m)
 		case core.MutCall:
 			calls = append(calls, m)
+		case core.MutDraw:
+			if n := d.nodes[m.NodeID]; n != nil && n.tag == "canvas" {
+				buf, _ := m.Value.([]uint32)
+				n.drawing = append(n.drawing[:0:0], buf...) // the app may reuse buf
+				n.draws++
+			}
 		}
 	}
 }

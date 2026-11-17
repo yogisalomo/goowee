@@ -274,6 +274,8 @@ ref.Call(method string, args ...any)    // ref.Call("setSelectionRange", at, at)
 // on the render loop). v: float64 | string | bool | map[string]any | nil.
 // A prop naming a method (getBoundingClientRect) is called with no args.
 ref.Get(prop string, fn func(v any))
+// Draw a goowee/canvas buffer on a <canvas> (after the frame's DOM updates):
+ref.Draw(cmds []uint32)                 // ref.Draw(ctx.Commands())
 
 Portal(target string, children ...core.Node)  // render into another container
 // (client-side; reconciled on re-render, so state inside survives)
@@ -450,6 +452,8 @@ s.Paste(el, text, files...) bool          // paste; true = prevented
 s.Drop(el, files...) bool                 // drop; dispatch "dragover" with DragOverData() for the accept step
 s.SelectFiles(input, files...)            // file input: input + change
 el.Calls() []gooweetest.Call              // ref.Call history: {Method, Args}
+el.Canvas() []canvas.Command              // the last goowee/canvas buffer drawn on a <canvas>, decoded
+el.DrawCount() int                        // how many frames drew it
 el.Prop("selectionStart")                 // caret, kept by Input, setSelectionRange, value writes
 ```
 
@@ -540,6 +544,53 @@ Read it in `OnMount` (client-only): during a server render it is empty and
 writes do nothing. To keep a signal in storage, `hooks.UsePersist(sig, key)`
 does the loading and saving. Outside the browser it's an in-memory store, which
 gooweetest clears when a test ends. See [the testing guide](../guides/testing.md).
+
+---
+
+## `canvas` — drawing on a `<canvas>` from Go
+
+```go
+import "github.com/yogisalomo/goowee/canvas"
+
+canvas.View(opts ...canvas.Option) core.Node        // a <canvas> drawn by a draw function
+canvas.Size(w, h float64)                           // required; CSS pixels
+canvas.Draw(deps []core.SignalAccessor, fn func(c *canvas.Ctx)) // required; runs on mount and when a dep changes
+canvas.Label(text)                                  // role="img" + aria-label
+canvas.Attrs(items ...core.Item)                    // class, id, handlers (style is the View's)
+canvas.Fallback(children ...core.Node)              // content inside the <canvas>
+canvas.NoClear()                                    // draw on top of the last picture
+
+c := canvas.NewCtx(w, h)                            // record by hand; ref.Draw(c.Commands())
+c.Reset(w, h); c.Width(); c.Height(); c.Commands() []uint32
+// State and transforms
+c.Save(); c.Restore(); c.Translate(x, y); c.Scale(x, y); c.Rotate(rad); c.Transform(a, b, c, d, e, f)
+// Styles
+c.FillStyle(css); c.StrokeStyle(css); c.LineWidth(w); c.GlobalAlpha(a); c.LineDash(seg...)
+c.LineCap(canvas.CapButt|CapRound|CapSquare); c.LineJoin(canvas.JoinMiter|JoinRound|JoinBevel)
+c.Font(css); c.TextAlign(canvas.AlignStart|…|AlignCenter); c.TextBaseline(canvas.BaselineAlphabetic|…)
+// Paths
+c.BeginPath(); c.ClosePath(); c.MoveTo(x, y); c.LineTo(x, y); c.Arc(x, y, r, a0, a1)
+c.Rect(x, y, w, h); c.QuadTo(cx, cy, x, y); c.CubicTo(c1x, c1y, c2x, c2y, x, y)
+c.Fill(); c.Stroke(); c.Clip()
+// Rectangles and text
+c.ClearRect(…); c.FillRect(…); c.StrokeRect(…); c.FillText(x, y, s); c.StrokeText(x, y, s)
+// Bulk: one command for many marks ([]float32; panic on a ragged length)
+c.Segments(v)  // x1 y1 x2 y2 …, added to the path
+c.Circles(v)   // x y r …, added to the path
+c.Rects(v)     // x y w h …, added to the path
+c.Polyline(v)  // x y …, one connected line
+c.FillRects(v) // x y w h …, filled, no path
+// Conveniences
+c.Line(x1, y1, x2, y2); c.Circle(x, y, r)
+
+canvas.Decode(buf []uint32) (w, h float64, flags uint32, cmds []canvas.Command, err error)
+cmd.String()                                        // "FillRect(0, 0, 10, 10)"
+```
+
+Every draw starts from the default context state, on a cleared canvas unless
+`NoClear`. The buffer format is versioned (`canvas.Version`, which equals
+`core.DrawVersion`); serve the `goowee.js` of the same goowee version as the
+app. See [Canvas](../guides/concepts.md#canvas--drawing-from-go).
 
 ---
 

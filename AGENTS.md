@@ -193,6 +193,12 @@ import (
 reloads: `hooks.UsePersist(sig, "key")` (JSON; loads once mounted, so hydration matches the
 server; `hooks.PersistOptions{Store: storage.Session}` for the tab only).
 
+**Canvas** (`goowee/canvas`): `canvas.View(canvas.Size(w, h), canvas.Label("…"),
+canvas.Draw(deps, func(c *canvas.Ctx) { c.FillStyle("#00add8"); c.FillRect(x, y, w, h) }))` —
+redrawn when a dep changes; CSS-pixel coordinates; one path + one `Fill` per color; bulk
+`c.Segments/Circles/Rects/Polyline/FillRects([]float32)` for many marks. Never `syscall/js`
+per drawing call. Tests: `el.Canvas()` → `[]canvas.Command` (`cmd.String()`), `el.DrawCount()`.
+
 **Router** (`router`)
 - `r := router.New(router.CurrentPath())`; `r.BindHistory()` (browser back/forward).
 - `r.Route(map[string]func() core.Node{ "/": home, "/todos/:id": todo, "/404": notFound })`

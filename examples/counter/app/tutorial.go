@@ -107,6 +107,25 @@ total := core.Computed([]core.SignalAccessor{data}, func() string {
 })
 // A row's OnClick(func(){ setSelected(i) }) makes the "selected" text recompute.`
 
+const canvasCode = `sales, setSales := hooks.UseState([]float64{40, 72, 55, 90, 64, 30, 81})
+
+canvas.View(
+    canvas.Size(280, 120),                       // CSS pixels
+    canvas.Label("Sales per day, as bars"),      // role="img" + aria-label
+    canvas.Draw([]core.SignalAccessor{sales}, func(c *canvas.Ctx) {
+        c.FillStyle("#00728f")
+        for i, v := range sales.Get() {
+            c.FillRect(float64(i)*40+4, c.Height()-v, 32, v)
+        }
+    }),                                          // redrawn when sales changes
+)
+
+// Many marks: one path and one Fill per color, with a bulk method.
+c.FillStyle("#00add8")
+c.BeginPath()
+c.Circles(dots)   // []float32 of x, y, r: one command for all of them
+c.Fill()`
+
 const stopwatchCode = `elapsed, setElapsed := hooks.UseState(0)
 
 hooks.OnMount(func() func() {                 // runs once, on the client
@@ -207,6 +226,9 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
   through Go). Server-sent events: net.Subscribe. Browser storage:
   storage.Local / storage.Session (read in OnMount); keep a signal across
   reloads with hooks.UsePersist(sig, "key").
+- Charts and graphs: goowee/canvas — canvas.View(canvas.Size(w, h),
+  canvas.Draw(deps, func(c *canvas.Ctx) {...})); one path and one Fill per
+  color, bulk c.Circles/Segments for many marks; not syscall/js per call.
 - Debugging state: sig.Named("cart"); open the app with ?goowee-dev and run
   goowee.changes() in the console for every write and the code behind it.
 - Test components headlessly with gooweetest.Render(t, node); fake the

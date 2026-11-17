@@ -173,7 +173,8 @@ func tutorialIndex(r *router.Router) core.Node {
 				link("07", "/error", "Error boundary", "recover a render panic, show a fallback"),
 				link("08", "/greet/alice", "Greeting", "URL params, read reactively"),
 				link("09", "/events", "Events", "bubbling, non-bubbling events, preventDefault"),
-				link("10", "/ai", "Coding with an AI agent", "drop-in rules for Claude Code, Cursor, …"),
+				link("10", "/canvas", "Canvas", "draw thousands of marks from Go with `goowee/canvas`"),
+				link("11", "/ai", "Coding with an AI agent", "drop-in rules for Claude Code, Cursor, …"),
 			),
 		)
 	})

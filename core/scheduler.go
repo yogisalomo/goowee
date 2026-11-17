@@ -222,7 +222,8 @@ func (s *Scheduler) Flush() []Mutation {
 }
 
 // coalesce collapses redundant property/attribute writes to the same
-// (node, key) to their last value, preserving order and all other mutations.
+// (node, key) to their last value, and draws to the same canvas to the last
+// one, preserving order and all other mutations.
 func coalesce(muts []Mutation) []Mutation {
 	if len(muts) < 2 {
 		return muts
@@ -234,13 +235,13 @@ func coalesce(muts []Mutation) []Mutation {
 	}
 	lastIdx := make(map[ck]int, len(muts))
 	for i, m := range muts {
-		if m.Type == MutSetProperty || m.Type == MutSetAttribute {
+		if lastWins(m.Type) {
 			lastIdx[ck{m.Type, m.NodeID, m.Key}] = i
 		}
 	}
 	out := make([]Mutation, 0, len(muts))
 	for i, m := range muts {
-		if m.Type == MutSetProperty || m.Type == MutSetAttribute {
+		if lastWins(m.Type) {
 			if lastIdx[ck{m.Type, m.NodeID, m.Key}] != i {
 				continue // superseded by a later write
 			}
@@ -248,6 +249,12 @@ func coalesce(muts []Mutation) []Mutation {
 		out = append(out, m)
 	}
 	return out
+}
+
+// lastWins reports whether a later mutation of this type to the same (node,
+// key) makes earlier ones redundant.
+func lastWins(t MutationType) bool {
+	return t == MutSetProperty || t == MutSetAttribute || t == MutDraw
 }
 
 func (s *Scheduler) Len() int {
@@ -283,7 +290,12 @@ const (
 	MutPortalAppend // append a child to a container matched by selector (Value)
 	MutRead         // read a property (Key) of a node; Value = request id, answered via Scheduler.Resolve
 	MutCall         // call a method (Key) with arguments (Value, a []any), after the batch's writes
+	MutDraw         // replay a goowee/canvas command buffer (Value, a []uint32) on a <canvas>, after the batch
 )
+
+// DrawVersion is the goowee/canvas buffer format MutDraw carries. The runtime
+// (goowee.canvasVersion in goowee.js) must report the same version.
+const DrawVersion = 1
 
 func (mt MutationType) String() string {
 	switch mt {
@@ -311,6 +323,8 @@ func (mt MutationType) String() string {
 		return "Read"
 	case MutCall:
 		return "Call"
+	case MutDraw:
+		return "Draw"
 	default:
 		return "Unknown"
 	}

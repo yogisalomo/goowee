@@ -499,6 +499,9 @@ Give the library an element whose children goowee doesn't manage (render it
 empty), so the library and the renderer never edit the same nodes. The
 dashboard example draws its bar chart on a `<canvas>` this way.
 
+To draw on a `<canvas>` yourself, use `goowee/canvas` (next section) rather
+than one `syscall/js` call per drawing operation.
+
 Render outside the current subtree — modals, tooltips, dropdowns — with
 portals:
 
@@ -511,6 +514,62 @@ Portal("#modal-root",
 Portals render on the client only (the server leaves the target empty). When
 the component holding a portal re-renders, the portal's content is diffed like
 any other children, so a form or component inside a modal keeps its state.
+
+## Canvas — drawing from Go
+
+`goowee/canvas` draws charts, graphs and visualizations on a `<canvas>`. A draw
+function records commands into a `canvas.Ctx` (a buffer of 32-bit words), and
+the runtime replays the whole buffer onto the canvas's 2D context in one call
+per frame. With thousands of marks that is several times faster than calling
+the canvas API through `syscall/js`, and since recording is plain Go it works in
+server rendering and in `gooweetest`.
+
+```go
+import "github.com/yogisalomo/goowee/canvas"
+
+func SalesChart(sales *core.Signal[[]float64]) core.Node {
+    return canvas.View(
+        canvas.Size(280, 120),                   // CSS pixels
+        canvas.Label("Sales per day, as bars"),  // role="img" + aria-label
+        canvas.Draw([]core.SignalAccessor{sales}, func(c *canvas.Ctx) {
+            c.FillStyle("#00728f")
+            for i, v := range sales.Get() {
+                c.FillRect(float64(i)*40+4, c.Height()-v, 32, v)
+            }
+        }),
+    )
+}
+```
+
+The draw function runs once the canvas is in the document and again whenever a
+dep changes; each run records the whole picture, on a cleared canvas
+(`canvas.NoClear()` keeps the previous one). Like `h.VirtualList`, `View` reads
+its options once: the draw function is captured at mount, so it must read
+signals, listed in its deps, to see new data.
+
+- **Coordinates are CSS pixels.** The runtime sizes the backing store for the
+  screen's device pixel ratio, so drawings are sharp on high-density screens.
+  Pointer events on the canvas report `OffsetX`/`OffsetY` in the same units.
+- **Group marks by style.** Once the crossing into JavaScript is cheap, the
+  canvas API is the cost. Draw each color as one path and one `Fill`, and use
+  the bulk methods for many marks: `Segments`, `Circles`, `Rects`, `Polyline`,
+  `FillRects`, which take a `[]float32` and record one command for all of them.
+- **Reuse slices between frames.** A `Ctx` keeps its buffer, so recording into
+  one that has grown to fit the scene doesn't allocate; keep your `[]float32`
+  slices in the component and truncate them (`s = s[:0]`) each run.
+- **Accessibility.** Give a canvas that carries information a `Label`, or a
+  `Fallback` (a table of the data, say) rendered inside the `<canvas>`.
+- **Server and tests.** The draw function never runs during SSR, which renders
+  the empty, labelled `<canvas>`. In `gooweetest`, `Element.Canvas()` returns the
+  recorded commands (`cmds[0].String() == "FillStyle(\"#00728f\")"`) and
+  `Element.DrawCount()` how many frames drew.
+
+To draw from somewhere other than a `View` (a handler, a goroutine via
+`core.Schedule`), record into your own `canvas.NewCtx(w, h)` and send it with
+`ref.Draw(c.Commands())`; give that `<canvas>` the same CSS size.
+
+The tutorial's [Canvas lesson](https://yogisalomo.github.io/goowee/canvas)
+animates up to 50,000 dots this way.
 
 ## Two-way bindings
 

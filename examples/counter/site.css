@@ -270,6 +270,15 @@ pre, code { font-family: var(--mono); }
 .demo-card-body .preview { font-family: var(--mono); font-size: 14px; color: var(--ink); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
 .demo-card-body a { color: var(--accent-ink); font-family: var(--mono); font-size: 14px; }
 
+/* canvas lesson: a canvas.View has a fixed CSS size; on a narrow screen let it
+   shrink, keeping its shape (the drawing scales with it). */
+.canvas-demo { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; width: 100%; }
+.canvas-demo canvas { display: block; max-width: 100%; height: auto !important; border-radius: 8px; }
+.canvas-demo .bars-canvas { aspect-ratio: 280 / 120; background: var(--bg-soft); }
+.canvas-demo .field-canvas { aspect-ratio: 2 / 1; background: #0b1020; }
+.canvas-demo .dots { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 13px; }
+.canvas-demo .field-stats { margin: 0; min-height: 1.4em; font-family: var(--mono); font-size: 13px; color: var(--muted); }
+
 .notes { color: var(--muted); line-height: 1.7; }
 .notes li { margin: 4px 0; }
 

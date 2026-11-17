@@ -12,6 +12,7 @@ on:
       - 'internal/**'
       - 'h/**'
       - 'hooks/**'
+      - 'canvas/**'
       - 'router/**'
       - 'bridge/**'
       - 'go.mod'
