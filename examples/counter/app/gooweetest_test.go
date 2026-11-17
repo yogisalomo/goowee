@@ -56,7 +56,7 @@ func TestWholeAppNavigationWithGooweetest(t *testing.T) {
 	s := gooweetest.Render(t, App(r))
 	s.Click(s.Find(`a[href="/tutorial"]`))
 	s.FindByText("Learn goowee by example")
-	s.Click(s.FindAll("ul.steps a")[1]) // Counter
+	s.Click(s.FindAll("ol.steps a")[1]) // Counter
 	s.FindByText("Count: 0")
 	if r.Path.Get() != "/counter" {
 		t.Fatalf("path %q", r.Path.Get())

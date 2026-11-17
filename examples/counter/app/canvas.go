@@ -123,14 +123,14 @@ func canvasPage(r *router.Router) core.Node {
 			P(Class("field-stats"), TextS(stats)),
 		)
 		return lessonLayout(r, "Canvas",
-			"goowee/canvas draws on a <canvas> from Go. A draw function records commands into one buffer, and the runtime replays it in a single call, so thousands of marks per frame stay cheap. Shuffle the bars, then animate the dots and drag the slider.",
+			"`goowee/canvas` draws on a `<canvas>` from Go. A draw function records commands into one buffer, and the runtime replays it in a single call, so thousands of marks per frame stay cheap. Shuffle the bars, then animate the dots and drag the slider.",
 			demo, "canvas.go", canvasCode,
 			howItWorks(
-				"canvas.View(Size, Draw(deps, fn)) renders a <canvas> and runs fn once mounted and whenever a dep changes. fn records into a canvas.Ctx; nothing reaches JavaScript until the frame is sent.",
-				"The whole picture crosses into JavaScript as one buffer, copied once, instead of one syscall/js call per drawing operation, which costs several times more for big scenes.",
+				"`canvas.View(Size, Draw(deps, fn))` renders a `<canvas>` and runs `fn` once mounted and whenever a dep changes. `fn` records into a `canvas.Ctx`; nothing reaches JavaScript until the frame is sent.",
+				"The whole picture crosses into JavaScript as one buffer, copied once, instead of one `syscall/js` call per drawing operation, which costs several times more for big scenes.",
 				"Coordinates are CSS pixels; the runtime scales the backing store for the screen's device pixel ratio, so the drawing is sharp on high-density screens.",
-				"Group marks by style: one path and one Fill per color, using bulk methods like Circles and Segments. Once the crossing is cheap, the canvas API itself is the cost.",
-				"The draw function never runs on the server; SSR renders the empty <canvas> with its label. In tests, gooweetest's Element.Canvas() returns the recorded commands.",
+				"Group marks by style: one path and one `Fill` per color, using bulk methods like `Circles` and `Segments`. Once the crossing is cheap, the canvas API itself is the cost.",
+				"The draw function never runs on the server; SSR renders the empty `<canvas>` with its label. In tests, gooweetest's `Element.Canvas()` returns the recorded commands.",
 			),
 			tutorialStepNav(r, "/canvas"),
 		)

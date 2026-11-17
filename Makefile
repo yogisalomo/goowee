@@ -65,6 +65,7 @@ pages:
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(PAGES_OUT)/
 	cp runtime/goowee.js $(PAGES_OUT)/
 	cp examples/counter/site.css $(PAGES_OUT)/
+	cp -R examples/counter/fonts $(PAGES_OUT)/
 	sed 's|__BASE__|$(PAGES_BASE)|g' scripts/pages-index.html > $(PAGES_OUT)/index.html
 	cp $(PAGES_OUT)/index.html $(PAGES_OUT)/404.html
 	@echo "built $(PAGES_OUT)/ (base $(PAGES_BASE)) — client-only static site"
@@ -96,5 +97,6 @@ docker:
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(EXAMPLE_DIST)/
 	cp runtime/goowee.js $(EXAMPLE_DIST)/
 	cp examples/counter/index.html examples/counter/site.css examples/counter/counter.js $(EXAMPLE_DIST)/
+	cp -R examples/counter/fonts $(EXAMPLE_DIST)/
 	docker build -t $(DOCKER_TAG) examples/counter
 	docker run --rm -p 8080:8080 $(DOCKER_TAG)

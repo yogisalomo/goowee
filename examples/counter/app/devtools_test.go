@@ -38,9 +38,16 @@ func TestLandingHeroIncrementHeadless(t *testing.T) {
 		t.Fatalf("increment button not found; tree=%q", h.dom.text(0))
 	}
 	h.click(incr)
-	count := h.dom.find(func(n *fnode) bool { return n.attrs["class"] == "count" })
+	count := h.dom.find(func(n *fnode) bool { return strings.HasPrefix(n.attrs["class"], "count") })
 	if count == 0 || h.dom.text(count) != "1" {
 		t.Fatalf("after increment want count 1, got node %d text %q", count, h.dom.text(count))
+	}
+	// The update is highlighted on the number and on the Textf line.
+	if c := h.dom.nodes[count].attrs["class"]; c != "count hit-a" {
+		t.Fatalf("count class = %q, want the highlight", c)
+	}
+	if h.dom.find(func(n *fnode) bool { return n.attrs["class"] == "hl hit-a" }) == 0 {
+		t.Fatal("the Textf line isn't highlighted")
 	}
 }
 

@@ -1,49 +1,103 @@
 package app
 
 import (
+	"strings"
+
 	"github.com/yogisalomo/goowee/core"
 	. "github.com/yogisalomo/goowee/h"
 	"github.com/yogisalomo/goowee/router"
 )
 
-// lessonLayout wraps an example in a consistent tutorial page: the concept, a
-// live demo card, the code that produces it, and "how it works" notes.
+// lessonLayout wraps an example in a consistent tutorial page: the concept, the
+// running example with its source directly under it, and "how it works" notes.
+// intro and notes may mark identifiers with backticks (see rich).
 func lessonLayout(r *router.Router, title, intro string, demo core.Node, filename, code string, notes ...core.Node) core.Node {
+	example := []core.Node{Div(Class("demo-card-body"), demo)}
+	if code != "" {
+		example = append(example, codeBlock(filename, code))
+	}
 	body := []core.Node{
 		r.Link("/tutorial", "← Back to tutorial", Class("backlink")),
 		H1(Text(title)),
-		P(Class("lead"), Text(intro)),
-		Div(Class("demo-card"),
-			Div(Class("demo-card-bar"), Span(Class("dot")), Span(Class("dot")), Span(Class("dot")),
-				Span(Class("demo-card-tag"), Text("live"))),
-			Div(Class("demo-card-body"), demo),
-		),
-	}
-	if code != "" {
-		body = append(body, codeBlock(filename, code))
+		P(Class("lead"), rich(intro)),
+		Figure(Class("demo-card"), Group(Nodes(example)...)),
 	}
 	body = append(body, notes...)
 	return Div(Class("page lesson"), Group(Nodes(body)...))
 }
 
-// codeBlock is a dark, labeled code panel (same look as the landing).
+// codeBlock shows source code under its file name. Go comments are set in a
+// quieter color.
 func codeBlock(filename, code string) core.Node {
-	return Div(Class("panel"),
-		Div(Class("panel-bar"),
-			Span(Class("dot")), Span(Class("dot")), Span(Class("dot")),
-			Span(Style("margin-left:auto"), Text(filename)),
-		),
-		Pre(Class("code"), Text(code)),
+	return Div(Class("source"),
+		P(Class("file"), Text(filename)),
+		Pre(Class("code"), Code(goSource(code)...)),
 	)
 }
 
-// howItWorks renders a titled bullet list of explanation/steps.
+// goSource splits Go source into text and comment spans. A comment starts at
+// "//" outside a string literal.
+func goSource(code string) []core.Item {
+	var out []core.Item
+	for i, line := range strings.Split(code, "\n") {
+		if i > 0 {
+			out = append(out, Text("\n"))
+		}
+		if at := commentStart(line); at >= 0 {
+			if at > 0 {
+				out = append(out, Text(line[:at]))
+			}
+			out = append(out, Span(Class("c"), Text(line[at:])))
+		} else if line != "" {
+			out = append(out, Text(line))
+		}
+	}
+	return out
+}
+
+func commentStart(line string) int {
+	inString := false
+	for i := 0; i < len(line); i++ {
+		switch {
+		case line[i] == '"' && (i == 0 || line[i-1] != '\\'):
+			inString = !inString
+		case !inString && strings.HasPrefix(line[i:], "//"):
+			return i
+		}
+	}
+	return -1
+}
+
+// rich renders prose that marks identifiers with backticks: each `span`
+// becomes a <code> element. An unmatched backtick is kept as text.
+func rich(s string) core.Item {
+	parts := strings.Split(s, "`")
+	if len(parts)%2 == 0 { // an odd number of backticks: the last one is literal
+		n := len(parts)
+		parts[n-2] += "`" + parts[n-1]
+		parts = parts[:n-1]
+	}
+	items := make([]core.Item, 0, len(parts))
+	for i, p := range parts {
+		switch {
+		case p == "":
+		case i%2 == 1:
+			items = append(items, Code(Text(p)))
+		default:
+			items = append(items, Text(p))
+		}
+	}
+	return Group(items...)
+}
+
+// howItWorks renders the explanation under a lesson's example. Items may mark
+// identifiers with backticks.
 func howItWorks(items ...string) core.Node {
 	lis := make([]core.Node, len(items))
 	for i, it := range items {
-		lis[i] = Li(Text(it))
+		lis[i] = Li(rich(it))
 	}
-	return Div(H3(Text("How it works")), Ul(Class("notes"), Group(Nodes(lis)...)))
+	return Div(Class("how"), H2(Text("How it works")), Ul(Class("notes"), Group(Nodes(lis)...)))
 }
 
 // ---- code snippets shown on the lesson pages (essence, not the full source) ----
@@ -242,8 +296,8 @@ func aiGuidePage(r *router.Router) core.Node {
 		return Div(Class("page lesson"),
 			r.Link("/tutorial", "← Back to tutorial", Class("backlink")),
 			H1(Text("Coding goowee with an AI agent")),
-			P(Class("lead"), Text("Agents (Claude Code, Cursor, and friends) usually trip on goowee's run-once model. Give yours these rules and it writes correct code the first time.")),
-			P(Text("Save it as AGENTS.md or CLAUDE.md at your repo root, or paste it into your agent's rules. Click the box to select all, then copy.")),
+			P(Class("lead"), Text("Coding agents such as Claude Code and Cursor tend to trip on goowee's run-once model. Give yours these rules and it gets the model right from the start.")),
+			P(rich("Save it as `AGENTS.md` or `CLAUDE.md` at your repo root, or paste it into your agent's rules. Click the box to select everything, then copy.")),
 			Textarea(Class("copybox"), ReadOnly(true), Rows(34),
 				OnFocus(func() {}, SelectOnFocus()),
 				Text(aiRules)),

@@ -78,7 +78,7 @@ try {
   await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Inner button').click()`);
   await waitFor(`/Card clicks: 1 · inner: 1/.test(document.body.innerText)`, "bubbling on the live build");
   check(await ev(hrefsOK), "events lesson: an in-app link lacks the base");
-  const prevented = await ev(`(()=>{let seen=null;window.addEventListener('click',(e)=>{seen=e.defaultPrevented;e.preventDefault();},{once:true});const a=[...document.querySelectorAll('a')].find(a=>a.textContent.trim().startsWith('10 '));a.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,metaKey:true}));return seen;})()`);
+  const prevented = await ev(`(()=>{let seen=null;window.addEventListener('click',(e)=>{seen=e.defaultPrevented;e.preventDefault();},{once:true});const a=document.querySelector('.tutorial-nav a.next');a.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,metaKey:true}));return seen;})()`);
   check(prevented === false, "step-nav link hijacked a cmd-click");
   // Deep links (refresh / new tab) land on the app via 404.html.
   const newTab = await ev(`fetch('${base}/ai').then(r=>r.text()).then(t=>t.includes('goowee.boot'))`);
