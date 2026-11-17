@@ -12,7 +12,7 @@ func lessonLayout(r *router.Router, title, intro string, demo core.Node, filenam
 	body := []core.Node{
 		r.Link("/tutorial", "← Back to tutorial", Class("backlink")),
 		H1(Text(title)),
-		P(Class("lead"), Text(intro)),
+		P(Class("lead"), rich(intro)),
 		Div(Class("demo-card"),
 			Div(Class("demo-card-bar"), Span(Class("dot")), Span(Class("dot")), Span(Class("dot")),
 				Span(Class("demo-card-tag"), Text("live"))),
@@ -26,22 +26,14 @@ func lessonLayout(r *router.Router, title, intro string, demo core.Node, filenam
 	return Div(Class("page lesson"), Group(Nodes(body)...))
 }
 
-// codeBlock is a dark, labeled code panel (same look as the landing).
-func codeBlock(filename, code string) core.Node {
-	return Div(Class("panel"),
-		Div(Class("panel-bar"),
-			Span(Class("dot")), Span(Class("dot")), Span(Class("dot")),
-			Span(Style("margin-left:auto"), Text(filename)),
-		),
-		Pre(Class("code"), Text(code)),
-	)
-}
+// codeBlock is a lesson's code panel: highlighted, with a copy button.
+func codeBlock(filename, code string) core.Node { return codePanel(filename, code) }
 
 // howItWorks renders a titled bullet list of explanation/steps.
 func howItWorks(items ...string) core.Node {
 	lis := make([]core.Node, len(items))
 	for i, it := range items {
-		lis[i] = Li(Text(it))
+		lis[i] = Li(rich(it))
 	}
 	return Div(H3(Text("How it works")), Ul(Class("notes"), Group(Nodes(lis)...)))
 }
@@ -243,10 +235,10 @@ func aiGuidePage(r *router.Router) core.Node {
 			r.Link("/tutorial", "← Back to tutorial", Class("backlink")),
 			H1(Text("Coding goowee with an AI agent")),
 			P(Class("lead"), Text("Agents (Claude Code, Cursor, and friends) usually trip on goowee's run-once model. Give yours these rules and it writes correct code the first time.")),
-			P(Text("Save it as AGENTS.md or CLAUDE.md at your repo root, or paste it into your agent's rules. Click the box to select all, then copy.")),
-			Textarea(Class("copybox"), ReadOnly(true), Rows(34),
+			P(rich("Save it as `AGENTS.md` or `CLAUDE.md` at your repo root, or paste it into your agent's rules.")),
+			Div(Class("copybox-wrap"), copyButton(aiRules), Textarea(Class("copybox"), ReadOnly(true), Rows(34),
 				OnFocus(func() {}, SelectOnFocus()),
-				Text(aiRules)),
+				Text(aiRules))),
 			P(Text("The complete guide, mental model, full API cheat sheet, copy-paste patterns, and anti-patterns, lives in "),
 				A(Href(repoURL+"/blob/main/AGENTS.md"), Target("_blank"), Rel("noopener"), Text("AGENTS.md")),
 				Text(".")),

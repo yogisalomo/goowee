@@ -97,15 +97,6 @@ main { flex: 1; }
 .section-soft { background: var(--bg-soft); border-block: 1px solid var(--line); }
 .section-soft > .section-inner { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
 
-.eyebrow {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-  margin: 0 0 14px;
-}
-
 h1, h2, h3 { letter-spacing: -0.025em; line-height: 1.1; }
 h1 { font-size: clamp(2.2rem, 5.5vw, 3.5rem); font-weight: 800; margin: 0 0 18px; }
 h2 { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 700; margin: 0 0 12px; }
@@ -176,9 +167,42 @@ pre, code { font-family: var(--mono); }
    is legible on the white page, not just inside a .panel. */
 .code { margin: 0; padding: 22px; overflow-x: auto; font-size: 13.5px; line-height: 1.65; color: var(--panel-ink); background: var(--panel); border-radius: 10px; }
 .panel > .code { border-radius: 0; } /* inside a panel the panel provides the frame */
-.code .k { color: #7fd8ec; }   /* keyword-ish cyan */
-.code .s { color: #9ee6a6; }   /* string green */
-.code .c { color: var(--panel-muted); } /* comment */
+/* Syntax highlighting (internal/highlight token kinds), on the dark panel. */
+.code .tok-keyword { color: #7fd8ec; }
+.code .tok-string  { color: #9ee6a6; }
+.code .tok-comment { color: var(--panel-muted); }
+.code .tok-number  { color: #f5b97a; }
+.code .tok-builtin { color: #c9b1f5; }
+.code .tok-func    { color: #fbe38e; }
+.code .tok-attr    { color: #8fc4ff; }
+
+/* Inline code in prose. */
+:not(pre) > code {
+  font-size: 0.88em;
+  padding: 0.08em 0.35em;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg-soft);
+  color: var(--ink);
+}
+.lead code { font-size: 0.82em; }
+
+/* Copy buttons on code. */
+.copy {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--panel-line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--panel-muted);
+  cursor: pointer;
+}
+.copy:hover { color: var(--panel-ink); border-color: var(--panel-muted); }
+.panel-bar .panel-file { margin-left: auto; }
+.snippet, .copybox-wrap { position: relative; }
+.snippet .copy, .copybox-wrap .copy { position: absolute; top: 10px; right: 10px; background: var(--panel); }
+.snippet .code { padding-right: 96px; margin: 0 0 16px; }
 
 /* the live hero demo (a real goowee component) */
 .demo { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
@@ -201,16 +225,16 @@ pre, code { font-family: var(--mono); }
 /* ---- features ---- */
 .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 8px; }
 .feature { padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
-.feature .tag { font-family: var(--mono); font-size: 12px; color: var(--accent-ink); }
 .feature p { color: var(--muted); margin: 6px 0 0; font-size: 0.95rem; }
 
 /* ---- tutorial list ---- */
 .steps { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 12px; }
 .steps li { border: 1px solid var(--line); border-radius: var(--radius); }
-.steps a { display: flex; gap: 14px; align-items: baseline; padding: 16px 18px; color: var(--ink); }
+.steps a { display: grid; grid-template-columns: 2.2em 1fr; column-gap: 14px; row-gap: 3px; align-items: baseline; padding: 16px 18px; color: var(--ink); }
 .steps a:hover { text-decoration: none; background: var(--bg-soft); }
 .steps .n { font-family: var(--mono); color: var(--accent-ink); font-size: 13px; min-width: 2.2em; }
-.steps .d { color: var(--muted); font-size: 0.95rem; }
+.steps .t { grid-column: 2; font-weight: 600; }
+.steps .d { grid-column: 2; color: var(--muted); font-size: 0.95rem; }
 
 /* ---- feedback ---- */
 .feedback form { display: grid; gap: 12px; max-width: 520px; margin-top: 20px; }

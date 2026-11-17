@@ -39,7 +39,7 @@ func hero(r *router.Router) core.Node {
 	return Div(Class("hero"),
 		Div(Class("hero-copy"),
 			H1(Text("Reactive web UIs, written in Go.")),
-			P(Class("lead"), Text("goowee compiles to `WebAssembly` and renders on the server, then hydrates on the client. `Signal`s drive fine-grained updates - no virtual DOM, no build step.")),
+			P(Class("lead"), rich("goowee compiles to WebAssembly and renders on the server, then hydrates on the client. Signals drive fine-grained updates - no virtual DOM, no build step.")),
 			Div(Class("cta-row"),
 				r.Link("/tutorial", "Get started", Class("btn btn-primary")),
 				A(Class("btn"), Href(repoURL), Target("_blank"), Rel("noopener"), Text("★ GitHub")),
@@ -83,21 +83,19 @@ func demoButton(label string, onClick func()) core.Node {
 }
 
 func features() core.Node {
-	card := func(tag, title, body string) core.Node {
+	card := func(title, body string) core.Node {
 		return Div(Class("feature"),
-			P(Class("tag"), Text(tag)),
 			H3(Text(title)),
-			P(Text(body)),
+			P(rich(body)),
 		)
 	}
 	return Div(Class("section-soft"),
 		Div(Class("section"),
-			P(Class("eyebrow"), Text("Why goowee")),
 			H2(Text("A small, honest reactive model.")),
 			Div(Class("features"),
-				card("signals", "Fine-grained updates", "State is `Signal`s. A change updates only the nodes that read it - no re-render pass, no virtual DOM."),
-				card("ssr", "SSR + hydration", "Render real HTML on the server, then hydrate: the client reuses that DOM instead of rebuilding it."),
-				card("go", "One language, both sides", "Types, validation, and logic are plain `Go` - shared between server and browser, checked by the compiler."),
+				card("Fine-grained updates", "State lives in signals. A change updates only the nodes that read it - no re-render pass, no virtual DOM."),
+				card("SSR + hydration", "Render real HTML on the server, then hydrate: the client reuses that DOM instead of rebuilding it."),
+				card("One language, both sides", "Types, validation, and logic are plain Go - shared between server and browser, checked by the compiler."),
 			),
 		),
 	)
@@ -105,23 +103,15 @@ func features() core.Node {
 
 func codeSection() core.Node {
 	return Div(Class("section"),
-		P(Class("eyebrow"), Text("The whole idea")),
 		H2(Text("Components are functions that run once.")),
-		P(Class("lead"), Style("max-width:52ch"), Text("Set up state and return a tree. `Signal`s keep the `DOM` in sync from there - the demo above is exactly this.")),
-		Div(Class("panel"),
-			Div(Class("panel-bar"),
-				Span(Class("dot")), Span(Class("dot")), Span(Class("dot")),
-				Span(Style("margin-left:auto"), Text("counter.go")),
-			),
-			Pre(Class("code"), Text(heroCode)),
-		),
+		P(Class("lead"), Style("max-width:52ch"), rich("Set up state and return a tree. Signals keep the DOM in sync from there - the demo above is exactly this.")),
+		codePanel("counter.go", heroCode),
 	)
 }
 
 func feedback() core.Node {
 	return Div(Class("section-soft"),
 		Div(Class("section feedback"),
-			P(Class("eyebrow"), Text("Feedback")),
 			H2(Text("Tell us what's missing.")),
 			P(Class("lead"), Text("goowee is v0 and the API will change. What would make it useful for what you're building?")),
 			// A plain GET form to GitHub's new-issue page — no JS, prefilled title/body.
@@ -152,19 +142,18 @@ func tutorialIndex(r *router.Router) core.Node {
 		return Li(
 			r.LinkTo(path,
 				Span(Class("n"), Text(n)),
-				Span(Text(title)),
-				Span(Class("d"), Text(": "+desc)),
+				Span(Class("t"), Text(title)),
+				Span(Class("d"), rich(desc)),
 			),
 		)
 	}
 	return core.Component("Tutorial", func() core.Node {
 		return Div(Class("page"),
-			P(Class("eyebrow"), Text("Tutorial")),
 			H1(Text("Learn goowee by example")),
-			P(Class("lead"), Style("max-width:52ch"), Text("Each example is a live goowee app. Read the page, click around, then open the source under examples/counter/app.")),
+			P(Class("lead"), Style("max-width:52ch"), rich("Each example is a live goowee app. Read the page, click around, then open the source under `examples/counter/app`.")),
 			Ul(Class("steps"),
 				link("00", "/getting-started", "Getting Started", "install, structure, hello world"),
-				link("01", "/counter", "Counter", "`State`, `Signal`s, reactive text"),
+				link("01", "/counter", "Counter", "`UseState`, signals, reactive text"),
 				link("02", "/form", "Form", "two-way binding and submit"),
 				link("03", "/todos", "Todos", "keyed lists and virtualization"),
 				link("04", "/dashboard", "Dashboard", "computed values and selection"),
@@ -172,7 +161,7 @@ func tutorialIndex(r *router.Router) core.Node {
 				link("06", "/async", "Async", "`UseResource` - load data in a goroutine"),
 				link("07", "/error", "Error boundary", "recover a render panic, show a fallback"),
 				link("08", "/greet/alice", "Greeting", "URL params, read reactively"),
-				link("09", "/events", "Events", "bubbling, non-bubbling events, preventDefault"),
+				link("09", "/events", "Events", "bubbling, non-bubbling events, `PreventDefault`"),
 				link("10", "/canvas", "Canvas", "draw thousands of marks from Go with `goowee/canvas`"),
 				link("11", "/ai", "Coding with an AI agent", "drop-in rules for Claude Code, Cursor, …"),
 			),

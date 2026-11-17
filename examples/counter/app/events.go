@@ -71,10 +71,10 @@ func eventsPage(r *router.Router) core.Node {
 			demo, "events.go", eventsCode,
 			howItWorks(
 				"Clicking the inner button runs its handler, then the card's: handlers bubble innermost-first.",
-				"e.StopPropagation() inside a handler keeps the event from reaching ancestors — the card doesn't count that click.",
-				"mouseenter/mouseleave and invalid don't bubble; goowee listens for them in the capture phase and delivers them to the element itself.",
-				"e.PreventDefault() is decided per event: Enter sends (no newline), Shift+Enter still inserts one.",
-				"Event data comes typed on core.EventData: e.DeltaY(), e.ClientX(), e.PointerType(), e.Key(), e.CtrlKey(), …",
+				"`e.StopPropagation()` inside a handler keeps the event from reaching ancestors — the card doesn't count that click.",
+				"`mouseenter`/`mouseleave` and `invalid` don't bubble; goowee listens for them in the capture phase and delivers them to the element itself.",
+				"`e.PreventDefault()` is decided per event: Enter sends (no newline), Shift+Enter still inserts one.",
+				"Event data comes typed on `core.EventData`: `e.DeltaY()`, `e.ClientX()`, `e.PointerType()`, `e.Key()`, `e.CtrlKey()`, …",
 			),
 			tutorialStepNav(r, "/events"),
 		)
