@@ -67,12 +67,12 @@ try {
   await waitText("#log", "/a|1", "first render");
   await click("#go-b"); await waitLoc("/b?x=2", "Navigate /b");
   await click("#go-c"); await waitLoc("/c?x=3#end", "Navigate /c");
-  check(await text("#fragment") === "end", "Fragment after Navigate: " + await text("#fragment"));
+  await waitText("#fragment", "end", "Fragment after Navigate");
   await ev(`history.back()`); await waitLoc("/b?x=2", "back to /b");
   await waitText("#fragment", "", "fragment cleared by back");
   await ev(`history.back()`); await waitLoc("/a?x=1", "back to /a");
   await ev(`history.forward()`); await waitLoc("/b?x=2", "forward to /b");
-  await sleep(100);
+  await waitText("#log", /\/a\|1,\/b\|2$/, "the watcher saw forward to /b");
   const pairs = (await text("#log")).split(",");
   const want = { "/a": "1", "/b": "2", "/c": "3" };
   const mixed = pairs.filter((p) => { const [path, x] = p.split("|"); return want[path] !== x; });
