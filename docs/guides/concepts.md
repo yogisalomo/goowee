@@ -375,6 +375,27 @@ included) and wiring up event handlers and bindings without rebuilding. The
 anchors stay in the DOM: they mark where each region ends, so re-rendered
 content is always inserted in the right place.
 
+### Before the app is interactive
+
+A server-rendered page looks ready before the WASM has downloaded and
+booted. What the user does in that gap isn't lost:
+
+- **Clicks, keydowns and submits** on the server's markup are queued from
+  the moment `goowee.js` loads until the first frame. They are then
+  dispatched to their handlers in order, once each. A form submit is held
+  back meanwhile, then resubmitted, so `OnSubmit` handles it. A form without
+  a handler then submits natively. If the WASM fails to load, held submits go
+  through natively.
+- **Form state** the user changed (typed text, a ticked box, a selection) is
+  announced to Go as `input` and `change` events after hydration, so
+  `BindValue`, `BindChecked` and `BindSelect` signals take what the page shows.
+- **Styling.** `<html data-goowee-pending>` is set until then, to style "not
+  ready yet": `[data-goowee-pending] button { cursor: progress; }`.
+
+This needs `goowee.js` in `<head>` as a plain `<script>`, not `defer` or
+`async`, so it is listening before the body is parsed. That is the setup in
+`cmd/ssr-server` and the Pages shells.
+
 ### Deterministic markup
 
 Hydration trusts that server and client produce the **same markup**. For

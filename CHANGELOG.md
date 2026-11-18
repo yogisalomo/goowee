@@ -24,6 +24,15 @@ time. The public surface freezes under semver at v1.
   (`cmd/site-export`, `make pages`).
 
 ### Fixed
+- On a server-rendered page, what the user did before the WASM booted was lost
+  (#131). Clicks went nowhere, a form submitted natively (reloading the page),
+  and text typed into a bound input stayed out of its signal, to be
+  overwritten later. `goowee.js` now queues clicks, keydowns and submits on
+  server markup until the first frame and dispatches them once each after it.
+  Submits are held, then resubmitted, or released natively if the WASM fails
+  to load. Form controls whose state the user changed are announced as
+  `input` and `change`, so bound signals catch up. `<html data-goowee-pending>`
+  marks the page until then.
 - Hydration of an empty text binding (`TextS` of `""`): the server writes only
   its marker, and the client found no text node to claim, logging "no server
   node" and rebuilding it. The marker now becomes the empty text node.

@@ -103,6 +103,96 @@ function markOnce(name) {
 // "goowee:boot-error" event on window, and goowee.bootError. The returned
 // promise still rejects for a caller that chains on it, e.g. to replace the
 // loading placeholder with a message.
+// Early interaction (#131). A server-rendered page looks ready before the
+// WASM has booted: clicks and keystrokes there would reach nobody, a form
+// would submit natively, and text typed into a bound input would stay out of
+// its signal. From the moment goowee.js loads (in <head>, before the body is
+// parsed) until the first frame, clicks, keydowns and submits on server
+// markup ([data-node-id]) are queued (up to 100), and a submit is held back.
+// After the first frame, form controls whose state differs from the server's
+// are announced to Go as input and change events, so bound signals take what
+// the user typed or ticked, and then the queued events are dispatched in
+// order: each reaches Go's handlers once. A held submit is resubmitted with
+// requestSubmit, so the app's OnSubmit handles it, or the form submits
+// natively if no handler does. data-goowee-pending is on <html> meanwhile,
+// for styling a page that isn't interactive yet.
+const early = {active: false, scheduled: false, queue: []};
+const EARLY_TYPES = ["click", "keydown", "submit"];
+
+function captureEarly(e) {
+    const t = e.target;
+    if (!early.active || !t || typeof t.closest !== "function" || !t.closest("[data-node-id]")) return;
+    if (e.type === "submit") e.preventDefault();
+    if (early.queue.length < 100) early.queue.push(e);
+}
+
+function startEarly() {
+    early.active = true;
+    for (const type of EARLY_TYPES) document.addEventListener(type, captureEarly, true);
+    document.documentElement.setAttribute("data-goowee-pending", "");
+}
+
+function stopEarly() {
+    early.active = false;
+    for (const type of EARLY_TYPES) document.removeEventListener(type, captureEarly, true);
+    document.documentElement.removeAttribute("data-goowee-pending");
+    const queue = early.queue;
+    early.queue = [];
+    return queue;
+}
+
+function finishEarly() {
+    const queue = stopEarly();
+    const root = getRoot();
+    if (root && root.querySelector("[data-node-id]")) adoptFormState(root);
+    for (const e of queue) {
+        const t = e.target;
+        if (!t || !t.isConnected) continue; // the page it belonged to is gone
+        if (e.type === "submit") {
+            resubmit(t, e.submitter);
+            continue;
+        }
+        dispatchToGo(e.type, e, false);
+    }
+}
+
+// adoptFormState tells Go about form controls the user changed before the
+// app ran: a text field whose value isn't its server-rendered value, a box or
+// radio whose checked state isn't, a select whose selection isn't.
+function adoptFormState(root) {
+    for (const el of root.querySelectorAll("input, textarea, select")) {
+        if (el._nodeID === undefined || el.type === "file") continue;
+        let changed;
+        if (el.type === "checkbox" || el.type === "radio") changed = el.checked !== el.defaultChecked;
+        else if (el.nodeName === "SELECT") changed = Array.prototype.some.call(el.options, function (o) { return o.selected !== o.defaultSelected; });
+        else changed = el.value !== el.defaultValue;
+        if (!changed) continue;
+        for (const type of ["input", "change"]) {
+            dispatchToGo(type, {type: type, target: el, cancelable: false, inputType: "", isComposing: false,
+                preventDefault: function () {}, stopPropagation: function () {}}, false);
+        }
+    }
+}
+
+function resubmit(form, submitter) {
+    if (typeof form.requestSubmit === "function") {
+        form.requestSubmit(submitter && submitter.isConnected && submitter.form === form ? submitter : undefined);
+    } else {
+        form.submit();
+    }
+}
+
+// The page never became interactive (the WASM failed to load): let held
+// submits go through natively, as they would have without goowee.
+function releaseEarly() {
+    if (!early.active) return;
+    for (const e of stopEarly()) {
+        if (e.type === "submit" && e.target.isConnected) resubmit(e.target, e.submitter);
+    }
+}
+
+if (typeof document !== "undefined") startEarly();
+
 goowee.boot = function boot(opts) {
     opts = opts || {};
     const wasmURL = opts.wasm || "main.wasm";
@@ -136,6 +226,7 @@ goowee.boot = function boot(opts) {
         .catch(function (err) {
             if (!err || !err.gooweeBoot) err = bootError("starting " + wasmURL + " failed (" + err + ")", err);
             goowee.bootError = err;
+            releaseEarly();
             console.error(err.message);
             window.dispatchEvent(new CustomEvent("goowee:boot-error", {detail: err}));
             throw err;
@@ -751,6 +842,13 @@ window.applyMutations = function applyMutations(json) {
     // An explicit ref.Focus/Blur in the batch decides focus; otherwise a move
     // that dropped it is undone.
     if (movedLive && !focusCommand) restoreFocus(focus);
+    // The first frame has claimed the server's nodes and told the runtime
+    // which have handlers: hand Go what the user did before it (#131), once
+    // this call has returned to Go.
+    if (early.active && !early.scheduled) {
+        early.scheduled = true;
+        setTimeout(finishEarly, 0);
+    }
     for (const mut of calls) {
         const el = nodeMap[mut.nodeId];
         if (!el || typeof el[mut.key] !== "function") continue;
