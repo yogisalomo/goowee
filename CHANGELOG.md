@@ -11,6 +11,30 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-18
+
+A minor release. It adds drawing on `<canvas>` from Go (`goowee/canvas`,
+with animation through `core.NextFrame`), persisted signals, a dev-mode change
+log, and a build tag that leaves dev tools out of production builds. It also
+lands the six quick wins from the November review (#162): cheaper event
+dispatch, effects that run once per batch, router URL fixes, a logged
+re-render cycle, and a size budget in CI.
+
+Upgrading from 0.2.7:
+- **Serve the matching runtime.** Serve this release's `goowee.js` with the
+  app. Event dispatch uses the new `core.MutListen` mutation, and canvas
+  drawing uses `goowee.draw`. With an older `goowee.js`, events still work the
+  old, slower way, a warning is logged, and canvases stay blank. This
+  `goowee.js` works with an older app too.
+- **Watch and UseEffect run once per batch.** A batch that sets two of their
+  deps now runs the callback once, after both writes. Code that counted on one
+  run per dependency sees fewer runs.
+- **gooweetest steps animations explicitly.** `Flush` doesn't run
+  `core.NextFrame` callbacks; call `screen.Frame()` to step them.
+- **Query URLs come out sorted.** `SetQueryParam` writes parameters sorted by
+  name and keeps the fragment, so a URL a test compared against may change
+  order.
+
 ### Added
 - `hooks.UsePersist(sig, key)`: keeps a signal in localStorage (or, with
   `hooks.PersistOptions{Store: storage.Session}`, sessionStorage) as JSON. It
@@ -688,7 +712,8 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/yogisalomo/goowee/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/yogisalomo/goowee/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/yogisalomo/goowee/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/yogisalomo/goowee/compare/v0.2.4...v0.2.5

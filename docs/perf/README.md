@@ -55,6 +55,16 @@ was recorded with about five of the eight cores busy, so its `SSRParallel`,
 which uses every core, reads slower still (an interleaved A/B of v0.2.4 and
 v0.2.5 measured 234.9 µs vs 233.1 µs, p = 1.0).
 
+**v0.3.0 against v0.2.7.** Allocations are unchanged. `ForAppendOne5k`
+(-9.9%) and `LayoutTickFrame` (-6.5%) are faster. `SignalSetFanout` is +6.3%
+in the record, and an interleaved A/B measured it about 8% slower (1.82 µs to
+1.98 µs). Bisecting puts the step at #125, whose change-log hook adds a nil
+check to `Signal.Set`. That pushed `Set` over the inliner's budget and moved
+code in the notify loop, which runs 1,000 subscribers per `Set`: about
+0.16 ns per subscriber, a layout effect rather than added work. The example's
+wasm grew 9.1% (5,223,488 raw, 988,195 brotli), mostly from `goowee/canvas`
+and the graph page that the tutorial site now includes.
+
 ## Size budget
 
 ```sh
