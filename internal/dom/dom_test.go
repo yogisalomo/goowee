@@ -624,10 +624,18 @@ func TestDOMEventNotEmitted(t *testing.T) {
 	}
 	r := New()
 	muts, _ := renderFx(r, n)
+	listens := 0
 	for _, m := range muts {
-		if m.Key == "click" && m.Type != core.MutInsertBefore {
-			t.Fatal("event handlers should not be emitted as mutations")
+		if m.Key != "click" {
+			continue
 		}
+		if m.Type != core.MutListen || m.Value != true {
+			t.Fatalf("a handler reached the DOM as %v: %+v", m.Type, m)
+		}
+		listens++
+	}
+	if listens != 1 {
+		t.Fatalf("%d Listen mutations for one handler, want 1", listens)
 	}
 }
 

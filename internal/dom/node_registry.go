@@ -63,6 +63,16 @@ func (r *NodeRegistry) RegisterHandler(nodeID int, event string, fn func(core.Ev
 	}
 }
 
+// Has reports whether nodeID has a handler for event.
+func (r *NodeRegistry) Has(nodeID int, event string) bool {
+	n := r.nodes[nodeID]
+	if n == nil {
+		return false
+	}
+	_, ok := n.Events[event]
+	return ok
+}
+
 func (r *NodeRegistry) RemoveHandler(nodeID int, event string) {
 	if n := r.nodes[nodeID]; n != nil {
 		delete(n.Events, event)
@@ -120,4 +130,46 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 	// it returns, so derived state never sees a half-applied update.
 	core.Batch(func() { entry.Fn(ev) })
 	return
+}
+
+// listen is the mutation that tells the runtime a node has (on) or no longer
+// has a handler for event, so it calls into Go only for nodes that do (#132).
+func listen(nodeID int, event string, on bool) core.Mutation {
+	return core.Mutation{Type: core.MutListen, NodeID: nodeID, Key: event, Value: on}
+}
+
+// registerHandlers registers an element's handlers and tells the runtime.
+func (r *DOMRenderer) registerHandlers(id int, handlers []core.Handler) {
+	for _, hd := range handlers {
+		if !r.Registry.Has(id, hd.Event) {
+			*r.muts = append(*r.muts, listen(id, hd.Event, true))
+		}
+		r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
+	}
+}
+
+// Dispatch result bits, returned to the runtime by handleEvent as one number.
+const (
+	DispatchHandled = 1 << iota
+	DispatchPreventDefault
+	DispatchStopPropagation
+	DispatchSelectOnFocus
+)
+
+// DispatchBits packs a Dispatch result for the runtime.
+func DispatchBits(opts core.HandlerOptions, handled bool) int {
+	if !handled {
+		return 0
+	}
+	b := DispatchHandled
+	if opts.PreventDefault {
+		b |= DispatchPreventDefault
+	}
+	if opts.StopPropagation {
+		b |= DispatchStopPropagation
+	}
+	if opts.SelectOnFocus {
+		b |= DispatchSelectOnFocus
+	}
+	return b
 }

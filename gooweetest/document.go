@@ -20,10 +20,11 @@ type node struct {
 	props    map[string]any
 	parent   *node
 	children []*node
-	raw      string   // innerHTML set as a property (h.Raw)
-	calls    []Call   // methods called through ref.Call
-	drawing  []uint32 // the latest goowee/canvas buffer drawn (a copy)
-	draws    int      // how many buffers were drawn
+	raw      string          // innerHTML set as a property (h.Raw)
+	calls    []Call          // methods called through ref.Call
+	drawing  []uint32        // the latest goowee/canvas buffer drawn (a copy)
+	draws    int             // how many buffers were drawn
+	listens  map[string]bool // events Go has a handler for (MutListen), as in the runtime
 }
 
 type nodeKind int
@@ -303,6 +304,17 @@ func (d *document) apply(muts []core.Mutation) {
 			reads = append(reads, m)
 		case core.MutCall:
 			calls = append(calls, m)
+		case core.MutListen:
+			if n := d.nodes[m.NodeID]; n != nil {
+				if on, _ := m.Value.(bool); on {
+					if n.listens == nil {
+						n.listens = map[string]bool{}
+					}
+					n.listens[m.Key] = true
+				} else {
+					delete(n.listens, m.Key)
+				}
+			}
 		case core.MutDraw:
 			if n := d.nodes[m.NodeID]; n != nil && n.tag == "canvas" {
 				buf, _ := m.Value.([]uint32)

@@ -236,14 +236,21 @@ func TestHydrateRenderEmitsOnlyClaims(t *testing.T) {
 			if len(clientMuts) == 0 {
 				t.Fatal("expected claim mutations")
 			}
+			// Claims, plus a Listen per handler (it marks the node for the
+			// runtime's dispatch and doesn't touch the DOM).
+			claims := 0
 			for _, m := range clientMuts {
-				if m.Type != core.MutHydrate {
-					t.Fatalf("hydrate render emitted %v (want only Hydrate): %+v", m.Type, m)
+				switch m.Type {
+				case core.MutHydrate:
+					claims++
+				case core.MutListen:
+				default:
+					t.Fatalf("hydrate render emitted %v (want only Hydrate and Listen): %+v", m.Type, m)
 				}
 			}
 			// Exactly one claim per server-rendered node — nothing rebuilt.
-			if len(clientMuts) != serverNodes {
-				t.Fatalf("expected %d claims (one per server node), got %d", serverNodes, len(clientMuts))
+			if claims != serverNodes {
+				t.Fatalf("expected %d claims (one per server node), got %d", serverNodes, claims)
 			}
 
 			fd.apply(clientMuts) // claims — must not change the DOM

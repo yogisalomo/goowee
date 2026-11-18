@@ -470,19 +470,36 @@ function buildPayload(type, e) {
 // dispatchToGo delivers e to the Go handlers for it: every ancestor of the
 // target that has a handler, innermost first (bubbling), until one stops
 // propagation — or, for a non-bubbling event, the target's handler only.
+// Go marks the nodes that have a handler with a Listen mutation (el._goEvents,
+// a Set of event types), and only those are asked: a click whose path has no
+// handler costs no call into Go and builds no payload (#132). The payload is
+// built once, at the first node that has a handler. goowee.listenSets is set
+// by a Go side that sends Listen; an older one is asked about every node, as
+// before.
 function dispatchToGo(type, e, targetOnly) {
-    const payload = JSON.stringify(buildPayload(type, e));
+    let payload = null;
     for (let el = e.target; el; el = targetOnly ? null : el.parentNode) {
         if (el._nodeID === undefined) continue;
-        const r = handleEvent(el._nodeID, type, payload);
-        if (!r || !r.handled) continue;
-        if (r.preventDefault && e.cancelable) e.preventDefault();
-        if (r.selectOnFocus && type === "focus" && el.select) el.select();
-        if (r.stopPropagation) {
+        if (goowee.listenSets && !(el._goEvents && el._goEvents.has(type))) continue;
+        if (payload === null) payload = JSON.stringify(buildPayload(type, e));
+        const r = decodeDispatch(handleEvent(el._nodeID, type, payload));
+        if (!(r & 1)) continue;
+        if ((r & 2) && e.cancelable) e.preventDefault();
+        if ((r & 8) && type === "focus" && el.select) el.select();
+        if (r & 4) {
             e.stopPropagation();
             return;
         }
     }
+}
+
+// decodeDispatch turns handleEvent's result into bits: handled 1,
+// preventDefault 2, stopPropagation 4, selectOnFocus 8. Go returns the bits;
+// an older Go side returned an object.
+function decodeDispatch(r) {
+    if (typeof r === "number") return r;
+    if (!r || !r.handled) return 0;
+    return 1 | (r.preventDefault ? 2 : 0) | (r.stopPropagation ? 4 : 0) | (r.selectOnFocus ? 8 : 0);
 }
 
 // claimTitle makes the app's <title> the document's: document.title reads the
@@ -647,6 +664,13 @@ window.applyMutations = function applyMutations(json) {
                 break;
             case 11: // Call — a method with arguments, after the batch (see below)
                 calls.push(mut);
+                break;
+            case 13: // Listen — the node has (value true) or lost a Go handler for key
+                el = nodeMap[mut.nodeId];
+                if (el) {
+                    if (mut.value) (el._goEvents || (el._goEvents = new Set())).add(mut.key);
+                    else if (el._goEvents) el._goEvents.delete(mut.key);
+                }
                 break;
             case 7: { // Hydrate — claim a server-rendered node by id
                 const pre = preexistingNodes[mut.nodeId];

@@ -213,12 +213,16 @@ func (r *DOMRenderer) diffElement(old, nw *core.ElementNode, muts *[]core.Mutati
 
 	newEvents := map[string]bool{}
 	for _, hd := range nw.Handlers {
+		if !r.Registry.Has(old.ID, hd.Event) {
+			*muts = append(*muts, listen(old.ID, hd.Event, true))
+		}
 		r.Registry.RegisterHandler(old.ID, hd.Event, hd.Fn, hd.Options)
 		newEvents[hd.Event] = true
 	}
 	for _, hd := range old.Handlers {
-		if !newEvents[hd.Event] {
+		if !newEvents[hd.Event] && r.Registry.Has(old.ID, hd.Event) {
 			r.Registry.RemoveHandler(old.ID, hd.Event)
+			*muts = append(*muts, listen(old.ID, hd.Event, false))
 		}
 	}
 

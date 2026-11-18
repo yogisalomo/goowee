@@ -292,7 +292,9 @@ func (s *Screen) Dispatch(el *Element, event string, data map[string]any) (preve
 	}
 	targetOnly := dom.EventCapture(event)
 	for n := el.n; n != nil; n = n.parent {
-		if n.id == 0 {
+		if n.id == 0 || !n.listens[event] {
+			// Like the runtime, only nodes Go marked with MutListen are
+			// asked (#132).
 			if targetOnly {
 				break
 			}

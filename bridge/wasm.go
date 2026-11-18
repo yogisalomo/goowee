@@ -99,14 +99,15 @@ func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry) {
 	core.SetFileReader(readFile)
 
 	js.Global().Set("handleEvent", js.FuncOf(func(this js.Value, args []js.Value) any {
-		opts, handled := registry.Dispatch(args[0].Int(), args[1].String(), args[2].String())
-		return map[string]any{
-			"handled":         handled,
-			"preventDefault":  opts.PreventDefault,
-			"stopPropagation": opts.StopPropagation,
-			"selectOnFocus":   opts.SelectOnFocus,
-		}
+		// The result is packed into one number (dom.DispatchBits): a map
+		// costs a quarter more per call (#132).
+		return dom.DispatchBits(registry.Dispatch(args[0].Int(), args[1].String(), args[2].String()))
 	}))
+	// This Go side sends MutListen for every node with a handler, so the
+	// runtime asks Go only about those nodes.
+	if g := js.Global().Get("goowee"); g.Type() == js.TypeObject {
+		g.Set("listenSets", true)
+	}
 
 	announce := func(eventType string, capture bool) {
 		js.Global().Call("goListen", eventType, capture)

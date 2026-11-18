@@ -191,9 +191,7 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 				*r.muts = append(*r.muts, runtime.MutationForBind(id, b))
 			}
 		}
-		for _, hd := range el.Handlers {
-			r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
-		}
+		r.registerHandlers(id, el.Handlers)
 		prevDynamic := r.hydrateDynamic
 		r.hydrateDynamic = dynamic
 		r.currentNS = childNS(el.Tag, ns) // scopes below record it
@@ -215,9 +213,7 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 		r.Bindings.Bind(id, b)
 		*r.muts = append(*r.muts, runtime.MutationForBind(id, b))
 	}
-	for _, hd := range el.Handlers {
-		r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
-	}
+	r.registerHandlers(id, el.Handlers)
 	r.parentStack = append(r.parentStack, id)
 	r.currentNS = childNS(el.Tag, ns)
 	for _, child := range el.Children {
