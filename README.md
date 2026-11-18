@@ -114,7 +114,7 @@ router/       Client-side router (matching, params, history, guards)
 ssr/          Server-side HTML renderer
 bridge/       WASM entry point — bridge.Run(node) is all you need
 runtime/      JS runtime (goowee.js)
-examples/     Demo app (counter, form, todos, dashboard, routing, params)
+examples/     Demo app and tutorial site (counter/); a 10,000-node canvas graph (graph/)
 cmd/          SSR server binary
 gooweetest/   Headless component tests for your app (Render, Find, Click, …)
 test/e2e/     Headless-browser smoke test

@@ -34,6 +34,22 @@ time. The public surface freezes under semver at v1.
   `Element.Canvas()` and `DrawCount()` check what was drawn. New mutation type
   `core.MutDraw`; the runtime and the app must come from the same goowee version
   (`goowee.canvasVersion`). The tutorial has a Canvas lesson.
+- `canvas.Fill()`: a canvas that follows its element's size instead of a fixed
+  `Size`, redrawn when it changes. The runtime also replays every canvas when
+  the device pixel ratio changes (browser zoom, another screen).
+- `core.NextFrame(fn)` runs `fn` at the start of the next frame; call it again
+  from `fn` to animate at the display's refresh rate. Frames pause while the
+  page is hidden. `canvas.Animate(fn)` draws one picture per frame. In
+  gooweetest, `screen.Frame()` steps animations (they no longer advance on
+  `Flush`), and `screen.ResizeCanvas(el, w, h)` lays out a `Fill` canvas.
+- `canvas.Stack` draws in layers, one canvas each, redrawn independently;
+  `canvas.Options` combines options; `canvas.Grid` finds the mark under the
+  pointer.
+- A custom event's `detail`, when it is a plain object, reaches the handler as
+  `e.Data`.
+- `examples/graph`: 10,000 nodes and 10,000 edges redrawn every frame at 60 fps
+  (also on the tutorial site at `/graph`); `make canvasbench` measures its frame
+  time (`docs/perf/canvas.md`). ADR-028 records the canvas design.
 - The inspector lists a `core.NewSignal` signal once it is named or written,
   and formats struct values with field names (`{Name:tea Price:3}`).
 

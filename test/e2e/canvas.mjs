@@ -4,7 +4,11 @@
 //   - every op of canvas/testdata/scene.json reaches CanvasRenderingContext2D
 //     as the call the plan specifies, with the same arguments (the Go recorder
 //     and the JS replayer agree);
-//   - a canvas.View redraws when its signal changes.
+//   - a canvas.View redraws when its signal changes;
+//   - a canvas.Fill View follows its box's size, at both scale factors;
+//   - a canvas.Animate View draws every frame, stops while the page is hidden
+//     and resumes when it's shown;
+//   - a device pixel ratio change replays every canvas at the new ratio.
 // Usage: node test/e2e/canvas.mjs   (run.sh runs it)
 import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdtempSync, copyFileSync, rmSync } from "node:fs";
@@ -39,6 +43,10 @@ const server = createServer((req, res) => {
 // canvas's context receives.
 const recorder = `(() => {
   window.sceneLog = [];
+  window.animDraws = 0;
+  window.resolutionQueries = []; // the media queries the runtime watches for ratio changes
+  const mm = window.matchMedia;
+  window.matchMedia = function (q) { const m = mm.call(window, q); if (q.includes("resolution")) resolutionQueries.push(m); return m; };
   const P = CanvasRenderingContext2D.prototype;
   const mine = (ctx) => ctx.canvas && ctx.canvas.id === "scene";
   for (const name of Object.getOwnPropertyNames(P)) {
@@ -46,6 +54,7 @@ const recorder = `(() => {
     if (typeof d.value === "function" && name !== "constructor") {
       const orig = d.value;
       P[name] = function (...args) {
+        if (name === "setTransform" && this.canvas && this.canvas.id === "anim") animDraws++; // once per replayed picture
         if (mine(this)) sceneLog.push([name, ...args.map((a) => Array.isArray(a) ? [...a] : a)]);
         return orig.apply(this, args);
       };
@@ -143,6 +152,27 @@ try {
   await waitFor(`document.querySelector("#view").getContext("2d").getImageData(15, 5, 1, 1).data[3] === 255`, "View redraw after the click");
   check(same(await pixel("#view", 25, 5), [0, 0, 0, 0]), "View: the redraw didn't clear first");
 
+  // canvas.Fill: the canvas follows its box, and so does the picture.
+  await waitFor(`document.querySelector("#fill").width === 300`, "Fill: first layout");
+  check(await ev(`document.querySelector("#fill").height`) === 200, "Fill: backing store height");
+  check(same(await pixel("#fill", 295, 195), [255, 0, 0, 255]), "Fill: the picture doesn't cover the canvas");
+  await ev(`document.querySelector("#fillbox").style.width = "400px"`);
+  await waitFor(`document.querySelector("#fill").width === 400`, "Fill: backing store after the box grew");
+  await waitFor(`document.querySelector("#fill").getContext("2d").getImageData(395, 100, 1, 1).data[3] === 255`, "Fill: redraw at the new size");
+
+  // canvas.Animate: a picture every frame while the page is shown, none
+  // while it's hidden, and again once it's shown.
+  const drawsIn = async (ms) => { const a = await ev(`animDraws`); await sleep(ms); return (await ev(`animDraws`)) - a; };
+  const shown = await drawsIn(500);
+  check(shown >= 10, `Animate: ${shown} pictures in 500ms`);
+  await ev(`Object.defineProperty(document, "hidden", {configurable: true, get: () => true}); document.dispatchEvent(new Event("visibilitychange"))`);
+  await sleep(100); // a frame already requested may still run
+  const hidden = await drawsIn(500);
+  check(hidden === 0, `Animate: ${hidden} pictures while hidden`);
+  await ev(`delete document.hidden; document.dispatchEvent(new Event("visibilitychange"))`);
+  const again = await drawsIn(500);
+  check(again >= 10, `Animate: ${again} pictures in 500ms after the page was shown again`);
+
   // Device scale factor 2: the backing store doubles, the drawing follows.
   await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 2, mobile: false });
   await send("Page.reload");
@@ -152,9 +182,22 @@ try {
   check(same(await pixel("#pixels", 30, 30), [255, 0, 0, 255]), "dpr 2: device pixel (30, 30) isn't red");
   check(same(await pixel("#pixels", 62, 62), [0, 0, 0, 0]), "dpr 2: device pixel (62, 62) isn't transparent");
   check(same((await ev(`sceneLog`))[0], ["setTransform", 2, 0, 0, 2, 0, 0]), "dpr 2: the scene isn't scaled");
+  await waitFor(`document.querySelector("#fill").width === 600`, "dpr 2: Fill backing store");
+  await waitFor(`document.querySelector("#fill").getContext("2d").getImageData(590, 390, 1, 1).data[3] === 255`, "dpr 2: Fill picture");
+
+  // A ratio change without a reload (zoom, another screen) replays every
+  // canvas at the new ratio.
+  await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
+  // Headless Chrome changes the ratio without firing the media query's
+  // change event, so fire it on the runtime's query, as a zoom would.
+  check(await ev(`resolutionQueries.length > 0 && resolutionQueries.at(-1).media.includes("2dppx")`), "no resolution media query watched at dpr 2");
+  await ev(`resolutionQueries.at(-1).dispatchEvent(new Event("change"))`);
+  await waitFor(`devicePixelRatio === 1 && document.querySelector("#pixels").width === 100`, "replay after the ratio changed");
+  check(same(await pixel("#pixels", 15, 15), [255, 0, 0, 255]), "ratio change: (15, 15) isn't red");
+  check(await ev(`document.querySelector("#fill").width`) === 300, "ratio change: Fill backing store");
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors or warnings:\n" + errors.join("\n"));
-console.log(fail.length ? "CANVAS CHECK FAIL:\n- " + fail.join("\n- ") : "CANVAS CHECK PASS: pixels at dpr 1 and 2, every op of the golden scene, canvas.View redraws");
+console.log(fail.length ? "CANVAS CHECK FAIL:\n- " + fail.join("\n- ") : "CANVAS CHECK PASS: pixels at dpr 1 and 2 and after a ratio change, every op of the golden scene, canvas.View redraws, Fill follows its box, Animate pauses while hidden");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });
 try { rmSync(profile, { recursive: true, force: true, maxRetries: 3 }); } catch {}

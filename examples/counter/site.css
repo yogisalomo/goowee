@@ -301,6 +301,9 @@ pre, code { font-family: var(--mono); }
 .canvas-demo .bars-canvas { aspect-ratio: 280 / 120; background: var(--bg-soft); }
 .canvas-demo .field-canvas { aspect-ratio: 2 / 1; background: #0b1020; }
 .canvas-demo .dots { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 13px; }
+.graph-page { max-width: 1100px; }
+.graph-box { height: min(70vh, 640px); margin-top: 16px; border-radius: 8px; overflow: hidden; background: #0b1020; color: #c9d1e8; padding: 10px; box-sizing: border-box; }
+.graph-box .graph-stats, .graph-box .graph-info { color: #c9d1e8; }
 .canvas-demo .field-stats { margin: 0; min-height: 1.4em; font-family: var(--mono); font-size: 13px; color: var(--muted); }
 
 .notes { color: var(--muted); line-height: 1.7; }

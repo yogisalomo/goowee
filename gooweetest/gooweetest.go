@@ -51,6 +51,9 @@ type Screen struct {
 func Render(t testing.TB, n core.Node) *Screen {
 	t.Helper()
 	s := &Screen{t: t, r: dom.New(), doc: newDocument(), files: map[int][]byte{}}
+	// Animations advance only when the test says so (Frame), so Flush
+	// settles even while something animates.
+	s.r.Scheduler.ManualFrames = true
 	core.SetActiveScheduler(s.r.Scheduler)
 	core.SetFileReader(s.readFile)
 	muts, _ := s.r.Render(n)
@@ -86,6 +89,23 @@ func (s *Screen) Flush() {
 		}
 	}
 	s.t.Fatalf("gooweetest: rendering did not settle after 1000 frames (an update loop?)")
+}
+
+// ResizeCanvas stands in for the browser's layout of a canvas.Fill canvas:
+// it tells the View its element is now w×h CSS pixels, as the runtime does
+// when the element's size changes, then flushes. The View redraws at that
+// size (an animated one on its next Frame).
+func (s *Screen) ResizeCanvas(el *Element, w, h float64) {
+	s.t.Helper()
+	s.Dispatch(el, canvas.ResizeEvent, map[string]any{"width": w, "height": h})
+}
+
+// Frame runs one animation frame: the callbacks registered with
+// core.NextFrame (canvas.Animate draws one picture per Frame), then a Flush.
+func (s *Screen) Frame() {
+	s.t.Helper()
+	s.r.Scheduler.RunFrames()
+	s.Flush()
 }
 
 // WaitFor flushes until cond holds, for results that arrive from goroutines

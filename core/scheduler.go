@@ -43,7 +43,47 @@ type Scheduler struct {
 	// their component rendered: the bridge runs them via RunEffects right
 	// after it applies the frame's mutations.
 	effects []func()
+
+	// frames are callbacks registered with NextFrame: they run once, at the
+	// start of the next frame. They are not "work" (HasWork ignores them), so
+	// a test harness flushing until quiescent doesn't spin on an animation,
+	// and the bridge can stop animating while the page is hidden.
+	frames []func()
+
+	// ManualFrames stops Flush from running frame callbacks: the caller runs
+	// them with RunFrames. gooweetest sets it, so tests step animations with
+	// Screen.Frame instead of every flush advancing them.
+	ManualFrames bool
 }
+
+// NextFrame runs fn once at the start of the next frame, on the render loop.
+// Call it again from fn to keep animating. It requests a frame (OnWork) even
+// during a flush: a callback registered from a frame callback runs on the
+// following frame, not the current one.
+func (s *Scheduler) NextFrame(fn func()) {
+	s.frames = append(s.frames, fn)
+	if s.OnWork != nil {
+		s.OnWork()
+	}
+}
+
+// RunFrames runs the frame callbacks registered so far, as one batch, each
+// panic-contained. Callbacks they register wait for the next RunFrames.
+func (s *Scheduler) RunFrames() {
+	if len(s.frames) == 0 {
+		return
+	}
+	fs := s.frames
+	s.frames = nil
+	Batch(func() {
+		for _, fn := range fs {
+			Recover(LogRecoverFrame, "panic in frame callback", nil, fn)
+		}
+	})
+}
+
+// HasFrames reports whether frame callbacks wait for the next frame.
+func (s *Scheduler) HasFrames() bool { return len(s.frames) > 0 }
 
 // Post queues fn to run on the render loop at the next flush. It is safe to
 // call from any goroutine — this is how off-loop code (timers, network) feeds
@@ -148,7 +188,7 @@ func (s *Scheduler) RunEffects() {
 
 // HasWork reports whether a Flush or RunEffects would do anything: queued
 // mutations, dirty scopes, callbacks posted by goroutines, or effects waiting
-// to run. Test harnesses use it to flush until quiescent.
+// to run. Frame callbacks (NextFrame) don't count; see HasFrames. Test harnesses use it to flush until quiescent.
 func (s *Scheduler) HasWork() bool {
 	s.postMu.Lock()
 	posted := len(s.posted)
@@ -194,6 +234,11 @@ func (s *Scheduler) CancelDirty(key any) {
 // place batched render work happens.
 func (s *Scheduler) Flush() []Mutation {
 	s.inFlush = true
+	// Animation callbacks first: what they draw and set goes out with this
+	// frame.
+	if !s.ManualFrames {
+		s.RunFrames()
+	}
 	// Run callbacks posted by off-loop goroutines first, on this goroutine;
 	// their signal writes then feed the dirty/enqueue passes below.
 	s.drainPosted()

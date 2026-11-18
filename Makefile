@@ -1,4 +1,4 @@
-.PHONY: wasm brotli ssr-server test bench perf-record perf-compare ssr-scaling size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
+.PHONY: canvasbench wasm brotli ssr-server test bench perf-record perf-compare ssr-scaling size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -75,6 +75,11 @@ clean:
 
 e2e:
 	./test/e2e/run.sh
+
+# goowee/canvas frame time on examples/graph (10,000 nodes + 10,000 edges per
+# frame) in headless Chrome: a wall-clock report, so it's not part of e2e.
+canvasbench:
+	node test/e2e/canvasbench.mjs
 
 # The GitHub Pages build, served under /goowee/ like Pages, in headless Chrome.
 pages-e2e: pages

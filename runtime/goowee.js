@@ -324,6 +324,7 @@ function stashFiles(el, files) {
 function forget(node) {
     if (node._nodeID !== undefined) delete nodeMap[node._nodeID];
     releaseFiles(node);
+    if (node.nodeName === "CANVAS") forgetCanvas(node);
     for (let c = node.firstChild; c; c = c.nextSibling) forget(c);
 }
 
@@ -390,6 +391,12 @@ function touchList(list) {
     return out;
 }
 
+function isPlainObject(v) {
+    if (v === null || typeof v !== "object") return false;
+    const p = Object.getPrototypeOf(v);
+    return p === Object.prototype || p === null;
+}
+
 function buildPayload(type, e) {
     switch (type) {
         case "click": case "dblclick": case "auxclick": case "contextmenu":
@@ -452,6 +459,10 @@ function buildPayload(type, e) {
         case "scroll":
             return {scrollTop: e.target.scrollTop, scrollLeft: e.target.scrollLeft};
         default:
+            // A custom event's detail, when it's a plain object, becomes the
+            // handler's e.Data (goowee:canvasresize carries the new size).
+            if (typeof CustomEvent !== "undefined" && e instanceof CustomEvent && isPlainObject(e.detail))
+                return e.detail;
             return {};
     }
 }
@@ -698,7 +709,8 @@ window.applyMutations = function applyMutations(json) {
 // string as a byte length plus UTF-8 padded to 4 bytes). Unknown ops are
 // skipped, so an older runtime ignores newer commands instead of failing.
 goowee.canvasVersion = 1;
-const canvasState = new WeakMap(); // <canvas> -> {ctx, last}
+const canvasState = new WeakMap(); // <canvas> -> {ctx, last, follow, cw, ch}
+const liveCanvases = new Set();    // canvases drawn and still in the document
 const canvasText = new TextDecoder();
 const CANVAS_CAPS = ["butt", "round", "square"];
 const CANVAS_JOINS = ["miter", "round", "bevel"];
@@ -712,13 +724,73 @@ goowee.draw = function draw(u8, nbytes, nodeId) {
     if (!el || el.nodeName !== "CANVAS") return;
     let st = canvasState.get(el);
     if (!st) {
-        st = {ctx: el.getContext("2d"), last: null};
+        // follow: the canvas follows its element's size (canvas.Fill); cw and
+        // ch are that size in CSS pixels, from the ResizeObserver.
+        st = {ctx: el.getContext("2d"), last: null, follow: false, cw: 0, ch: 0};
         canvasState.set(el, st);
     }
     if (!st.ctx) return; // the context couldn't be created (another context type owns the canvas)
     st.last = u8.slice(0, nbytes); // a copy: the caller reuses u8, and a resize can replay it
+    if (!liveCanvases.has(el)) {
+        liveCanvases.add(el);
+        watchPixelRatio();
+    }
+    if (nbytes >= 8 && (new Uint32Array(st.last.buffer, 0, 2)[1] & 2) && !st.follow) {
+        st.follow = true;
+        const r = el.getBoundingClientRect();
+        st.cw = r.width; st.ch = r.height;
+        canvasResizer().observe(el);
+    }
     replayCanvas(el, st);
 };
+
+// One ResizeObserver for every following canvas. On a size change it resizes
+// the backing store, replays the last picture at once (so the canvas is never
+// blank while Go redraws), and tells Go the new size with a
+// goowee:canvasresize event (detail {width, height}, CSS pixels).
+let canvasObserver = null;
+function canvasResizer() {
+    if (!canvasObserver) {
+        canvasObserver = new ResizeObserver(function (entries) {
+            for (const entry of entries) {
+                const el = entry.target, st = canvasState.get(el);
+                if (!st || !st.follow) continue;
+                const w = entry.contentRect.width, h = entry.contentRect.height;
+                if (w === st.cw && h === st.ch && st.told) continue;
+                st.cw = w; st.ch = h; st.told = true;
+                if (st.last) replayCanvas(el, st);
+                el.dispatchEvent(new CustomEvent("goowee:canvasresize", {detail: {width: w, height: h}}));
+            }
+        });
+    }
+    return canvasObserver;
+}
+
+function forgetCanvas(el) {
+    if (!liveCanvases.delete(el)) return;
+    if (canvasObserver) canvasObserver.unobserve(el);
+    canvasState.delete(el); // a canvas drawn again later starts afresh
+}
+
+// The device pixel ratio changes with browser zoom and when the window moves
+// to another screen. A media query on the current ratio fires once it no
+// longer matches: replay every canvas at the new ratio, then watch the next.
+let ratioWatched = false;
+function watchPixelRatio() {
+    if (ratioWatched || typeof matchMedia !== "function") return;
+    ratioWatched = true;
+    const mq = matchMedia("(resolution: " + (globalThis.devicePixelRatio || 1) + "dppx)");
+    const changed = function () {
+        mq.removeEventListener("change", changed);
+        ratioWatched = false;
+        for (const el of liveCanvases) {
+            const st = canvasState.get(el);
+            if (st && st.last) replayCanvas(el, st);
+        }
+        if (liveCanvases.size > 0) watchPixelRatio();
+    };
+    mq.addEventListener("change", changed);
+}
 
 function replayCanvas(el, st) {
     const bytes = st.last;
@@ -736,7 +808,10 @@ function replayCanvas(el, st) {
     // The runtime owns the backing store's size: the buffer's CSS size times
     // the device pixel ratio. Compared with the element itself, so anything
     // else that resized it (a width attribute) is corrected on the next draw.
-    const w = f[2], h = f[3], dpr = globalThis.devicePixelRatio || 1;
+    // A following canvas (flag bit 1) takes its size from the element, not
+    // the header: the observed size is the latest.
+    const follow = (u[1] & 2) !== 0 && st.follow;
+    const w = follow ? st.cw : f[2], h = follow ? st.ch : f[3], dpr = globalThis.devicePixelRatio || 1;
     const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
     if (el.width !== bw) el.width = bw; // also clears the canvas and resets its state
     if (el.height !== bh) el.height = bh;

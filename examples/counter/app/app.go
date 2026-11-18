@@ -29,6 +29,7 @@ func App(r *router.Router) core.Node {
 				"/greet/:name":     func() core.Node { return greetPage(r) },
 				"/events":          func() core.Node { return eventsPage(r) },
 				"/canvas":          func() core.Node { return canvasPage(r) },
+				"/graph":           func() core.Node { return graphPage(r) },
 			}),
 		)
 	})

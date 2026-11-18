@@ -864,3 +864,74 @@ function re-runs like a `Show`'s content, so state belongs in a component
 inside it. The value is a signal, so consumers update by binding it.
 Providing a different signal to an existing provider re-renders its content
 with the new one.
+
+## ADR-028: Canvas drawing is a command buffer replayed by the runtime
+
+**Status:** Accepted (2026-11-18)
+
+**Context.** Charts and graphs with thousands of marks are too slow as DOM or
+SVG nodes, and a `<canvas>` drawn through `syscall/js` pays about 0.3 µs per
+call on top of the canvas operation: 10,000 line segments and 10,000 circles
+spent 15–17 ms in the draw call alone, missing 60 fps. That path also can't be
+server-rendered or tested with `gooweetest` (#159).
+
+**Decision.**
+- A package `goowee/canvas`, pure Go (no `syscall/js`, no `unsafe`), so it
+  runs in SSR and tests and costs nothing in apps that don't import it.
+- Immediate mode: a draw function records the whole picture into a `Ctx`, a
+  `[]uint32` buffer of versioned commands (`op | n<<8` then `n` operand words;
+  floats as float32 bits; strings as a length and padded UTF-8). Unknown ops
+  are skipped, op numbers are permanent, and a layout change raises
+  `core.DrawVersion` and `goowee.canvasVersion` together.
+- A mutation, `core.MutDraw`, carries the buffer through the scheduler, so
+  ordering, coalescing (the last draw per canvas in a frame wins) and
+  `gooweetest` come for free. The bridge sends each draw after the frame's DOM
+  batch with one `CopyBytesToJS` and one call; the batch encoders never see it.
+- `goowee.draw` in `runtime/goowee.js` replays it. Coordinates are CSS pixels:
+  the runtime sizes the backing store by `devicePixelRatio`, replays every
+  canvas when the ratio changes, and, for a `Fill` canvas (header flag bit 1),
+  follows the element's size with one `ResizeObserver`, replaying the last
+  picture at once and telling Go with a `goowee:canvasresize` event. A custom
+  event's plain-object `detail` becomes the handler's `e.Data`.
+- `canvas.View` is a plain component whose options are read at mount.
+- Animation is `core.NextFrame(fn)`: callbacks run at the start of the next
+  flush, as one batch, each panic-contained. They are not "work"
+  (`Scheduler.HasWork` ignores them), so a test harness settles while
+  something animates (`gooweetest` sets `ManualFrames` and steps with
+  `screen.Frame()`), and the bridge doesn't request a frame for them while the
+  page is hidden; it resumes when the page is shown. `canvas.Animate` draws
+  one picture per frame on top of it.
+- `canvas.Stack` layers canvases in a box; `canvas.Grid` is a uniform-grid
+  index for hit testing. Both are plain Go over the pieces above.
+
+**Measurements.** Time inside the draw call for 10,000 segments and 10,000
+circles (record in Go, cross, issue the canvas calls), Chrome headless, Apple
+M1, from the #159 spike:
+
+| How the scene is drawn | GPU raster | Software raster |
+|---|---|---|
+| Hand-written JS (the floor) | 4.0 ms | 2.7 ms |
+| `syscall/js`, one call per operation | 17.3 ms | 15.3 ms |
+| Command buffer, one opcode per operation | 3.5 ms | 2.0 ms |
+| Command buffer, bulk opcodes | 3.0 ms | 1.8 ms |
+
+`examples/graph` (`make canvasbench`) redraws 10,000 moving nodes and 10,000
+edges every frame on a 1256×727 canvas: recording 1.1 ms, Go up to the
+crossing 1.2 ms, replay 2.7 ms, so 3.9 ms (median) per frame against a 4 ms
+budget, at 60 fps with GPU raster. With software raster the same work takes
+3.8 ms but rasterizing the frame holds it to 30 fps. See `docs/perf/canvas.md`.
+
+**Alternatives.** One `syscall/js` call per operation is the 4–6× slower
+baseline. A retained scene graph diffed in Go would add a second tree to keep
+in sync and still end in canvas calls. WebGL would be faster for huge scenes
+but needs shaders for lines, text and arcs; the same buffer design can carry
+instanced draws later. Animation by a goroutine ticker through
+`core.Schedule` isn't synchronized with the display and keeps running in a
+hidden tab.
+
+**Consequences.** Apps draw with plain Go and test pictures as decoded
+commands. The runtime and the app must come from the same goowee version.
+Every frame copies the buffer once (about 280 KB for the graph); a later
+`wasmimport` could hand the runtime a view of wasm memory instead (#133). In
+worker mode (#158) the worker will post the buffer to the page, whichever of
+the two lands second.

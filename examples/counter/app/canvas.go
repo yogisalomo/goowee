@@ -8,6 +8,7 @@ import (
 
 	"github.com/yogisalomo/goowee/canvas"
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/examples/graph/graph"
 	. "github.com/yogisalomo/goowee/h"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/router"
@@ -69,26 +70,27 @@ func canvasPage(r *router.Router) core.Node {
 			}),
 		)
 
-		// Animation: a ticker goroutine moves the phase while playing. (A
-		// frame-synchronised core.NextFrame is planned; see #159.)
+		// Animation: while playing, each frame moves the phase by the time
+		// since the last one. core.NextFrame runs on the display's frames,
+		// and pauses while the tab is hidden.
 		hooks.UseEffect([]core.SignalAccessor{playing}, func() func() {
 			if !playing.Get() {
 				return nil
 			}
-			stop := make(chan struct{})
-			go func() {
-				ticker := time.NewTicker(16 * time.Millisecond)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-stop:
-						return
-					case <-ticker.C:
-						core.Schedule(func() { setPhase(phase.Get() + 0.016) })
-					}
+			stopped := false
+			last := time.Now()
+			var tick func()
+			tick = func() {
+				if stopped {
+					return
 				}
-			}()
-			return func() { close(stop) }
+				now := time.Now()
+				setPhase(phase.Get() + min(now.Sub(last), 100*time.Millisecond).Seconds())
+				last = now
+				core.NextFrame(tick)
+			}
+			core.NextFrame(tick)
+			return func() { stopped = true }
 		})
 		playLabel := core.Computed([]core.SignalAccessor{playing}, func() string {
 			if playing.Get() {
@@ -121,6 +123,8 @@ func canvasPage(r *router.Router) core.Node {
 						}))),
 			),
 			P(Class("field-stats"), TextS(stats)),
+			P(Class("graph-link"), Text("For a bigger scene, "), r.Link("/graph", "a graph of 10,000 nodes and 10,000 edges"),
+				Text(" redraws every frame with "), Code(Text("canvas.Animate")), Text(".")),
 		)
 		return lessonLayout(r, "Canvas",
 			"`goowee/canvas` draws on a `<canvas>` from Go. A draw function records commands into one buffer, and the runtime replays it in a single call, so thousands of marks per frame stay cheap. Shuffle the bars, then animate the dots and drag the slider.",
@@ -130,6 +134,8 @@ func canvasPage(r *router.Router) core.Node {
 				"The whole picture crosses into JavaScript as one buffer, copied once, instead of one `syscall/js` call per drawing operation, which costs several times more for big scenes.",
 				"Coordinates are CSS pixels; the runtime scales the backing store for the screen's device pixel ratio, so the drawing is sharp on high-density screens.",
 				"Group marks by style: one path and one `Fill` per color, using bulk methods like `Circles` and `Segments`. Once the crossing is cheap, the canvas API itself is the cost.",
+				"`core.NextFrame(fn)` runs `fn` at the start of the next frame; calling it again from `fn` animates at the display's refresh rate, and stops while the tab is hidden. `canvas.Animate(fn)` does that for a View: one picture per frame.",
+				"`canvas.Fill()` makes a canvas follow its parent's size instead of a fixed `Size`, redrawing when it changes. `canvas.Stack` layers canvases, and `canvas.Grid` finds the mark under the pointer.",
 				"The draw function never runs on the server; SSR renders the empty `<canvas>` with its label. In tests, gooweetest's `Element.Canvas()` returns the recorded commands.",
 			),
 			tutorialStepNav(r, "/canvas"),
@@ -144,4 +150,14 @@ func thousands(n int) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
+}
+
+// graphPage shows examples/graph: 10,000 nodes and 10,000 edges, every frame.
+func graphPage(r *router.Router) core.Node {
+	return Div(Class("page lesson graph-page"),
+		r.Link("/canvas", "← Back to Canvas", Class("backlink")),
+		H1(Text("10,000 nodes, every frame")),
+		P(Class("lead"), rich("Each node circles its cluster's center, so the whole picture changes every frame. `canvas.Animate` records it into one buffer, nodes grouped by color into one path each, and `canvas.Grid` finds the node under the pointer.")),
+		Div(Class("graph-box"), graph.View()),
+	)
 }

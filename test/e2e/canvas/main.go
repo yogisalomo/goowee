@@ -7,9 +7,14 @@
 //   - #scene: internal/canvasscene, every op once; the page logs the canvas
 //     calls it receives and the test compares them with canvas/testdata/scene.json.
 //   - #view: a canvas.View redrawn when a signal changes (#grow).
+//   - #fill: a canvas.Fill View in a 300×200 box (#fillbox) that the test
+//     resizes; it paints its whole area red.
+//   - #anim: a canvas.Animate View; the page counts its pictures.
 package main
 
 import (
+	"time"
+
 	"github.com/yogisalomo/goowee/bridge"
 	"github.com/yogisalomo/goowee/canvas"
 	"github.com/yogisalomo/goowee/core"
@@ -46,6 +51,25 @@ func main() {
 				}),
 			),
 			Button(ID("grow"), OnClick(func() { setBars(bars.Get() + 1) }), Text("grow")),
+			Div(ID("fillbox"), Style("width:300px;height:200px"),
+				canvas.View(
+					canvas.Fill(),
+					canvas.Attrs(ID("fill")),
+					canvas.Draw(nil, func(c *canvas.Ctx) {
+						c.FillStyle("red")
+						c.FillRect(0, 0, c.Width(), c.Height())
+					}),
+				),
+			),
+			canvas.View(
+				canvas.Size(40, 40),
+				canvas.Attrs(ID("anim")),
+				canvas.Animate(func(c *canvas.Ctx, dt time.Duration) {
+					x := float64(time.Now().UnixMilli()%40)
+					c.FillStyle("blue")
+					c.FillRect(x, 0, 4, 40)
+				}),
+			),
 		)
 	}))
 }
