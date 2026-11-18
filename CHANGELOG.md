@@ -63,6 +63,16 @@ time. The public surface freezes under semver at v1.
   result as packed bits instead of an object. gooweetest's `Dispatch` follows
   the same rule.
 
+### Fixed
+- `hooks.Watch` and `hooks.UseEffect` ran once per changed dependency when one
+  batch wrote several of them (an event handler setting a page and a filter,
+  `Navigate` setting the path and query); they now run once per batch, after
+  every write (#138). So `UseResource` over two deps that change together
+  fetches once instead of starting and cancelling a fetch. An effect that
+  writes one of its own deps runs again with the new value, and one that keeps
+  doing so is stopped after 1,000 rounds with a `signal.cycle` log. The
+  mechanism is public as `core.Coalesce(fn)`.
+
 ## [0.2.7] — 2026-11-10
 
 A patch release with two fixes found building Dure: `Navigate` with a query

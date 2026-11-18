@@ -131,3 +131,44 @@ func TestScheduledCallbacksAreBatchedAndContained(t *testing.T) {
 		t.Fatalf("want a %s log entry, got %+v", LogRecoverScheduled, captured)
 	}
 }
+
+// #138: a coalesced callback runs once per batch round, at once outside a
+// batch, and never after stop.
+func TestCoalesce(t *testing.T) {
+	a, b := NewSignal(0), NewSignal(0)
+	runs := 0
+	trigger, stop := Coalesce(func() { runs++ })
+	a.Subscribe(trigger)
+	b.Subscribe(trigger)
+	Batch(func() { a.Set(1); b.Set(1); a.Set(2) })
+	if runs != 1 {
+		t.Fatalf("runs = %d after one batch, want 1", runs)
+	}
+	trigger()
+	if runs != 2 {
+		t.Fatalf("runs = %d after a direct trigger, want 2", runs)
+	}
+	Batch(func() { a.Set(3); stop() })
+	if runs != 2 {
+		t.Fatalf("ran after stop (%d)", runs)
+	}
+}
+
+// A panicking coalesced callback doesn't strand the others queued with it.
+func TestCoalescePanicDoesNotStrandOthers(t *testing.T) {
+	a, b := NewSignal(0), NewSignal(0)
+	runs := 0
+	boom, _ := Coalesce(func() { panic("boom") })
+	ok, _ := Coalesce(func() { runs++ })
+	a.Subscribe(boom)
+	a.Subscribe(ok)
+	b.Subscribe(ok)
+	func() {
+		defer func() { recover() }()
+		Batch(func() { a.Set(1) }) // boom panics before ok runs
+	}()
+	Batch(func() { b.Set(1) })
+	if runs != 1 {
+		t.Fatalf("ok ran %d times after boom panicked, want 1: it was left marked pending", runs)
+	}
+}
