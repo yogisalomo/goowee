@@ -55,6 +55,11 @@ time. The public surface freezes under semver at v1.
 - `r.Fragment`, the URL's fragment as a signal, following `Navigate`, back and
   forward; and `r.QueryValues(name)`, every value of a repeated parameter
   (`?tag=a&tag=b`).
+- `make size-report` and `make size-check` (#129): raw, gzip and brotli sizes
+  of the minimal app and the example site, with code bytes per Go package
+  (`scripts/wasm-size.mjs`). CI now fails when either program's brotli size
+  grows more than 3% over its record in `docs/perf/size-budget.json`, or when
+  it links a package on its deny list. This replaces the raw 6 MiB limit.
 
 ### Changed
 - Events call into Go only for elements that have a handler for them (#132).

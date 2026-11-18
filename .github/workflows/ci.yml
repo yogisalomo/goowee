@@ -31,16 +31,15 @@ jobs:
       - name: Build SSR server
         run: go build -o /tmp/ssr-server ./cmd/ssr-server
 
-      - name: Build WASM + size budget
-        run: |
-          GOOS=js GOARCH=wasm go build -o /tmp/main.wasm ./examples/counter
-          size=$(stat -c%s /tmp/main.wasm)
-          budget=6291456   # 6 MiB — current build is ~3.7 MiB; guards against a blowup
-          echo "main.wasm: $size bytes (budget $budget)"
-          if [ "$size" -gt "$budget" ]; then
-            echo "::error::WASM binary $size bytes exceeds budget $budget"
-            exit 1
-          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Brotli bytes of the smallest app and the example site against
+      # docs/perf/size-budget.json (+3%), plus each program's deny list; the
+      # log shows the code bytes per package (#129).
+      - name: WASM size budget
+        run: make size-check
 
       - name: Benchmarks (smoke)
         run: go test -run '^$' -bench . -benchtime=10x ./core/ ./internal/dom/

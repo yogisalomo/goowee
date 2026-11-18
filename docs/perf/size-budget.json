@@ -1,0 +1,14 @@
+{
+  "comment": "Brotli -q 11 bytes of each program's wasm, as built by `make size-report` with the Go version CI uses. CI fails when a program grows more than `tolerance` over its record, or links a package on its deny list. A change that grows a program on purpose raises its record in the same diff; one that shrinks it lowers the record. See docs/perf/README.md.",
+  "tolerance": 0.03,
+  "programs": {
+    "test/e2e/hello": {
+      "brotli": 790169,
+      "deny": ["net/http", "net", "crypto/tls", "text/template", "html/template"]
+    },
+    "examples/counter": {
+      "brotli": 981389,
+      "deny": ["net/http", "net", "crypto/tls"]
+    }
+  }
+}
