@@ -127,4 +127,17 @@ func TestCanvasPageWithGooweetest(t *testing.T) {
 	if !strings.HasPrefix(s.Find(".field-stats").Text(), "20,000 dots") || field.DrawCount() != 2 {
 		t.Fatalf("after the slider: %q, %d draws", s.Find(".field-stats").Text(), field.DrawCount())
 	}
+
+	// Animate moves the dots once per frame (core.NextFrame), and Pause stops.
+	s.Click(s.Find("button.play"))
+	s.Frame()
+	s.Frame()
+	if field.DrawCount() != 4 || s.Find("button.play").Text() != "Pause" {
+		t.Fatalf("after two frames playing: %d draws, button %q", field.DrawCount(), s.Find("button.play").Text())
+	}
+	s.Click(s.Find("button.play"))
+	s.Frame()
+	if field.DrawCount() != 4 {
+		t.Fatalf("drew %d times after Pause", field.DrawCount())
+	}
 }

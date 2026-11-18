@@ -33,3 +33,15 @@ func scheduler() *Scheduler {
 	defer activeSchedulerMu.Unlock()
 	return activeScheduler
 }
+
+// NextFrame runs fn once at the start of the next frame, on the render loop;
+// call it again from fn to keep animating. Frames follow the display's
+// refresh rate, and stop while the page is hidden (a background tab doesn't
+// animate). For drawing, canvas.Animate wraps this.
+//
+// No-op when no scheduler is active (SSR, or tests without a running client).
+func NextFrame(fn func()) {
+	if s := scheduler(); s != nil {
+		s.NextFrame(fn)
+	}
+}

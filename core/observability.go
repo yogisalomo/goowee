@@ -20,6 +20,7 @@ const (
 	LogRecoverRead          LogKind = "recover.read"
 	LogRecoverScheduled     LogKind = "recover.scheduled"
 	LogRecoverEffect        LogKind = "recover.effect"
+	LogRecoverFrame         LogKind = "recover.frame"
 	LogSignalCycle          LogKind = "signal.cycle"
 	LogWarn                 LogKind = "warn"
 )

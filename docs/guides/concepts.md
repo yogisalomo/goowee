@@ -568,8 +568,63 @@ To draw from somewhere other than a `View` (a handler, a goroutine via
 `core.Schedule`), record into your own `canvas.NewCtx(w, h)` and send it with
 `ref.Draw(c.Commands())`; give that `<canvas>` the same CSS size.
 
+### Following the element's size
+
+`canvas.Fill()` replaces `Size`: the canvas fills its parent (which needs a
+height of its own), the runtime watches its size, and the picture is redrawn
+when it changes, with `c.Width()` and `c.Height()` giving the new size.
+Nothing is drawn until the canvas has been laid out. A change of the device
+pixel ratio (browser zoom, another screen) replays every canvas at the new
+ratio by itself.
+
+### Animation
+
+`core.NextFrame(fn)` runs `fn` once at the start of the next frame, on the
+render loop; calling it again from `fn` keeps animating at the display's
+refresh rate. Frames stop while the page is hidden. `canvas.Animate` does this
+for a View, drawing one picture per frame from mount to unmount:
+
+```go
+canvas.View(
+    canvas.Fill(),
+    canvas.Animate(func(c *canvas.Ctx, dt time.Duration) {
+        angle += dt.Seconds()            // dt: time since the last picture
+        c.FillStyle("#00add8")
+        c.BeginPath()
+        c.Arc(c.Width()/2+80*math.Cos(angle), c.Height()/2, 12, 0, 2*math.Pi)
+        c.Fill()
+    }),
+)
+```
+
+The first picture after a hidden page is shown again gets the whole hidden
+time as `dt`, so clamp it when the motion integrates it. In `gooweetest`,
+animations advance only with `screen.Frame()`, one picture per call;
+`screen.ResizeCanvas(el, w, h)` stands in for the layout of a `Fill` canvas.
+
+### Layers and hit testing
+
+`canvas.Stack(box, layers...)` puts one canvas per layer in a box, so a layer
+that changes rarely isn't redrawn with one that changes often. Each layer is a
+`Draw` or an `Animate`; `box` is a `Size` or `Fill`, combined with `Label` or
+`Attrs` through `canvas.Options`:
+
+```go
+canvas.Stack(
+    canvas.Options(canvas.Size(600, 400), canvas.Attrs(h.OnPointerMove(hover))),
+    canvas.Draw([]core.SignalAccessor{graph}, drawEdges),     // slow, rare
+    canvas.Draw([]core.SignalAccessor{hovered}, drawHighlight), // cheap, often
+)
+```
+
+`canvas.Grid` finds the mark under the pointer: `Insert(id, x, y, r)` each
+mark as you draw (after a `Reset`), then `At(e.OffsetX(), e.OffsetY())` in a
+pointer handler. Once grown, it doesn't allocate.
+
 The tutorial's [Canvas lesson](https://yogisalomo.github.io/goowee/canvas)
-animates up to 50,000 dots this way.
+animates up to 50,000 dots this way, and its
+[graph](https://yogisalomo.github.io/goowee/graph) redraws 10,000 nodes and
+10,000 edges every frame (`examples/graph`; `make canvasbench` measures it).
 
 ## Two-way bindings
 

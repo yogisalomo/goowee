@@ -122,13 +122,39 @@ func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry) {
 func startScheduler(sched *core.Scheduler) {
 	global := js.Global()
 	doc := global.Get("document")
-	scheduled := false
+	scheduled := false // a frame is requested and hasn't run yet
+	inFrame := false   // the frame callback is running
+	wanted := false    // work appeared during the frame; request after it
 	var frame js.Func
+	// request schedules exactly one frame when work appears, instead of
+	// waking the module every ~16ms while idle. A hidden page (a background
+	// tab) gets no animation frames, so work arriving then (a socket message,
+	// a fetch result) would wait until the page is shown: run the frame on a
+	// timer instead, which the browser still fires, if throttled. Animation
+	// (frame callbacks, core.NextFrame) is the exception: a hidden tab
+	// doesn't animate, so when frame callbacks are all that's pending the
+	// frame waits for the page to be shown.
+	request := func() {
+		if scheduled {
+			return
+		}
+		hidden := doc.Get("hidden").Bool()
+		if hidden && !sched.HasWork() {
+			return
+		}
+		scheduled = true
+		if hidden {
+			global.Call("setTimeout", frame, 0)
+		} else {
+			global.Call("requestAnimationFrame", frame)
+		}
+	}
 	frame = js.FuncOf(func(this js.Value, args []js.Value) any {
 		if !scheduled {
 			return nil // this frame already ran, from the other callback
 		}
 		scheduled = false
+		inFrame = true
 		muts := sched.Flush()
 		if len(muts) > 0 {
 			sendMutations(sched, muts)
@@ -136,34 +162,36 @@ func startScheduler(sched *core.Scheduler) {
 		// Effects queued by this frame's renders (OnMount, UseEffect) run now
 		// that their DOM is in the document.
 		sched.RunEffects()
+		inFrame = false
+		if wanted || sched.HasWork() || sched.HasFrames() {
+			wanted = false
+			request()
+		}
 		return nil
 	})
-	// Schedule exactly one frame when work appears, instead of waking the
-	// module every ~16ms while idle. A hidden page (a background tab) gets no
-	// animation frames, so work arriving then (a socket message, a fetch
-	// result) would wait until the page is shown: run the frame on a timer
-	// instead, which the browser still fires, if throttled.
+	// Work that appears while a frame runs is requested once the frame is
+	// done, when HasWork tells real work from frame callbacks alone.
 	sched.OnWork = func() {
-		if scheduled {
+		if inFrame {
+			wanted = true
 			return
 		}
-		scheduled = true
-		if doc.Get("hidden").Bool() {
-			global.Call("setTimeout", frame, 0)
-		} else {
-			global.Call("requestAnimationFrame", frame)
-		}
+		request()
 	}
-	// A frame requested just before the page was hidden would wait for it to
-	// be shown again; move it to a timer too.
 	doc.Call("addEventListener", "visibilitychange", js.FuncOf(func(this js.Value, args []js.Value) any {
-		if scheduled && doc.Get("hidden").Bool() {
-			global.Call("setTimeout", frame, 0)
+		if doc.Get("hidden").Bool() {
+			// A frame requested just before the page was hidden would wait
+			// for it to be shown again; move it to a timer too.
+			if scheduled {
+				global.Call("setTimeout", frame, 0)
+			}
+		} else if sched.HasFrames() {
+			request() // resume the animation that paused while hidden
 		}
 		return nil
 	}))
 	// Flush whatever the initial render already enqueued.
-	sched.OnWork()
+	request()
 }
 
 // sendMutations sends a frame to the runtime: the DOM batch first, then each

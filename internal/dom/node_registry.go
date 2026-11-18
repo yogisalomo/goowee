@@ -31,6 +31,8 @@ var nonBubbling = map[string]bool{
 	"mouseenter": true, "mouseleave": true, "pointerenter": true, "pointerleave": true,
 	"load": true, "error": true, "abort": true, "invalid": true, "toggle": true,
 	"cancel": true, "close": true,
+	// goowee/canvas: a Fill canvas's size changed (canvas.ResizeEvent)
+	"goowee:canvasresize": true,
 	// media
 	"play": true, "pause": true, "playing": true, "ended": true, "waiting": true,
 	"seeking": true, "seeked": true, "timeupdate": true, "volumechange": true,

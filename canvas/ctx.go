@@ -40,7 +40,7 @@ const Version = 1
 // Header flags (word 1 of a buffer).
 const (
 	FlagClear      = 1 << 0 // clear the canvas before drawing
-	flagFollowSize = 1 << 1 // reserved: the canvas follows its element's size
+	FlagFollowSize = 1 << 1 // the canvas follows its element's CSS size (Fill); the header's size is ignored
 )
 
 const headerWords = 4
