@@ -107,3 +107,25 @@ devtools.ClearChanges()
 ```
 
 `bridge.Run` enables devtools automatically when `goowee.devEnabled()` is true.
+
+## Production builds without dev tools
+
+Dev mode is switched on at run time (`?goowee-dev`), so by default its code is
+in every build: the inspector, the change log, and the dependency checks with
+their `runtime.Callers` and `FuncForPC` lookups. Build with
+`-tags goowee_nodev` to leave all of that out:
+
+```sh
+GOOS=js GOARCH=wasm go build -tags goowee_nodev -o dist/main.wasm ./cmd/app
+```
+
+The build links no `goowee/devtools` code (a test checks the wasm's name
+section), and `core.SetDevChecks` does nothing in it. `?goowee-dev` then turns
+nothing on, and `goowee.inspect()` and `goowee.changes()` print "built without
+dev tools". Everything else works the same, and the E2E smoke test runs on
+both builds. On the minimal app the tag saves about 105 KB of wasm, or 15 KB
+after brotli.
+
+Builds without the tag keep today's behavior, so `?goowee-dev` works on any of
+them.
+

@@ -9,7 +9,6 @@ import (
 	"unsafe"
 
 	"github.com/yogisalomo/goowee/core"
-	"github.com/yogisalomo/goowee/devtools"
 	"github.com/yogisalomo/goowee/internal/dom"
 )
 
@@ -33,21 +32,14 @@ func Run(app core.Node) {
 	}
 	muts, _ := renderer.Render(app)
 	renderer.Scheduler.Enqueue(muts...)
-	if devtools.Enabled() {
-		devtools.SetRoot(app)
-	}
+	setInspectorRoot(app)
 	initBridge(renderer.Scheduler, renderer.Registry)
 	select {}
 }
 
 func initObservability() {
 	initLogSink()
-	if js.Global().Get("goowee").Call("devEnabled").Bool() {
-		devtools.Enable()
-		initInspector()
-	} else {
-		core.TakeEarlyNames() // no inspector to give Named signals to: let them go
-	}
+	initDevTools()
 }
 
 func initLogSink() {
@@ -65,31 +57,6 @@ func initLogSink() {
 		}
 		js.Global().Get("goowee").Call("log", string(data))
 	})
-}
-
-func initInspector() {
-	js.Global().Get("goowee").Set("inspectGo", js.FuncOf(func(this js.Value, args []js.Value) any {
-		data, err := json.Marshal(devtools.Snapshot())
-		if err != nil {
-			return map[string]any{"error": err.Error()}
-		}
-		var snap map[string]any
-		_ = json.Unmarshal(data, &snap)
-		return snap
-	}))
-	js.Global().Get("goowee").Set("changesGo", js.FuncOf(func(this js.Value, args []js.Value) any {
-		if len(args) > 0 && args[0].Truthy() {
-			devtools.ClearChanges()
-			return []any{}
-		}
-		data, err := json.Marshal(devtools.Changes())
-		if err != nil {
-			return map[string]any{"error": err.Error()}
-		}
-		var rows []any
-		_ = json.Unmarshal(data, &rows)
-		return rows
-	}))
 }
 
 // initBridge wires the render loop to the JS runtime: it registers the event

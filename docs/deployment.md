@@ -20,8 +20,9 @@ Router, etc.) — it's not goowee-specific.
 Compile to WASM and copy the required files into a directory (here `dist/`):
 
 ```sh
-# 1. Compile the WASM binary
-GOOS=js GOARCH=wasm go build -o dist/main.wasm ./cmd/app
+# 1. Compile the WASM binary (-tags goowee_nodev leaves out the dev tools;
+#    see docs/devtools.md)
+GOOS=js GOARCH=wasm go build -tags goowee_nodev -o dist/main.wasm ./cmd/app
 
 # 2. Copy Go's JS loader
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" dist/

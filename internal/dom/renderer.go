@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/yogisalomo/goowee/core"
-	"github.com/yogisalomo/goowee/devtools"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/internal/runtime"
 	"github.com/yogisalomo/goowee/internal/walker"
@@ -902,10 +901,6 @@ func firstRoot(n core.Node) int {
 	}
 	return 0
 }
-
-// devMode reports whether dev-only diagnostics are on (?goowee-dev); a
-// variable so tests can switch it.
-var devMode = devtools.Enabled
 
 var warnedPreserved = map[string]bool{}
 

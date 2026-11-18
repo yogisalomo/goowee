@@ -60,6 +60,11 @@ time. The public surface freezes under semver at v1.
   (`scripts/wasm-size.mjs`). CI now fails when either program's brotli size
   grows more than 3% over its record in `docs/perf/size-budget.json`, or when
   it links a package on its deny list. This replaces the raw 6 MiB limit.
+- `-tags goowee_nodev` builds the app without dev tools (#127): no inspector,
+  no change log and no dependency checks, and no `goowee/devtools` code linked.
+  It saves about 105 KB of wasm (15 KB after brotli) on the minimal app.
+  `goowee.inspect()` and `goowee.changes()` then say the build has none.
+  Default builds are unchanged.
 
 ### Changed
 - Events call into Go only for elements that have a handler for them (#132).
