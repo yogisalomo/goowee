@@ -44,6 +44,16 @@ fi
 echo "==> running smoke test"
 URL="http://localhost:$PORT" node test/e2e/smoke.mjs
 
+echo "==> running smoke test on a goowee_nodev build (dev tools compiled out)"
+# The server reads main.wasm from disk on each request: swap in the tagged
+# build (and drop the pre-compressed copy, which is of the default build),
+# run the smoke test, then restore the default build for the suites below.
+GOOS=js GOARCH=wasm go build -tags goowee_nodev -o examples/counter/main.wasm ./examples/counter
+rm -f examples/counter/main.wasm.br
+URL="http://localhost:$PORT" NODEV=1 node test/e2e/smoke.mjs
+GOOS=js GOARCH=wasm go build -o examples/counter/main.wasm ./examples/counter
+if [ "$BR" = 1 ]; then brotli -q 9 -f -k examples/counter/main.wasm; fi
+
 echo "==> running devtools e2e"
 URL="http://localhost:$PORT" node test/e2e/devtools.mjs
 

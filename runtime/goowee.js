@@ -48,6 +48,10 @@ goowee.log = function log(entryJSON) {
 };
 
 goowee.inspect = function inspect() {
+    if (goowee.noDevTools) {
+        console.warn("[goowee] built without dev tools (-tags goowee_nodev): no inspector in this build.");
+        return null;
+    }
     if (typeof goowee.inspectGo !== "function") {
         console.warn(
             "[goowee] inspector unavailable — enable dev mode with ?goowee-dev or localStorage.setItem('goowee-dev','1') and reload."
@@ -63,6 +67,10 @@ goowee.inspect = function inspect() {
 // (oldest first, the last 500) with the value before and after and the code
 // that made it. goowee.changes({ clear: true }) empties it.
 goowee.changes = function changes(opts) {
+    if (goowee.noDevTools) {
+        console.warn("[goowee] built without dev tools (-tags goowee_nodev): no change log in this build.");
+        return null;
+    }
     if (typeof goowee.changesGo !== "function") {
         console.warn(
             "[goowee] change log unavailable — enable dev mode with ?goowee-dev or localStorage.setItem('goowee-dev','1') and reload."

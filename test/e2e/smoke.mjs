@@ -290,9 +290,17 @@ async function main() {
   const live = await evalJS(`(()=>{let n=0;const walk=(el)=>{if(el._nodeID!==undefined)n++;for(let c=el.firstChild;c;c=c.nextSibling)walk(c);};walk(document.documentElement);return n;})()`);
   check(tracked === live, `runtime tracks ${tracked} nodes but only ${live} are in the document`);
 
+  // #127: a goowee_nodev build (run.sh sets NODEV) works the same, and its
+  // inspector and change log say the build has none.
+  if (process.env.NODEV) {
+    check(await evalJS(`goowee.noDevTools === true && goowee.inspect() === null && goowee.changes() === null`), "goowee_nodev build: goowee.noDevTools isn't set, or inspect/changes returned something");
+  } else {
+    check(await evalJS(`goowee.noDevTools === undefined`), "a default build reports noDevTools");
+  }
+
   if (logs.length) console.log("--- browser logs ---\n" + logs.join("\n"));
   if (fail.length) { console.log("E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }
-  else console.log("E2E PASS: hydration reuses SSR DOM, interactive, routing + history work.");
+  else console.log("E2E PASS" + (process.env.NODEV ? " (goowee_nodev build)" : "") + ": hydration reuses SSR DOM, interactive, routing + history work.");
 }
 
 main().catch((e) => {

@@ -62,7 +62,8 @@ make size-report   # sizes, sections and code bytes per package
 make size-check    # the same, enforcing size-budget.json (CI runs this)
 ```
 
-Both build two programs: `test/e2e/hello`, the smallest goowee app, and
+Both build three programs: `test/e2e/hello`, the smallest goowee app; the
+same app with `-tags goowee_nodev` (dev tools compiled out, #127); and
 `examples/counter`, the tutorial site. `scripts/wasm-size.mjs` reports each
 one's raw, gzip `-9` and brotli `-q 11` bytes, its section totals, and the code
 bytes per Go package. It reads them from the code section and the `name`
@@ -77,7 +78,8 @@ by more than 3% is told to lower the record, so the budget follows the size
 down.
 
 Each program also has a deny list: packages it must not link (`net/http`, and
-`text/template` for the minimal app). When #126 removes `encoding/json` and
+`text/template` for the minimal app; `goowee/devtools` for the `goowee_nodev`
+build). When #126 removes `encoding/json` and
 `fmt` from the minimal app, they go on its list too.
 
 The records were taken with Go 1.25. A Go upgrade can move the sizes; record

@@ -4,11 +4,32 @@
   "programs": {
     "test/e2e/hello": {
       "brotli": 792689,
-      "deny": ["net/http", "net", "crypto/tls", "text/template", "html/template"]
+      "deny": [
+        "net/http",
+        "net",
+        "crypto/tls",
+        "text/template",
+        "html/template"
+      ]
+    },
+    "test/e2e/hello -tags goowee_nodev": {
+      "brotli": 778441,
+      "deny": [
+        "net/http",
+        "net",
+        "crypto/tls",
+        "text/template",
+        "html/template",
+        "github.com/yogisalomo/goowee/devtools"
+      ]
     },
     "examples/counter": {
       "brotli": 1002211,
-      "deny": ["net/http", "net", "crypto/tls"]
+      "deny": [
+        "net/http",
+        "net",
+        "crypto/tls"
+      ]
     }
   }
 }
