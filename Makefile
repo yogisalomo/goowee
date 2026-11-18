@@ -83,9 +83,8 @@ pages:
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(PAGES_OUT)/
 	cp runtime/goowee.js $(PAGES_OUT)/
 	cp examples/counter/site.css $(PAGES_OUT)/
-	sed 's|__BASE__|$(PAGES_BASE)|g' scripts/pages-index.html > $(PAGES_OUT)/index.html
-	cp $(PAGES_OUT)/index.html $(PAGES_OUT)/404.html
-	@echo "built $(PAGES_OUT)/ (base $(PAGES_BASE)) — client-only static site"
+	go run ./cmd/site-export -out $(PAGES_OUT) -base $(PAGES_BASE) -shell scripts/pages-index.html
+	@echo "built $(PAGES_OUT)/ (base $(PAGES_BASE)) — prerendered static site (ssr.Export)"
 
 clean:
 	rm -f $(WASM_OUT) $(WASM_OUT).br bin/ssr-server

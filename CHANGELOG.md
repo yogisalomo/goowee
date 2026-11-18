@@ -11,6 +11,25 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Added
+- `ssr.Export` prerenders a site to static files for hosts without a Go server
+  (#153). Each page is rendered with the same `Page` and `Document` functions
+  as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from
+  the not-found route. Pages come from `Paths`, optionally crawling in-app
+  links, and `Base` serves the site under a sub-path (`ssr.BasePath`, which
+  `RoutedPage` passes to the router). Each file is marked with the path it
+  was rendered for, and the runtime hydrates it only at that URL. A static
+  host's `404.html` served for a page nobody prerendered is dropped and
+  rendered on the client instead. The tutorial site is now prerendered
+  (`cmd/site-export`, `make pages`).
+
+### Fixed
+- Hydration of an empty text binding (`TextS` of `""`): the server writes only
+  its marker, and the client found no text node to claim, logging "no server
+  node" and rebuilding it. The marker now becomes the empty text node.
+- The router treats a trailing slash as the same page (`/about/` is
+  `/about`), as static hosts serve directory URLs.
+
 ## [0.3.0] — 2026-11-18
 
 A minor release. It adds drawing on `<canvas>` from Go (`goowee/canvas`,

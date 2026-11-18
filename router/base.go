@@ -18,3 +18,15 @@ func stripBase(pathname, base string) string {
 	}
 	return pathname
 }
+
+// trimSlash drops a trailing slash ("/counter/" → "/counter"), which static
+// hosts add when they serve a directory's index.html, so the path is the one
+// the app's links and the prerendered page used.
+func trimSlash(p string) string {
+	if len(p) > 1 && strings.HasSuffix(p, "/") {
+		if p = strings.TrimRight(p, "/"); p == "" {
+			return "/"
+		}
+	}
+	return p
+}

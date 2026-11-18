@@ -27,7 +27,7 @@ func Run(app core.Node) {
 	// mount effect can defer work (a ref read, say) to the first flush.
 	core.SetActiveScheduler(renderer.Scheduler)
 	// Hydrate when the document was server-rendered.
-	if js.Global().Get("document").Call("querySelector", "[data-node-id]").Truthy() {
+	if serverRendered() {
 		renderer.SetHydrating(true)
 	}
 	muts, _ := renderer.Render(app)
@@ -35,6 +35,17 @@ func Run(app core.Node) {
 	setInspectorRoot(app)
 	initBridge(renderer.Scheduler, renderer.Registry)
 	select {}
+}
+
+// serverRendered reports whether the page holds server markup for this URL
+// to hydrate (goowee.serverRendered: node ids, and a prerendered page was
+// rendered for this path). An older goowee.js has no such function: then any
+// node id means server-rendered, as before.
+func serverRendered() bool {
+	if fn := js.Global().Get("goowee").Get("serverRendered"); fn.Type() == js.TypeFunction {
+		return fn.Invoke().Bool()
+	}
+	return js.Global().Get("document").Call("querySelector", "[data-node-id]").Truthy()
 }
 
 func initObservability() {

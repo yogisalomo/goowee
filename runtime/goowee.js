@@ -217,13 +217,36 @@ let hydrated = false;
 // while the WASM downloads) is removed here, in the same task that appends
 // the app's first frame, so nothing paints in between. "Server-rendered" is
 // decided exactly as bridge.Run decides it: a [data-node-id] in the document.
+// serverRendered reports whether the document holds server markup for this
+// page, to hydrate: goowee's node ids are present, and a prerendered page
+// (ssr.Export marks it with <meta name="goowee-prerendered">) was rendered
+// for the current path. A static host serves its 404.html, prerendered for a
+// path nothing matches, for every URL it has no file for, including a valid
+// page nobody prerendered; that markup is another page's, so the app renders
+// on the client instead. bridge.Run asks the same question.
+goowee.serverRendered = function serverRendered() {
+    if (!document.querySelector("[data-node-id]")) return false;
+    const meta = document.querySelector('meta[name="goowee-prerendered"]');
+    if (!meta) return true;
+    const norm = function (p) {
+        p = p.replace(/\/index\.html$/, "/");
+        return p.length > 1 && p.endsWith("/") ? p.slice(0, -1) : p;
+    };
+    let here = location.pathname;
+    try { here = decodeURI(here); } catch (_) {}
+    return norm(meta.getAttribute("content") || "") === norm(here);
+};
+
 function hydrateOnce() {
     if (hydrated) return;
     hydrated = true;
     mark("goowee:hydrate-start");
     const root = getRoot();
     if (!root) { mark("goowee:hydrate-end"); return; }
-    if (!document.querySelector("[data-node-id]")) {
+    if (!goowee.serverRendered()) {
+        // Server markup for another page (a static host's 404.html, say)
+        // goes too, so the app's first frame starts from an empty page.
+        for (const el of document.querySelectorAll("[data-node-id]")) el.remove();
         root.replaceChildren();
         mark("goowee:hydrate-end");
         return;
@@ -250,8 +273,14 @@ function hydrateOnce() {
         const next = comment.nextSibling;
         if (next && next.nodeType === 3 /* TEXT_NODE */) {
             preexistingNodes[id] = next;
+            comment.remove();
+        } else {
+            // An empty text node has no markup: the marker is all the server
+            // wrote (TextS of ""). Claim an empty text node in its place.
+            const empty = document.createTextNode("");
+            comment.replaceWith(empty);
+            preexistingNodes[id] = empty;
         }
-        comment.remove();
     }
     mark("goowee:hydrate-end");
 }

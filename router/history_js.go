@@ -28,7 +28,7 @@ func basePath() string {
 // to New.
 func CurrentPath() string {
 	p := js.Global().Get("location").Get("pathname").String()
-	return stripBase(p, basePath())
+	return trimSlash(stripBase(p, basePath()))
 }
 
 // BindHistory wires the router to the browser's History API: Navigate pushes a
@@ -58,7 +58,7 @@ func (r *Router) BindHistory() {
 		// entry on top of the one the browser just popped. One batch: a
 		// watcher never sees the new path with the old query (#142).
 		loc := js.Global().Get("location")
-		r.syncURL(stripBase(loc.Get("pathname").String(), r.base), loc.Get("search").String(), loc.Get("hash").String())
+		r.syncURL(trimSlash(stripBase(loc.Get("pathname").String(), r.base)), loc.Get("search").String(), loc.Get("hash").String())
 		return nil
 	}))
 }

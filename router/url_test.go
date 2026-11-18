@@ -130,3 +130,13 @@ func TestSyncURLIsOneBatch(t *testing.T) {
 		t.Fatal("no notification")
 	}
 }
+
+// #153: static hosts serve a directory's index.html at "/counter/"; the
+// router's path is "/counter", as the app's links and the prerender used.
+func TestTrimSlash(t *testing.T) {
+	for in, want := range map[string]string{"/": "/", "/counter/": "/counter", "/a/b//": "/a/b", "//": "/", "/x": "/x"} {
+		if got := trimSlash(in); got != want {
+			t.Errorf("trimSlash(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

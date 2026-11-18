@@ -102,13 +102,48 @@ so asset URLs and routing resolve under that prefix:
 ```
 
 goowee reads `<base href>` at boot and matches routes relative to it, so the
-same WASM binary works at `/` and under a sub-path. This repo's `make pages`
-target does exactly this — see the `pages` rule in the [Makefile](../Makefile)
-and [`scripts/pages-index.html`](../scripts/pages-index.html) for a working
-template (it substitutes the base path and copies `index.html` to `404.html`).
+same WASM binary works at `/` and under a sub-path. To also have the content
+in the first paint, prerender the pages (next section). This repo's `make pages`
+target does both; see the `pages` rule in the [Makefile](../Makefile),
+[`cmd/site-export`](../cmd/site-export/main.go) and
+[`scripts/pages-index.html`](../scripts/pages-index.html).
 
 > Note: goowee routing is path-based (History API), not hash-based — a
 > `/#/route` URL will not drive the router.
+
+### Prerendering for static hosts
+
+A client-only site shows a splash until the WASM has downloaded and booted,
+and crawlers and link previews see an empty `#root`. `ssr.Export` renders the
+pages ahead of time with the same `Page` and `Document` functions
+`ssr.Handler` takes. It writes each one as `<path>/index.html` and the
+not-found route as `404.html`. The browser shows the content at once and
+hydrates it as it would a server response.
+
+```go
+pages, err := ssr.Export(ssr.ExportOptions{
+    Page:       ssr.RoutedPage(app.App),
+    Document:   shell,                    // writes <html>…<base href="/repo/">…<div id="root">body</div>
+    Dir:        "dist",
+    Paths:      []string{"/"},
+    Crawl:      true,                     // and every in-app page those link to
+    Base:       "/repo/",                 // "" at a domain root
+    ClientOnly: func(r *http.Request) bool { return r.URL.Path == "/editor" },
+    Shell:      indexHTML,                // for ClientOnly pages, and renders that panic
+})
+```
+
+- **Which pages.** `Paths` lists pages explicitly, base-relative. `Crawl`
+  follows `<a href>` links within the site. A param route is exported for the
+  values something links to (`/users/42`); list any others in `Paths`.
+- **Pages nobody exported.** A URL with no file (`/users/43`) gets
+  `404.html`. Each file records the path it was rendered for, so the runtime
+  sees the mismatch: it drops that markup and renders the right page on the
+  client, as the client-only setup would.
+- **Directory URLs.** Static hosts serve `about/index.html` at `/about/`,
+  usually redirecting `/about` there. The router treats `/about/` as `/about`.
+- **Assets.** Export writes only the HTML. Copy `main.wasm`, `wasm_exec.js`,
+  `goowee.js` and your stylesheets next to it.
 
 ### Self-hosted (Nginx)
 
@@ -149,6 +184,7 @@ See [`docs/docker/README.md`](docker/README.md) for details.
 
 ## SSR deployments
 
-The above covers client-only (static) deployments. For SSR + hydration, use
+The above covers static deployments, client-only or prerendered with
+`ssr.Export`. To render each request on a server instead, use
 the `ssr-server` binary or write your own HTTP handler — SSR requires a Go
 server to run the renderer before sending HTML to the browser.
