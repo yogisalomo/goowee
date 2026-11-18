@@ -55,4 +55,32 @@ was recorded with about five of the eight cores busy, so its `SSRParallel`,
 which uses every core, reads slower still (an interleaved A/B of v0.2.4 and
 v0.2.5 measured 234.9 µs vs 233.1 µs, p = 1.0).
 
+## Size budget
+
+```sh
+make size-report   # sizes, sections and code bytes per package
+make size-check    # the same, enforcing size-budget.json (CI runs this)
+```
+
+Both build two programs: `test/e2e/hello`, the smallest goowee app, and
+`examples/counter`, the tutorial site. `scripts/wasm-size.mjs` reports each
+one's raw, gzip `-9` and brotli `-q 11` bytes, its section totals, and the code
+bytes per Go package. It reads them from the code section and the `name`
+section, which default and `-s -w` builds both keep. It has no dependencies
+(Node's zlib compresses).
+
+`size-budget.json` holds each program's brotli bytes, which is what users
+download. CI fails when a program is more than 3% over its record, and prints
+the per-package table so the log shows which package grew. A change that grows
+a program on purpose raises its record in the same diff. One that shrinks it
+by more than 3% is told to lower the record, so the budget follows the size
+down.
+
+Each program also has a deny list: packages it must not link (`net/http`, and
+`text/template` for the minimal app). When #126 removes `encoding/json` and
+`fmt` from the minimal app, they go on its list too.
+
+The records were taken with Go 1.25. A Go upgrade can move the sizes; record
+again in that PR.
+
 [benchstat]: https://pkg.go.dev/golang.org/x/perf/cmd/benchstat

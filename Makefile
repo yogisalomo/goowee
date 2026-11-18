@@ -1,4 +1,4 @@
-.PHONY: canvasbench wasm brotli ssr-server test bench perf-record perf-compare ssr-scaling size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
+.PHONY: size-build size-report size-check canvasbench wasm brotli ssr-server test bench perf-record perf-compare ssr-scaling size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -45,6 +45,22 @@ perf-compare:
 # check, so it's opt-in. Run it on a quiet machine with >=4 free CPUs.
 ssr-scaling:
 	GOOWEE_PERF_TESTS=1 go test -run '^TestConcurrentSSRScales$$' -count=1 -v ./ssr/
+
+# What the wasm is made of (#129): raw/gzip/brotli sizes, sections and code
+# bytes per Go package, for the smallest app (test/e2e/hello) and the example
+# site. size-check also enforces docs/perf/size-budget.json, as CI does.
+SIZE_DIR = bin/size
+size-build:
+	@mkdir -p $(SIZE_DIR)
+	GOOS=js GOARCH=wasm go build -o $(SIZE_DIR)/hello.wasm ./test/e2e/hello
+	GOOS=js GOARCH=wasm go build -o $(SIZE_DIR)/counter.wasm ./examples/counter
+
+size-report: size-build
+	node scripts/wasm-size.mjs $(SIZE_DIR)/hello.wasm $(SIZE_DIR)/counter.wasm
+
+size-check: size-build
+	node scripts/wasm-size.mjs --check docs/perf/size-budget.json \
+	  test/e2e/hello=$(SIZE_DIR)/hello.wasm examples/counter=$(SIZE_DIR)/counter.wasm
 
 size: wasm
 	@bytes=$$(wc -c < $(WASM_OUT) | tr -d ' '); \
