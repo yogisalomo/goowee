@@ -15,7 +15,8 @@ type effectState struct {
 
 // UseEffect runs fn once the component is mounted — after its DOM has been
 // applied to the document, so refs are set and elements can be measured or
-// handed to a JavaScript library — and again whenever a dep changes. If fn
+// handed to a JavaScript library — and again whenever a dep changes (once per
+// batch, however many of its deps the batch wrote). If fn
 // returns a cleanup, it runs before each re-run and on unmount. Client only:
 // never runs during SSR.
 func UseEffect(deps []core.SignalAccessor, fn func() func()) {
@@ -40,14 +41,20 @@ func UseEffect(deps []core.SignalAccessor, fn func() func()) {
 		}
 		state.Cleanup = fn()
 		exec := func() {
+			if state.disposed {
+				return
+			}
 			if state.Cleanup != nil {
 				state.Cleanup()
 			}
 			state.Cleanup = fn()
 		}
+		// One re-run per batch however many deps it wrote (#138).
+		trigger, stop := core.Coalesce(exec)
 		for _, dep := range deps {
-			state.Unsubs = append(state.Unsubs, dep.Subscribe(exec))
+			state.Unsubs = append(state.Unsubs, dep.Subscribe(trigger))
 		}
+		state.Unsubs = append(state.Unsubs, stop)
 	})
 }
 
