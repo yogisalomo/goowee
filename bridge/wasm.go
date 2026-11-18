@@ -65,10 +65,25 @@ func initLogSink() {
 func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry) {
 	core.SetFileReader(readFile)
 
+	// The result is packed into one number (dom.DispatchBits): a map costs a
+	// quarter more per call (#132). A goowee.js from before 0.3.0 reads an
+	// object instead and doesn't announce dispatchBits; answer it in its own
+	// format, so a stale runtime still runs the app's handlers.
+	packed := js.Global().Get("goowee").Get("dispatchBits").Truthy()
+	if !packed {
+		core.Log(core.LogWarn, "this page's goowee.js is older than the app; events still work, but serve the goowee.js of the same goowee version", nil)
+	}
 	js.Global().Set("handleEvent", js.FuncOf(func(this js.Value, args []js.Value) any {
-		// The result is packed into one number (dom.DispatchBits): a map
-		// costs a quarter more per call (#132).
-		return dom.DispatchBits(registry.Dispatch(args[0].Int(), args[1].String(), args[2].String()))
+		opts, handled := registry.Dispatch(args[0].Int(), args[1].String(), args[2].String())
+		if packed {
+			return dom.DispatchBits(opts, handled)
+		}
+		return map[string]any{
+			"handled":         handled,
+			"preventDefault":  opts.PreventDefault,
+			"stopPropagation": opts.StopPropagation,
+			"selectOnFocus":   opts.SelectOnFocus,
+		}
 	}))
 	// This Go side sends MutListen for every node with a handler, so the
 	// runtime asks Go only about those nodes.

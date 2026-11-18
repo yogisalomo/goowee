@@ -501,6 +501,9 @@ function dispatchToGo(type, e, targetOnly) {
     }
 }
 
+// handleEvent may answer with packed bits (Go reads this flag at startup).
+goowee.dispatchBits = true;
+
 // decodeDispatch turns handleEvent's result into bits: handled 1,
 // preventDefault 2, stopPropagation 4, selectOnFocus 8. Go returns the bits;
 // an older Go side returned an object.

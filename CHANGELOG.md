@@ -73,8 +73,10 @@ time. The public surface freezes under semver at v1.
   when a handler is on the path. A click with no handler on its path no longer
   crosses into Go at all, and one with a single handler crosses once instead of
   once per ancestor (each crossing is about 20 µs). `handleEvent` returns its
-  result as packed bits instead of an object. gooweetest's `Dispatch` follows
-  the same rule.
+  result as packed bits instead of an object, unless the page's `goowee.js`
+  predates 0.3.0. Then it answers in the old format and logs a warning, so
+  `PreventDefault` and `StopPropagation` keep working. gooweetest's `Dispatch`
+  follows the same rule.
 
 ### Fixed
 - Router URLs (#142): `SetQueryParam` and `SetQueryParamPush` wrote the
