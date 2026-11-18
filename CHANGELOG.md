@@ -53,6 +53,16 @@ time. The public surface freezes under semver at v1.
 - The inspector lists a `core.NewSignal` signal once it is named or written,
   and formats struct values with field names (`{Name:tea Price:3}`).
 
+### Changed
+- Events call into Go only for elements that have a handler for them (#132).
+  The renderer marks those with a new `core.MutListen` mutation, and the
+  runtime skips every other ancestor while bubbling, building the payload only
+  when a handler is on the path. A click with no handler on its path no longer
+  crosses into Go at all, and one with a single handler crosses once instead of
+  once per ancestor (each crossing is about 20 µs). `handleEvent` returns its
+  result as packed bits instead of an object. gooweetest's `Dispatch` follows
+  the same rule.
+
 ## [0.2.7] — 2026-11-10
 
 A patch release with two fixes found building Dure: `Navigate` with a query

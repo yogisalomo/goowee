@@ -113,8 +113,17 @@ async function main() {
   // Inline SVG (h.Svg) must carry the SVG namespace end-to-end, root and descendants.
   check(await evalJS(`(()=>{const s=document.querySelector('.logo');const ns='http://www.w3.org/2000/svg';return !!s && s.namespaceURI===ns && s.querySelector('rect')?.namespaceURI===ns;})()`), "inline SVG logo namespaced correctly");
 
+  // --- #132: Go is asked only about nodes with a handler ---
+  // Count calls into Go: a click whose path has no handler makes none, and a
+  // click on the increment button (its only click handler) makes one.
+  await evalJS(`(()=>{const h=window.handleEvent; window.goCalls=0; window.handleEvent=function(...a){goCalls++; return h.apply(this,a);};})()`);
+  await evalJS(`document.querySelector('h1').click()`);
+  check(await evalJS(`goCalls`) === 0, `a click on the headline (no handler on its path) called into Go ${await evalJS("goCalls")} times`);
+  await evalJS(`(()=>{let n=0;for(let e=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='increment');e;e=e.parentNode)n++;window.incDepth=n;})()`);
+
   // --- Interactivity: the live hero demo is a real goowee component ---
   await clickText("button", "increment");
+  check(await evalJS(`goCalls`) === 1, `a click on increment (depth ${await evalJS("incDepth")}) called into Go ${await evalJS("goCalls")} times, want 1`);
   await waitFor(`${heroCount} === '1'`, "hero demo increment");
   check(await evalJS(heroCount) === "1", "hero counter did not update");
 
