@@ -56,13 +56,6 @@ time. The public surface freezes under semver at v1.
   forward; and `r.QueryValues(name)`, every value of a repeated parameter
   (`?tag=a&tag=b`).
 
-### Fixed
-- Router URLs (#142): `SetQueryParam` and `SetQueryParamPush` wrote the
-  parameters in random order, left a bare `?` once the last one was removed,
-  and dropped the fragment. They now write parameters sorted by name, keep the
-  fragment, and omit an empty query. Back and forward set the path, query and
-  fragment in one batch, so a `Watch` on the path no longer sees the old query.
-
 ### Changed
 - Events call into Go only for elements that have a handler for them (#132).
   The renderer marks those with a new `core.MutListen` mutation, and the
@@ -74,6 +67,11 @@ time. The public surface freezes under semver at v1.
   the same rule.
 
 ### Fixed
+- Router URLs (#142): `SetQueryParam` and `SetQueryParamPush` wrote the
+  parameters in random order, left a bare `?` once the last one was removed,
+  and dropped the fragment. They now write parameters sorted by name, keep the
+  fragment, and omit an empty query. Back and forward set the path, query and
+  fragment in one batch, so a `Watch` on the path no longer sees the old query.
 - `hooks.Watch` and `hooks.UseEffect` ran once per changed dependency when one
   batch wrote several of them (an event handler setting a page and a filter,
   `Navigate` setting the path and query); they now run once per batch, after
