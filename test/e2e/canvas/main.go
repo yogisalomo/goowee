@@ -65,7 +65,7 @@ func main() {
 				canvas.Size(40, 40),
 				canvas.Attrs(ID("anim")),
 				canvas.Animate(func(c *canvas.Ctx, dt time.Duration) {
-					x := float64(time.Now().UnixMilli()%40)
+					x := float64(time.Now().UnixMilli() % 40)
 					c.FillStyle("blue")
 					c.FillRect(x, 0, 4, 40)
 				}),
