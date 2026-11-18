@@ -72,6 +72,11 @@ time. The public surface freezes under semver at v1.
   and dropped the fragment. They now write parameters sorted by name, keep the
   fragment, and omit an empty query. Back and forward set the path, query and
   fragment in one batch, so a `Watch` on the path no longer sees the old query.
+- A render that kept dirtying scopes stopped after 100 passes without a word
+  and left them dirty, to burn another 100 passes at the next unrelated update
+  (#143). The flush now logs `signal.cycle` once, with how many scopes were
+  left and, in dev mode, their component paths, and drops them so the next
+  frame starts clean.
 - `hooks.Watch` and `hooks.UseEffect` ran once per changed dependency when one
   batch wrote several of them (an event handler setting a page and a filter,
   `Navigate` setting the path and query); they now run once per batch, after

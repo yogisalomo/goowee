@@ -77,17 +77,43 @@ func (r *DOMRenderer) SetHydrating(h bool) { r.hydrating = h }
 
 func New() *DOMRenderer {
 	sched := core.NewScheduler()
-	return &DOMRenderer{
+	r := &DOMRenderer{
 		Walker:    *walker.New(),
 		Scheduler: sched,
 		Bindings:  runtime.NewBindingRegistry(sched),
 		Registry:  NewNodeRegistry(),
 		scopes:    map[*core.ScopeNode]*scopeInfo{},
 	}
+	sched.DescribeDirty = r.describeScope
+	return r
+}
+
+// describeScope names a dirty scope for the scheduler's re-render-cycle log:
+// the path of the component it renders in, as goowee.inspect() shows it
+// ("/0/2"). Dev mode only; "" otherwise.
+func (r *DOMRenderer) describeScope(key any) string {
+	if !core.DevChecks() {
+		return ""
+	}
+	sn, ok := key.(*core.ScopeNode)
+	if !ok {
+		return ""
+	}
+	info := r.scopes[sn]
+	switch {
+	case info == nil:
+		return ""
+	case info.owner != nil && info.owner.Path != "":
+		return info.owner.Path
+	case info.ownerParent != nil:
+		return info.ownerParent.Path
+	}
+	return ""
 }
 
 func (r *DOMRenderer) Reset() {
 	r.Scheduler = core.NewScheduler()
+	r.Scheduler.DescribeDirty = r.describeScope
 	r.Walker.Reset()
 	r.Bindings = runtime.NewBindingRegistry(r.Scheduler)
 	r.Registry = NewNodeRegistry()

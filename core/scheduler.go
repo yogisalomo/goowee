@@ -7,7 +7,12 @@ import (
 )
 
 // maxDirtyPasses bounds re-render cascades (a re-render that dirties another
-// scope) so a runaway reactive cycle can't spin the flush forever.
+// scope) so a runaway reactive cycle can't spin the flush forever. When a
+// flush reaches it with scopes still dirty, it logs signal.cycle once (with
+// the scopes' component paths in dev mode) and drops them, so the next frame
+// starts clean instead of burning another 100 passes on the same cycle. Like
+// maxNotifyPasses for a signal's subscribers, it stops a loop, not a bug: the
+// UI shows the last state rendered.
 const maxDirtyPasses = 100
 
 type dirtyScope struct {
@@ -21,6 +26,11 @@ type Scheduler struct {
 	dirty    map[any]*dirtyScope // scopes to re-render on next flush, keyed by token
 	flushing map[any]*dirtyScope // entries being processed in the current pass
 	inFlush  bool
+
+	// DescribeDirty names a dirty scope for the log when a flush gives up
+	// (its component path). The DOM renderer sets it in dev mode; nil
+	// otherwise.
+	DescribeDirty func(key any) string
 
 	// OnWork is called when work first appears (a mutation is enqueued or a
 	// scope is marked dirty). The bridge uses it to schedule exactly one
@@ -259,11 +269,36 @@ func (s *Scheduler) Flush() []Mutation {
 		}
 		s.flushing = nil
 	}
+	if len(s.dirty) > 0 {
+		s.dropCycle()
+	}
 	s.inFlush = false
 
 	out := coalesce(s.queue)
 	s.queue = nil
 	return out
+}
+
+// dropCycle logs and drops the scopes still dirty after maxDirtyPasses: a
+// render keeps dirtying scopes (its own or another's), which only a code
+// change ends.
+func (s *Scheduler) dropCycle() {
+	fields := map[string]any{"passes": maxDirtyPasses, "scopes": len(s.dirty)}
+	if s.DescribeDirty != nil {
+		var paths []string
+		for key := range s.dirty {
+			if p := s.DescribeDirty(key); p != "" {
+				paths = append(paths, p)
+			}
+		}
+		sort.Strings(paths)
+		fields["components"] = paths
+	}
+	Log(LogSignalCycle, "re-render cycle: scopes kept dirtying each other; dropping them for this frame", fields)
+	for _, e := range s.dirty {
+		e.cancelled = true
+	}
+	s.dirty = make(map[any]*dirtyScope)
 }
 
 // coalesce collapses redundant property/attribute writes to the same
