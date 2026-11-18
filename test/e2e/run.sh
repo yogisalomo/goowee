@@ -59,5 +59,8 @@ node test/e2e/wasmmime.mjs
 echo "==> running storage e2e (localStorage, sessionStorage, storage disabled)"
 node test/e2e/storage.mjs
 
+echo "==> running router e2e (back/forward, fragment, query URLs)"
+node test/e2e/router.mjs
+
 echo "==> running canvas e2e (goowee/canvas buffers on real canvases)"
 node test/e2e/canvas.mjs

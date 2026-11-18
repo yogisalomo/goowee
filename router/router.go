@@ -11,8 +11,16 @@ import (
 )
 
 type Router struct {
-	Path      *core.Signal[string]
-	Query     *core.Signal[map[string]string]
+	Path  *core.Signal[string]
+	Query *core.Signal[map[string]string] // the last value of each parameter; QueryValues has them all
+	// Fragment is the URL's fragment without "#" ("" when there is none). It
+	// follows Navigate, the browser's back and forward, and the page's URL
+	// at BindHistory; query updates (SetQueryParam) keep it.
+	Fragment *core.Signal[string]
+	// rawQuery is the query part of the current URL, without "?", in the
+	// URL's own order. QueryValues reads it; SetQueryParam rewrites it.
+	rawQuery string
+
 	params    *core.Signal[map[string]string]
 	navFn     func(string) // Navigate — calls pushState
 	replaceFn func(string) // NavigateReplace — calls replaceState
@@ -32,9 +40,10 @@ type Router struct {
 
 func New(initial string) *Router {
 	return &Router{
-		Path:   core.NewSignal(initial).Named("router.path"),
-		Query:  core.NewSignal(map[string]string{}).WithEquals(sameParams).Named("router.query"),
-		params: core.NewSignal(map[string]string{}).WithEquals(sameParams).Named("router.params"),
+		Path:     core.NewSignal(initial).Named("router.path"),
+		Query:    core.NewSignal(map[string]string{}).WithEquals(sameParams).Named("router.query"),
+		Fragment: core.NewSignal("").Named("router.fragment"),
+		params:   core.NewSignal(map[string]string{}).WithEquals(sameParams).Named("router.params"),
 	}
 }
 
@@ -42,7 +51,8 @@ func New(initial string) *Router {
 // renders for a request: router.NewURL(req.URL).
 func NewURL(u *url.URL) *Router {
 	r := New(u.Path)
-	r.Query.Set(parseQuery(u.RawQuery))
+	r.setQuery(u.RawQuery)
+	r.Fragment.Set(u.Fragment)
 	return r
 }
 
@@ -79,29 +89,54 @@ func (r *Router) NavigateReplace(target string) {
 	}
 }
 
-// setURL sets Path and Query from target, together so dependents see one
-// consistent URL, and returns the browser URL (base-prefixed) for history.
+// setURL sets Path, Query and Fragment from target, together so dependents
+// see one consistent URL, and returns the browser URL (base-prefixed) for
+// history.
 func (r *Router) setURL(target string) string {
-	rest, fragment, hasFragment := strings.Cut(target, "#")
+	rest, fragment, _ := strings.Cut(target, "#")
 	path, query, hasQuery := strings.Cut(rest, "?")
-	if path == "" && (hasQuery || hasFragment) {
+	if path == "" && target != "" {
 		path = r.Path.Peek() // "?t=3" or "#top": same page
 		if !hasQuery {
-			query, hasQuery = encodeQuery(r.Query.Peek()), true
+			query = r.rawQuery // "#top" keeps the query too
 		}
 	}
 	core.Batch(func() {
-		r.Query.Set(parseQuery(query))
+		r.setQuery(query)
 		r.Path.Set(path)
+		r.Fragment.Set(fragment)
 	})
-	url := r.base + path
-	if hasQuery && query != "" {
-		url += "?" + query
+	return r.url()
+}
+
+// setQuery makes raw (without "?") the current query.
+func (r *Router) setQuery(raw string) {
+	r.rawQuery = strings.TrimPrefix(raw, "?")
+	r.Query.Set(parseQuery(r.rawQuery))
+}
+
+// url is the browser URL of the current state: base, path, then the query
+// and fragment only when there are any (no bare "?" or "#").
+func (r *Router) url() string {
+	u := r.base + r.Path.Peek()
+	if r.rawQuery != "" {
+		u += "?" + r.rawQuery
 	}
-	if hasFragment {
-		url += "#" + fragment
+	if f := r.Fragment.Peek(); f != "" {
+		u += "#" + f
 	}
-	return url
+	return u
+}
+
+// syncURL sets the router from the browser's current location (popstate,
+// BindHistory): path, query and fragment in one batch, so a Watch or
+// UseEffect never sees the new path with the old query.
+func (r *Router) syncURL(path, search, hash string) {
+	core.Batch(func() {
+		r.setQuery(search)
+		r.Path.Set(path)
+		r.Fragment.Set(strings.TrimPrefix(hash, "#"))
+	})
 }
 
 // Back navigates backward in browser history. Only works after BindHistory.
@@ -207,31 +242,43 @@ func (r *Router) QueryParamSignal(name string) *core.Signal[string] {
 }
 
 // SetQueryParam updates a query parameter without navigating (replaceState).
+// An empty value removes it. The URL keeps the path and fragment, lists the
+// parameters sorted by name, and has no "?" when none are left.
 func (r *Router) SetQueryParam(name, value string) {
-	q := copyParams(r.Query.Get())
-	if value == "" {
-		delete(q, name)
-	} else {
-		q[name] = value
-	}
-	r.Query.Set(q)
-	if r.replaceFn != nil {
-		r.replaceFn(r.base + r.Path.Get() + "?" + encodeQuery(q))
+	if r.updateQuery(name, value) && r.replaceFn != nil {
+		r.replaceFn(r.url())
 	}
 }
 
 // SetQueryParamPush is like SetQueryParam but pushes a history entry.
 func (r *Router) SetQueryParamPush(name, value string) {
-	q := copyParams(r.Query.Get())
+	if r.updateQuery(name, value) && r.navFn != nil {
+		r.navFn(r.url())
+	}
+}
+
+// updateQuery sets (or, with "", removes) one parameter, replacing all its
+// values, and reports whether the URL changed.
+func (r *Router) updateQuery(name, value string) bool {
+	vals := parseValues(r.rawQuery)
 	if value == "" {
-		delete(q, name)
+		vals.Del(name)
 	} else {
-		q[name] = value
+		vals.Set(name, value)
 	}
-	r.Query.Set(q)
-	if r.navFn != nil {
-		r.navFn(r.base + r.Path.Get() + "?" + encodeQuery(q))
+	raw := vals.Encode() // sorted by key: the same state is always the same URL
+	if raw == r.rawQuery {
+		return false
 	}
+	r.setQuery(raw)
+	return true
+}
+
+// QueryValues returns every value of a query parameter, in URL order:
+// ["a", "b"] for "?tag=a&tag=b", where Query and QueryParam give the last.
+// nil if absent. A snapshot, like QueryParam.
+func (r *Router) QueryValues(name string) []string {
+	return parseValues(r.rawQuery)[name]
 }
 
 // Route renders the handler whose pattern matches the current path. Patterns:
@@ -499,42 +546,42 @@ func copyParams(m map[string]string) map[string]string {
 	return cp
 }
 
-// parseQuery parses a query string like "?a=1&b=2" into a map.
+// parseQuery parses a query string like "?a=1&b=2" into a map; a repeated
+// key keeps its last value.
 func parseQuery(raw string) map[string]string {
 	q := map[string]string{}
-	if raw == "" {
-		return q
-	}
-	raw = strings.TrimPrefix(raw, "?")
-	if raw == "" {
-		return q
-	}
-	for _, pair := range strings.Split(raw, "&") {
-		k, v, _ := strings.Cut(pair, "=")
-		if k != "" {
-			q[unescapeQuery(k)] = unescapeQuery(v)
-		}
+	for k, vs := range parseValues(raw) {
+		q[k] = vs[len(vs)-1]
 	}
 	return q
 }
 
-// encodeQuery encodes a map into a query string like "a=1&b=2".
-func encodeQuery(m map[string]string) string {
-	if len(m) == 0 {
-		return ""
+// parseValues parses a query string into every value of every key, in order.
+// Unlike url.ParseQuery it never fails: a malformed escape is kept as text.
+func parseValues(raw string) url.Values {
+	vals := url.Values{}
+	raw = strings.TrimPrefix(raw, "?")
+	if raw == "" {
+		return vals
 	}
-	var buf strings.Builder
-	first := true
-	for k, v := range m {
-		if !first {
-			buf.WriteByte('&')
+	for _, pair := range strings.Split(raw, "&") {
+		k, v, _ := strings.Cut(pair, "=")
+		if k != "" {
+			k = unescapeQuery(k)
+			vals[k] = append(vals[k], unescapeQuery(v))
 		}
-		first = false
-		buf.WriteString(escapeQuery(k))
-		buf.WriteByte('=')
-		buf.WriteString(escapeQuery(v))
 	}
-	return buf.String()
+	return vals
+}
+
+// encodeQuery encodes a map into a query string like "a=1&b=2", sorted by
+// key so the same map always gives the same string.
+func encodeQuery(m map[string]string) string {
+	vals := make(url.Values, len(m))
+	for k, v := range m {
+		vals.Set(k, v)
+	}
+	return vals.Encode()
 }
 
 func escapeQuery(s string) string { return url.QueryEscape(s) }
