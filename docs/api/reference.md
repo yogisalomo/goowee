@@ -371,10 +371,13 @@ r.ParamSignal(name string) *core.Signal[string] // reactive — bind to markup
 r.Params() map[string]string
 
 // Read/write query parameters.
-r.QueryParam(name string) string                       // snapshot
+r.QueryParam(name string) string                       // snapshot; a repeated key gives its last value
+r.QueryValues(name string) []string                    // every value: ?tag=a&tag=b gives [a b]
 r.QueryParamSignal(name string) *core.Signal[string]   // reactive
-r.SetQueryParam(name, value string)                    // replaceState
+r.SetQueryParam(name, value string)                    // replaceState; "" removes it
 r.SetQueryParamPush(name, value string)                // pushState
+// Both write parameters sorted by name, keep the fragment, and drop "?" when none are left.
+r.Fragment                                             // *core.Signal[string]: the URL's #fragment, without "#"
 
 // Navigation.
 r.Navigate(url string)          // "/r/2?t=20#end": Path "/r/2", Query {t: 20}; no query clears it

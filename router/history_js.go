@@ -38,8 +38,9 @@ func CurrentPath() string {
 // matching stays base-relative. Call once at startup.
 func (r *Router) BindHistory() {
 	r.base = basePath()
-	// Parse initial query string.
-	r.Query.Set(parseQuery(js.Global().Get("location").Get("search").String()))
+	loc := js.Global().Get("location")
+	// The page's query and fragment; the path was given to New.
+	r.syncURL(r.Path.Peek(), loc.Get("search").String(), loc.Get("hash").String())
 	r.navFn = func(url string) {
 		js.Global().Get("history").Call("pushState", nil, "", url) // url already base-prefixed
 	}
@@ -53,11 +54,11 @@ func (r *Router) BindHistory() {
 		js.Global().Get("history").Call("forward")
 	}
 	js.Global().Call("addEventListener", "popstate", js.FuncOf(func(this js.Value, args []js.Value) any {
-		// Sync Path directly (not via Navigate) so we don't push a new entry
-		// on top of the one the browser just popped.
-		p := js.Global().Get("location").Get("pathname").String()
-		r.Path.Set(stripBase(p, r.base))
-		r.Query.Set(parseQuery(js.Global().Get("location").Get("search").String()))
+		// Sync from the location (not via Navigate) so we don't push a new
+		// entry on top of the one the browser just popped. One batch: a
+		// watcher never sees the new path with the old query (#142).
+		loc := js.Global().Get("location")
+		r.syncURL(stripBase(loc.Get("pathname").String(), r.base), loc.Get("search").String(), loc.Get("hash").String())
 		return nil
 	}))
 }
