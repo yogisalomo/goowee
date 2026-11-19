@@ -72,5 +72,8 @@ node test/e2e/storage.mjs
 echo "==> running router e2e (back/forward, fragment, query URLs)"
 node test/e2e/router.mjs
 
+echo "==> running early-interaction e2e (typing and clicks before the WASM boots)"
+node test/e2e/early.mjs
+
 echo "==> running canvas e2e (goowee/canvas buffers on real canvases)"
 node test/e2e/canvas.mjs
