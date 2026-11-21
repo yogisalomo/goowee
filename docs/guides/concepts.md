@@ -472,6 +472,49 @@ r.Link("/about", "About", Class("nav")) // an <a> that navigates without a page 
                                         // cmd/ctrl/middle-click still opens a new tab
 ```
 
+`BindHistory` gives navigation browser-like behaviour. After the route's frame
+is in the DOM, a push scrolls to the top, a URL with `#fragment` scrolls to that
+element, and back/forward restore the position saved in the history entry
+(`history.scrollRestoration` is set to `"manual"`). Focus moves to the first
+`[data-route-focus]`, `h1` or `main`, and an `aria-live` region announces the
+document title. Query-parameter updates never scroll or move focus.
+
+Opt out or scope the behaviour with `ScrollOptions`:
+
+```go
+r.SetNavigationOptions(router.ScrollOptions{
+    Container:        "#app-scroll", // a scrolling element instead of the window
+    FocusDisabled:    true,
+    AnnounceDisabled: true,
+})
+// ScrollOptions{Disabled: true} skips all of it.
+```
+
+`NavLink` is a `Link` that tracks the active route. It binds `class="active"`
+and `aria-current="page"` from one shared computed, with segment-prefix
+matching (`/docs` is active on `/docs/install`, but not `/docstring`):
+
+```go
+Nav(r.NavLink("/", "Home"), r.NavLink("/docs", "Docs"))
+```
+
+It owns the `class` and `aria-current` attributes; pass other attributes and
+children in the trailing items.
+
+A component can veto leaving itself. `BeforeLeave` is scoped like a hook: the
+guard is removed when the component unmounts, so it disappears once the route
+is allowed to change away.
+
+```go
+func editor(r *router.Router, dirty *core.Signal[bool]) core.Node {
+    r.BeforeLeave(func(to string) bool { return !dirty.Peek() })
+    return Form(/* ... */)
+}
+```
+
+`beforeunload` asks the same guards when the tab closes. A browser back button
+on a same-document navigation cannot be vetoed once `popstate` has fired.
+
 ### Sub-routes, guards, lazy loading
 
 ```go

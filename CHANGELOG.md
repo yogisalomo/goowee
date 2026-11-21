@@ -53,6 +53,17 @@ time. The public surface freezes under semver at v1.
   `Switch`, keyed `For`, components, portals), the document must equal a
   fresh render of the final state, with registries and mounted components
   matching. CI fuzzes it for 45 s per PR (#161).
+- The router now behaves like a browser navigation (#155). After a route's
+  frame is applied, a push scrolls to the top, a `#fragment` scrolls to its
+  element, and back/forward restore the position saved in that history entry
+  (`history.scrollRestoration` is `"manual"`). Focus moves to the first
+  `[data-route-focus]`, `h1` or `main`, and an `aria-live` region announces the
+  document title. `router.ScrollOptions` (via `SetNavigationOptions`) can
+  disable the behaviour, scope scrolling to a container, or skip focus and
+  announcement. `r.NavLink` binds `active`/`aria-current` from one shared
+  computed, and `r.BeforeLeave` registers a component-scoped navigation guard
+  that is also asked on `beforeunload`. `core.AfterFrame` runs a callback once
+  a frame's DOM mutations are applied.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from

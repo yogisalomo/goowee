@@ -45,3 +45,17 @@ func NextFrame(fn func()) {
 		s.NextFrame(fn)
 	}
 }
+
+// AfterFrame runs fn after the DOM mutations of the current frame have been
+// applied, on the render loop. It is a frame effect: callbacks queue in order
+// and run in the same batch as OnMount/UseEffect effects, so the elements a
+// signal write replaces are in the document by the time fn runs. Use it for
+// post-navigation work — scrolling, focus, measuring — rather than Schedule,
+// which runs before that frame's DOM is applied.
+//
+// No-op when no scheduler is active (SSR, or tests without a running client).
+func AfterFrame(fn func()) {
+	if s := scheduler(); s != nil {
+		s.QueueEffect(fn)
+	}
+}
