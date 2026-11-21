@@ -125,7 +125,11 @@ async function main() {
   // --- #132: Go is asked only about nodes with a handler ---
   // Count calls into Go: a click whose path has no handler makes none, and a
   // click on the increment button (its only click handler) makes one.
-  await evalJS(`(()=>{const h=window.handleEvent; window.goCalls=0; window.handleEvent=function(...a){goCalls++; return h.apply(this,a);};})()`);
+  // goowee.eventCalls counts both ways in (exports and handleEvent, #133); an
+  // older goowee.js has only handleEvent to wrap.
+  await evalJS(`(()=>{const h=window.handleEvent; window.goCalls=0; window.__calls0=goowee.eventCalls;
+    if (typeof goowee.eventCalls !== "number") window.handleEvent=function(...a){goCalls++; return h.apply(this,a);};
+    else Object.defineProperty(window, "goCalls", {configurable: true, get(){ return goowee.eventCalls - __calls0; }});})()`);
   await evalJS(`document.querySelector('h1').click()`);
   check(await evalJS(`goCalls`) === 0, `a click on the headline (no handler on its path) called into Go ${await evalJS("goCalls")} times`);
   await evalJS(`(()=>{let n=0;for(let e=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='increment');e;e=e.parentNode)n++;window.incDepth=n;})()`);

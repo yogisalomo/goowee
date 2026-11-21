@@ -80,6 +80,8 @@ func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry, tr *transport
 	if !packed {
 		core.Log(core.LogWarn, "this page's goowee.js is older than the app; events still work, but serve the goowee.js of the same goowee version", nil)
 	}
+	// The js.Func stays registered even when events come through the
+	// goowee_event export: a page booted some other way still calls it.
 	js.Global().Set("handleEvent", js.FuncOf(func(this js.Value, args []js.Value) any {
 		opts, handled := registry.Dispatch(args[0].Int(), args[1].String(), args[2].String())
 		if packed {
@@ -106,82 +108,123 @@ func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry, tr *transport
 		announce(t, dom.EventCapture(t))
 	}
 
-	startScheduler(sched, tr)
+	startScheduler(sched, tr, useExports(registry, tr))
 }
 
-func startScheduler(sched *core.Scheduler, tr *transport) {
+// frameLoop runs the render loop: one frame (flush, send, effects) each time
+// work appears. The runtime calls back into it through a js.Func, or, when the
+// page's goowee.js can, through the goowee_frame export (#133), which skips
+// syscall/js's callback machinery.
+type frameLoop struct {
+	sched     *core.Scheduler
+	tr        *transport
+	doc       js.Value
+	scheduled bool // a frame is requested and hasn't run yet
+	inFrame   bool // the frame callback is running
+	wanted    bool // work appeared during the frame; request after it
+
+	// The legacy way: frame is a js.Func the browser calls from
+	// requestAnimationFrame or setTimeout.
+	frame js.Func
+	// The export way: requestFrame is goowee.requestFrame(hidden), which
+	// calls the goowee_frame export from either.
+	requestFrame js.Value
+}
+
+// loop is the running frame loop, for the goowee_frame export.
+var loop *frameLoop
+
+func startScheduler(sched *core.Scheduler, tr *transport, viaExports bool) {
 	global := js.Global()
-	doc := global.Get("document")
-	scheduled := false // a frame is requested and hasn't run yet
-	inFrame := false   // the frame callback is running
-	wanted := false    // work appeared during the frame; request after it
-	var frame js.Func
-	// request schedules exactly one frame when work appears, instead of
-	// waking the module every ~16ms while idle. A hidden page (a background
-	// tab) gets no animation frames, so work arriving then (a socket message,
-	// a fetch result) would wait until the page is shown: run the frame on a
-	// timer instead, which the browser still fires, if throttled. Animation
-	// (frame callbacks, core.NextFrame) is the exception: a hidden tab
-	// doesn't animate, so when frame callbacks are all that's pending the
-	// frame waits for the page to be shown.
-	request := func() {
-		if scheduled {
-			return
-		}
-		hidden := doc.Get("hidden").Bool()
-		if hidden && !sched.HasWork() {
-			return
-		}
-		scheduled = true
-		if hidden {
-			global.Call("setTimeout", frame, 0)
-		} else {
-			global.Call("requestAnimationFrame", frame)
-		}
+	l := &frameLoop{sched: sched, tr: tr, doc: global.Get("document")}
+	loop = l
+	if viaExports {
+		l.requestFrame = global.Get("goowee").Get("requestFrame")
+	} else {
+		l.frame = js.FuncOf(func(this js.Value, args []js.Value) any {
+			l.run()
+			return nil
+		})
 	}
-	frame = js.FuncOf(func(this js.Value, args []js.Value) any {
-		if !scheduled {
-			return nil // this frame already ran, from the other callback
-		}
-		scheduled = false
-		inFrame = true
-		muts := sched.Flush()
-		if len(muts) > 0 {
-			sendMutations(sched, tr, muts)
-		}
-		// Effects queued by this frame's renders (OnMount, UseEffect) run now
-		// that their DOM is in the document.
-		sched.RunEffects()
-		inFrame = false
-		if wanted || sched.HasWork() || sched.HasFrames() {
-			wanted = false
-			request()
-		}
-		return nil
-	})
 	// Work that appears while a frame runs is requested once the frame is
 	// done, when HasWork tells real work from frame callbacks alone.
 	sched.OnWork = func() {
-		if inFrame {
-			wanted = true
+		if l.inFrame {
+			l.wanted = true
 			return
 		}
-		request()
+		l.request()
 	}
-	doc.Call("addEventListener", "visibilitychange", js.FuncOf(func(this js.Value, args []js.Value) any {
-		if doc.Get("hidden").Bool() {
+	l.doc.Call("addEventListener", "visibilitychange", js.FuncOf(func(this js.Value, args []js.Value) any {
+		if l.doc.Get("hidden").Bool() {
 			// A frame requested just before the page was hidden would wait
 			// for it to be shown again; move it to a timer too.
-			if scheduled {
-				global.Call("setTimeout", frame, 0)
+			if l.scheduled {
+				l.schedule(true)
 			}
 		} else if sched.HasFrames() {
-			request() // resume the animation that paused while hidden
+			l.request() // resume the animation that paused while hidden
 		}
 		return nil
 	}))
 	// Flush whatever the initial render already enqueued.
-	request()
+	l.request()
+}
+
+// request schedules exactly one frame when work appears, instead of waking
+// the module every ~16ms while idle. A hidden page (a background tab) gets no
+// animation frames, so work arriving then (a socket message, a fetch result)
+// would wait until the page is shown: run the frame on a timer instead, which
+// the browser still fires, if throttled. Animation (frame callbacks,
+// core.NextFrame) is the exception: a hidden tab doesn't animate, so when
+// frame callbacks are all that's pending the frame waits for the page to be
+// shown.
+func (l *frameLoop) request() {
+	if l.scheduled {
+		return
+	}
+	hidden := l.doc.Get("hidden").Bool()
+	if hidden && !l.sched.HasWork() {
+		return
+	}
+	l.scheduled = true
+	l.schedule(hidden)
+}
+
+// schedule asks the browser for a frame: an animation frame, or a timer when
+// the page is hidden.
+func (l *frameLoop) schedule(hidden bool) {
+	if !l.requestFrame.IsUndefined() {
+		l.requestFrame.Invoke(hidden)
+		return
+	}
+	if hidden {
+		js.Global().Call("setTimeout", l.frame, 0)
+	} else {
+		js.Global().Call("requestAnimationFrame", l.frame)
+	}
+}
+
+// run is one frame. Both of a frame's callbacks may fire (an animation frame
+// and the timer it was moved to); the second finds nothing scheduled.
+func (l *frameLoop) run() {
+	if !l.scheduled {
+		return // this frame already ran, from the other callback
+	}
+	l.scheduled = false
+	l.inFrame = true
+	muts := l.sched.Flush()
+	if len(muts) > 0 {
+		sendMutations(l.sched, l.tr, muts)
+	}
+	// Effects queued by this frame's renders (OnMount, UseEffect) run now
+	// that their DOM is in the document.
+	l.sched.RunEffects()
+	l.inFrame = false
+	if l.wanted || l.sched.HasWork() || l.sched.HasFrames() {
+		l.wanted = false
+		l.request()
+	}
 }
 
 // transport carries each frame's batch to the runtime. By default that is the
@@ -192,6 +235,9 @@ func startScheduler(sched *core.Scheduler, tr *transport) {
 type transport struct {
 	enc   dom.BatchEncoder
 	apply js.Value // goowee.applyBatch; undefined when sending JSON
+	// applyAt is goowee.applyBatchAt, set when the runtime reads batches in
+	// place in the module's memory instead of from a copy in buf (#133).
+	applyAt js.Value
 	buf   js.Value // the Uint8Array batches are copied into
 	size  int      // buf's length
 	small int      // consecutive batches that used under an eighth of a big buf
@@ -236,6 +282,12 @@ func (t *transport) send(muts []core.Mutation) js.Value {
 	}
 	data, dropped := t.enc.Encode(muts)
 	dom.LogDropped(dropped)
+	if !t.applyAt.IsUndefined() {
+		// The runtime reads the batch where it is, in the module's memory
+		// (#133). The encoder keeps data until the next Encode, and Go's
+		// heap doesn't move, so the address holds for the call.
+		return t.applyAt.Invoke(addr(data), len(data))
+	}
 	t.fit(len(data))
 	js.CopyBytesToJS(t.buf, data)
 	return t.apply.Invoke(t.buf, len(data))

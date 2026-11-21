@@ -214,6 +214,8 @@ if (typeof document !== "undefined") startEarly();
 goowee.boot = function boot(opts) {
     opts = opts || {};
     if (opts.transport) goowee.transport = opts.transport;
+    // calls: "callbacks" keeps every call into Go on syscall/js callbacks,
+    // as before 0.4 (for comparing, or a problem with the exports).
     const wasmURL = opts.wasm || "main.wasm";
     const go = new Go();
     mark("goowee:fetch-start");
@@ -240,6 +242,7 @@ goowee.boot = function boot(opts) {
         .then(function (result) {
             mark("goowee:instantiated");
             mark("goowee:run");
+            if (opts.calls !== "callbacks") goowee.useInstance(go, result.instance);
             go.run(result.instance);
         })
         .catch(function (err) {
@@ -664,13 +667,16 @@ function buildPayload(type, e) {
 // built once, at the first node that has a handler. goowee.listenSets is set
 // by a Go side that sends Listen; an older one is asked about every node, as
 // before.
+// goowee.eventCalls counts the calls into Go's event handlers, either way.
+goowee.eventCalls = 0;
 function dispatchToGo(type, e, targetOnly) {
     let payload = null;
     for (let el = e.target; el; el = targetOnly ? null : el.parentNode) {
         if (el._nodeID === undefined) continue;
         if (goowee.listenSets && !(el._goEvents && el._goEvents.has(type))) continue;
         if (payload === null) payload = JSON.stringify(buildPayload(type, e));
-        const r = decodeDispatch(handleEvent(el._nodeID, type, payload));
+        goowee.eventCalls++;
+        const r = viaExports ? callEvent(el._nodeID, type, payload) : decodeDispatch(handleEvent(el._nodeID, type, payload));
         if (!(r & 1)) continue;
         if ((r & 2) && e.cancelable) e.preventDefault();
         if ((r & 8) && type === "focus" && el.select) el.select();
@@ -679,6 +685,74 @@ function dispatchToGo(type, e, targetOnly) {
             return;
         }
     }
+}
+
+// Calling Go through its exports (#133, ADR-031). syscall/js callbacks
+// (handleEvent, the frame js.Func) cost about 18 µs a call; the goowee_event
+// and goowee_frame exports cost about 20 ns. goowee.boot hands the instance
+// over with useInstance; a page that instantiates the module itself can call
+// goowee.useInstance(go, instance) before go.run(instance) to get the same,
+// and otherwise everything goes through syscall/js as before. Go opts in at
+// startup with goowee.useExports(version).
+let goInst = null, goRunner = null, wasmExports = null, viaExports = false;
+let resumeQueued = false;
+goowee.calls = "callbacks"; // "exports" once Go opts in
+goowee.useInstance = function useInstance(go, instance) {
+    goRunner = go;
+    goInst = instance;
+};
+goowee.useExports = function useExports(version) {
+    const ex = goInst && goInst.exports;
+    if (version !== 1 || !ex || typeof ex.goowee_event !== "function" || typeof ex.goowee_frame !== "function" ||
+        typeof ex.goowee_scratch !== "function" || !(ex.mem instanceof WebAssembly.Memory) ||
+        !goRunner || typeof goRunner._resume !== "function") return false;
+    wasmExports = ex;
+    viaExports = true;
+    goowee.calls = "exports";
+    return true;
+};
+
+// resumeGo lets goroutines run that a call into an export started or woke: an
+// export returns without running the Go scheduler. Once per burst of calls, in
+// a microtask, so they run before the browser renders or handles the next
+// event, as they did when callbacks ran the scheduler themselves.
+function resumeGo() {
+    if (resumeQueued) return;
+    resumeQueued = true;
+    queueMicrotask(function () {
+        resumeQueued = false;
+        if (!goRunner.exited) goRunner._resume();
+    });
+}
+
+// goowee.requestFrame is how Go asks for a frame when it uses the exports.
+function runFrame() {
+    wasmExports.goowee_frame();
+    resumeGo();
+}
+goowee.requestFrame = function requestFrame(hidden) {
+    if (hidden) setTimeout(runFrame, 0);
+    else requestAnimationFrame(runFrame);
+};
+
+// callEvent is handleEvent through goowee_event: the type and the payload go
+// into Go's scratch buffer as UTF-8, one after the other.
+const eventText = new TextEncoder();
+let scratchPtr = 0, scratchLen = 0;
+function callEvent(id, type, payload) {
+    // At most three UTF-8 bytes per UTF-16 code unit.
+    const need = 3 * (type.length + payload.length);
+    if (need > scratchLen || scratchPtr === 0) {
+        scratchPtr = wasmExports.goowee_scratch(need) >>> 0;
+        scratchLen = need;
+    }
+    // A fresh view: Go's memory may have grown since the last call.
+    const u8 = new Uint8Array(wasmExports.mem.buffer, scratchPtr, scratchLen);
+    const t = eventText.encodeInto(type, u8).written;
+    const p = eventText.encodeInto(payload, u8.subarray(t)).written;
+    const r = wasmExports.goowee_event(id, t, p) >>> 0;
+    resumeGo();
+    return r;
 }
 
 // handleEvent may answer with packed bits (Go reads this flag at startup).
@@ -985,6 +1059,19 @@ goowee.applyBatch = function applyBatch(u8, len) {
     return finishBatch(b);
 };
 
+// goowee.applyBatchAt applies a binary batch that Go hands over in place: len
+// bytes at ptr in the module's memory, with no copy (#133). A handler that
+// runs during the batch (a focus event, say) may grow that memory, which
+// detaches the view; the reader takes a new one when it sees that.
+goowee.applyBatchAt = function applyBatchAt(ptr, len) {
+    const mem = wasmExports.mem;
+    const b = startBatch();
+    decodeBatch(new Uint8Array(mem.buffer, ptr, len), len, applyMutation, b, function () {
+        return new Uint8Array(mem.buffer, ptr, len);
+    });
+    return finishBatch(b);
+};
+
 // One decoder for every batch. ignoreBOM keeps a string that starts with
 // U+FEFF intact: by default a TextDecoder drops a leading byte order mark,
 // which would shift every string after it.
@@ -993,10 +1080,16 @@ const batchText = new TextDecoder("utf-8", {ignoreBOM: true});
 // decodeBatch calls apply(mut, ctx) for each update in a binary batch, with
 // the fields JSON.parse would have produced for it: absent ones undefined.
 // mut is one object reused for the whole batch.
-function decodeBatch(u8, len, apply, ctx) {
+function decodeBatch(u8, len, apply, ctx, reattach) {
     const r = new BatchReader(u8, len);
     const mut = {type: 0, nodeId: 0, key: undefined, value: undefined, childId: undefined, refId: undefined, ns: undefined};
     while (r.pos < r.end) {
+        // A view of a WebAssembly memory that grew reads as empty.
+        if (reattach && r.u8.byteLength === 0) {
+            r.u8 = reattach();
+            r.view = null;
+        }
+        u8 = r.u8;
         const type = u8[r.pos], flags = u8[r.pos + 1];
         r.pos += 2;
         mut.type = type;

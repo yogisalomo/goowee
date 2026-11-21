@@ -73,6 +73,16 @@ time. The public surface freezes under semver at v1.
   on both transports and on an older `goowee.js`.
 
 ### Changed
+- Events and frames call into Go through WebAssembly exports instead of
+  `syscall/js` callbacks, and the runtime reads each frame's batch where it is
+  in the module's memory instead of from a copy (#133, ADR-031). In Chrome a
+  click that reaches a Go handler costs about 26 µs instead of 38 µs, and a
+  one-update frame about 55 µs instead of 95 µs. Goroutines a handler or an
+  effect starts still run right after it. `goowee.boot` sets this up; a page
+  that instantiates the module itself can call `goowee.useInstance(go,
+  instance)` before `go.run`, or keeps the callbacks. `goowee.boot({calls:
+  "callbacks"})` keeps them too, and `goowee.calls` reports which is in use.
+  TinyGo builds, and pages with an older `goowee.js`, keep the callbacks.
 - **DOM updates cross from Go to JavaScript in a binary format** instead of
   JSON (ADR-029, #134). The encoder reuses its buffers, so a frame no longer
   allocates its own payload, and the runtime decodes each batch's strings with
@@ -84,7 +94,6 @@ time. The public surface freezes under semver at v1.
   version: with an older `goowee.js` the bridge falls back to JSON and logs a
   warning.
 
-### Changed
 - A re-render no longer rebinds every bound attribute, property and text it
   rebuilds, or re-sends their values (#137). A binding whose signal is the
   same keeps its subscription and sends nothing. One whose signal changed (a

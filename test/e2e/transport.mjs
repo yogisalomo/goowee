@@ -65,7 +65,7 @@ writeFileSync(join(dir, "index.html"), `<!doctype html><meta charset="utf-8"><ti
   window.requestAnimationFrame = (cb) => __raf((ts) => { const t0 = performance.now(); cb(ts); __frames.push(performance.now() - t0); });
   const timed = (obj, name) => { const f = obj[name]; obj[name] = function () {
     const t0 = performance.now(); const r = f.apply(this, arguments); __applies.push(performance.now() - t0); return r; }; };
-  timed(goowee, "applyBatch"); timed(window, "applyMutations");
+  timed(goowee, "applyBatch"); timed(goowee, "applyBatchAt"); timed(window, "applyMutations");
   goowee.boot({transport: new URLSearchParams(location.search).get("transport")});
 </script>`);
 

@@ -38,6 +38,19 @@ error saying so, a `goowee:boot-error` event on `window`, and a rejected
 </script>
 ```
 
+**Booting the module yourself.** `goowee.boot()` hands the WebAssembly
+instance to the runtime, which then calls into Go through the module's exports
+(about 20 ns a call) instead of `syscall/js` callbacks (about 18 µs). A page
+that instantiates the module with its own code still works; to get the faster
+calls, pass the instance to the runtime before running it:
+
+```js
+const go = new Go();
+const { instance } = await WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject);
+goowee.useInstance(go, instance);
+go.run(instance);
+```
+
 Measure the effect yourself with the boot harness under a throttled network:
 
 ```sh
