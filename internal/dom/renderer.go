@@ -1066,7 +1066,7 @@ func panicStack() string {
 		return ""
 	}
 	buf := make([]byte, 16<<10)
-	return string(buf[:goruntime.Stack(buf, false)])
+	return string(buf[:goruntime.Stack(buf, false)]) // "" under TinyGo
 }
 
 // boundaryFields are an error boundary's log fields for a caught panic.

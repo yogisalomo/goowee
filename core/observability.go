@@ -104,7 +104,9 @@ func PanicFields(rec any, fields map[string]any) map[string]any {
 	f["panic"] = rec
 	if DevChecks() {
 		buf := make([]byte, 16<<10)
-		f["stack"] = string(buf[:goruntime.Stack(buf, false)])
+		if n := goruntime.Stack(buf, false); n > 0 { // TinyGo has no stacks
+			f["stack"] = string(buf[:n])
+		}
 	}
 	return f
 }

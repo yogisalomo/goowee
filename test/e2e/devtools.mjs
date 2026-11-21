@@ -156,7 +156,8 @@ async function main() {
   await waitFor(`!!document.querySelector('#goowee-dev-panel [data-kind="recover.error_boundary"]')`, "the overlay opened on the boundary's panic");
   const entry = await evalJS(`document.querySelector('#goowee-dev-panel [data-kind="recover.error_boundary"]').textContent`);
   check(entry.includes("intentional failure to demo the error boundary"), "the overlay entry shows the panic value: " + entry.slice(0, 200));
-  check(entry.includes("Go stack") && /goroutine|\.go:\d+/.test(entry), "the overlay entry has the Go stack");
+  // TinyGo has no runtime.Stack (test/e2e/tinygo.sh sets TOOLCHAIN=tinygo).
+  if (process.env.TOOLCHAIN !== "tinygo") check(entry.includes("Go stack") && /goroutine|\.go:\d+/.test(entry), "the overlay entry has the Go stack");
   check(/✕ [1-9]/.test(await evalJS(`document.querySelector('#goowee-dev-badge').textContent`)), "the badge counts the error");
   await evalJS(`document.querySelector('#goowee-dev-dismiss').click()`);
   await waitFor(`!document.querySelector('#goowee-dev-panel')`, "Dismiss closes the overlay");
