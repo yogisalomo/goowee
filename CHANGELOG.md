@@ -12,6 +12,10 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- `test/e2e/mount.mjs` measures mounting a fresh list three ways (per-node
+  batch, HTML claimed like hydration, cloned row templates), and
+  `BenchmarkMount1000*` its Go side. ADR-032 records why fresh subtrees stay
+  per-node for now (#139).
 - **`goowee/form`** (#150): a form's fields in one typed value, checked by a
   plain `Validate() form.Errors` method that the server runs too. `form.Use`
   holds the value, errors, touched fields and submit state; `form.Text`,
@@ -181,6 +185,9 @@ time. The public surface freezes under semver at v1.
   mount against it — the page reports the mismatch instead.
 
 ### Fixed
+- `ssr.RoutedPage` is host-only, like `router.NewURL` it calls (#126), so
+  packages whose tests import `ssr` (internal/dom) build for WASM again and
+  the WASM benchmarks in `docs/perf/README.md` run.
 - Moving between two routes whose functions return a component of the same
   name kept the first route's instance on screen: the URL changed but the
   page didn't (#124). A route's content is now keyed by the pattern that

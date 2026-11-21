@@ -1097,3 +1097,49 @@ callbacks until its scheduler's behavior after an export is verified.
 `test/e2e/calls.mjs` checks the cases that depend on the scheduler resuming: a
 goroutine started in a handler or an effect, a worker woken through a channel,
 and a click inside a batch that grows the memory by 64 MB.
+
+## ADR-032: Fresh subtrees stay per-node mutations; neither HTML claiming nor template cloning, for now
+
+**Status:** Accepted (2026-11-21), from the measurement #139 asked for.
+
+**Context.** A fresh subtree (a client-only first mount, a route change, rows
+added to a list) is created node by node: 16 mutations per row for a row of
+5 nodes and 3 attributes. Two alternatives were proposed: (1) render the
+subtree to HTML on the Go side (the SSR visitor) and have the runtime parse it
+through a `<template>` and claim its nodes by `data-node-id` and text markers,
+as hydration does; (2) send each distinct static shape once as a template, and
+then a clone per occurrence with only its dynamic values.
+
+**Measurement.** Chrome on an M1, `test/e2e/mount.mjs` (fresh page per mount,
+medians of 5), the same list of rows mounted three ways. *apply* is the DOM
+work, *total* adds the style and layout it causes:
+
+| rows | per-node batch (today) | HTML + claim | clone |
+|---|---|---|---|
+| 1,000: apply / total | 2.8 / 11.9 ms | 4.2 / 13.4 ms | 1.4 / 10.7 ms |
+| 10,000: apply / total | 19.9 / 115.9 ms | 40.3 / 134.6 ms | 11.6 / 108.0 ms |
+
+The 1,000-row batch is 197 KiB binary against 176 KiB of HTML. The Go side
+of that mount under WASM (`BenchmarkMount1000*`, `internal/dom`): building
+the tree takes 3.3 ms, rendering it to mutations 11.0 ms (8.0 MB, 13,028
+allocations) and encoding the batch 1.2 ms. Most of the render's bytes are
+its mutation slice growing from nil (#203).
+
+**Decision.** Keep per-node mutations for fresh subtrees.
+- (1), HTML and claim, is slower in the browser than the binary per-node
+  batch (ADR-029) at both sizes: parsing plus claiming costs more than
+  applying decoded operations. It would also add the marker bytes (#141) to
+  every client-side mount.
+- (2), template cloning, saves about 1.4 ms of DOM work per 1,000 rows, a
+  tenth of the mount once layout (9 ms) is counted, plus part of the Go
+  side's mutation volume. That would mean a template protocol between Go
+  and the runtime: shape hashing, definitions, an id walk both sides agree
+  on, and interplay with hydration and bindings, a large and lasting
+  surface. Most of the Go-side saving is available more cheaply by not
+  regrowing the render's mutation buffer (#203).
+
+**Consequences.** `test/e2e/mount.mjs` and the `BenchmarkMount1000*`
+benchmarks stay, to measure fresh-subtree cost. Revisit (2) if, after #203,
+the per-node path's Go side still dominates large mounts, or for lists:
+h.ForList (#140) already makes a list's later changes O(1), which leaves
+the first mount as the remaining large case.
