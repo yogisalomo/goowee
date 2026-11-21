@@ -90,6 +90,8 @@ echo "==> running notes e2e (examples/notes: goowee/rpc end to end, with SSR)"
 node test/e2e/notes.mjs
 echo "==> running calls check (events and frames through the WASM exports, #133)"
 node test/e2e/calls.mjs
+echo "==> running runtime-version e2e (a stale goowee.js is rejected)"
+node test/e2e/version.mjs
 
 echo "==> running canvas e2e (goowee/canvas buffers on real canvases)"
 node test/e2e/canvas.mjs

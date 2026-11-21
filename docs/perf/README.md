@@ -21,6 +21,10 @@ The default suite guards the same property deterministically
 benchmark, so a regression shows up before it ships. Run it before cutting a
 release, then record the release.
 
+Release checklist: bump `internal/version.Module` to the new tag before tagging.
+It is compiled into the binary and shown in runtime-mismatch errors, so a
+release built with the old value reports the wrong version.
+
 **Compare on one machine.** Timings depend on the CPU, so a comparison is only
 meaningful between files recorded on the same machine. Each file's header lines
 name the Go version, date and `cpu`. Sizes (`BenchmarkExampleWASM`) and

@@ -55,6 +55,35 @@ func get(t *testing.T, hd http.Handler, path string, gz bool) (int, string, http
 	return rec.Code, body, rec.Header()
 }
 
+// #144: only the embedded runtime is intercepted; wasm_exec.js belongs to the
+// app's static files, so a server without a Go toolchain still boots the page.
+func TestHandlerAssetInterception(t *testing.T) {
+	pageHits := 0
+	hd := Handler(HandlerOptions{
+		Page: func(*http.Request) Page {
+			pageHits++
+			return Page{Node: h.P(h.Text("PAGE"))}
+		},
+		Document: doc,
+	})
+
+	code, body, hdr := get(t, hd, "/base/goowee.js", false)
+	if code != 200 || !strings.Contains(body, "goowee.protocolVersion") {
+		t.Fatalf("goowee.js: %d %s", code, body)
+	}
+	if hdr.Get("Cache-Control") != "no-cache" {
+		t.Fatalf("goowee.js Cache-Control = %q, want no-cache", hdr.Get("Cache-Control"))
+	}
+	if pageHits != 0 {
+		t.Fatalf("goowee.js reached the page renderer %d times", pageHits)
+	}
+
+	code, body, _ = get(t, hd, "/wasm_exec.js", false)
+	if code != 200 || !strings.Contains(body, "PAGE") || pageHits != 1 {
+		t.Fatalf("wasm_exec.js must fall through to the app: %d %s (page hits %d)", code, body, pageHits)
+	}
+}
+
 // #77: the handler renders per request, reports 404 from the router, falls
 // back on a panicking render, and serves client-only paths from the fallback.
 func TestHandler(t *testing.T) {

@@ -25,6 +25,23 @@ function containerOf(id) {
 // overwrite them. See docs/plans/boot-latency-measurement.md.
 const goowee = (window.goowee = window.goowee || {});
 
+// The mutation protocol this runtime understands. bridge.Run compares it with
+// core.ProtocolVersion before mounting: a mismatch means this page serves an
+// older goowee.js, which would misapply mutations from the linked binary.
+goowee.protocolVersion = 1;
+goowee.protocolMismatch = function protocolMismatch(appVersion, appProtocol) {
+    const page = goowee.protocolVersion;
+    const err = bootError(
+        "this page serves goowee.js with protocol " + (page === undefined ? "no version marker" : page) +
+        ", but main.wasm was built with goowee " + appVersion + " (protocol " + appProtocol +
+        "). Copy the matching assets with: go run github.com/yogisalomo/goowee/cmd/goowee assets ./web"
+    );
+    goowee.bootError = err;
+    releaseEarly();
+    console.error(err.message);
+    window.dispatchEvent(new CustomEvent("goowee:boot-error", {detail: err}));
+};
+
 // Dev-mode inspector (roadmap 4.2). Enable with ?goowee-dev or
 // localStorage.setItem("goowee-dev", "1"). Then call goowee.inspect() in the
 // console for the component/scope tree and signal graph.

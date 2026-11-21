@@ -731,9 +731,8 @@ func main() {
 </body>
 </html>`),
 			P(rich("Whatever `#root` holds until the app mounts (here a loading message) is replaced by its first frame.")),
-			P(rich("Copy the runtime files and serve the `web` directory:")),
-			snippet("sh", `cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
-cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/
+			P(rich("Copy the matching runtime files and serve the `web` directory:")),
+			snippet("sh", `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web
 cd web && python3 -m http.server 8080`),
 			P(rich("Open `http://localhost:8080` in your browser.")),
 			tutorialStepNav(r, "/getting-started"),

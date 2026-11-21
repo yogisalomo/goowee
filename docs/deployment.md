@@ -24,15 +24,19 @@ Compile to WASM and copy the required files into a directory (here `dist/`):
 #    see docs/devtools.md)
 GOOS=js GOARCH=wasm go build -tags goowee_nodev -o dist/main.wasm ./cmd/app
 
-# 2. Copy Go's JS loader
-cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" dist/
+# 2. Copy the matching JS loader and goowee bridge runtime
+go run github.com/yogisalomo/goowee/cmd/goowee assets ./dist
 
-# 3. Copy the goowee bridge runtime, from the goowee version your app uses
-cp "$(go list -m -f '{{.Dir}}' github.com/yogisalomo/goowee)/runtime/goowee.js" dist/
-
-# 4. Add your index.html (see examples/counter for a template)
+# 3. Add your index.html (see examples/counter for a template)
 cp index.html dist/
 ```
+
+`assets` takes goowee's version from your `go.mod` and the loader from the Go
+toolchain, so the three files in `dist/` always match. A `goowee.js` copied
+from another version is rejected at boot. An SSR app using `ssr.Handler` serves
+the matching `goowee.js` automatically (any path ending in that name); its
+`wasm_exec.js` still comes from your static files, so the server needs no Go
+toolchain at runtime.
 
 Your `dist/` directory should contain:
 

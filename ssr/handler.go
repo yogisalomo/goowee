@@ -11,6 +11,7 @@ import (
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/data"
 	"github.com/yogisalomo/goowee/router"
+	"github.com/yogisalomo/goowee/web"
 )
 
 // Page is what a Handler renders for one request.
@@ -52,7 +53,10 @@ type HandlerOptions struct {
 
 // Handler serves server-rendered HTML documents. Each request renders
 // independently and concurrently (no shared lock); the response is
-// gzip-compressed when the client accepts it.
+// gzip-compressed when the client accepts it. It also serves goowee.js from
+// web.Handler (any path ending in that name), so the page cannot load a stale
+// runtime. wasm_exec.js stays with the app's static files: the server usually
+// has no Go toolchain at runtime.
 //
 //	http.Handle("/", ssr.Handler(ssr.HandlerOptions{
 //	    Page:     ssr.RoutedPage(app.App),
@@ -63,7 +67,12 @@ func Handler(opts HandlerOptions) http.Handler {
 	if opts.Page == nil || opts.Document == nil {
 		panic("ssr.Handler: Page and Document are required")
 	}
+	assets := web.Handler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if web.AssetName(r.URL.Path) != "" {
+			assets.ServeHTTP(w, r)
+			return
+		}
 		if opts.ClientOnly != nil && opts.ClientOnly(r) && opts.Fallback != nil {
 			opts.Fallback.ServeHTTP(w, r)
 			return

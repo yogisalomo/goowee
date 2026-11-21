@@ -4,12 +4,14 @@ package bridge
 
 import (
 	"errors"
+	"strconv"
 	"syscall/js"
 	"unsafe"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/dom"
 	"github.com/yogisalomo/goowee/internal/jsonlite"
+	"github.com/yogisalomo/goowee/internal/version"
 )
 
 // Run mounts app into the page and drives the render loop. It is the single
@@ -24,6 +26,9 @@ import (
 // (an app and a widget, islands in a server-rendered page), use Mount and
 // Islands.
 func Run(app core.Node) {
+	if !protocolMatches() {
+		return
+	}
 	el := js.Global().Get("document").Call("getElementById", "root")
 	if !el.Truthy() {
 		core.Log(core.LogWarn, "bridge.Run: the page has no element with id root to mount into", nil)
@@ -31,6 +36,27 @@ func Run(app core.Node) {
 	}
 	mountInto(el, app, false)
 	Wait()
+}
+
+// protocolMatches checks the runtime's mutation protocol against the binary's
+// before anything is rendered: a stale goowee.js would misapply mutations from
+// a newer binary. The runtime reports the mismatch with both versions.
+func protocolMatches() bool {
+	g := js.Global().Get("goowee")
+	if g.Type() != js.TypeObject {
+		return true
+	}
+	if v := g.Get("protocolVersion"); v.Type() == js.TypeNumber && v.Int() == core.ProtocolVersion {
+		return true
+	}
+	if fn := g.Get("protocolMismatch"); fn.Type() == js.TypeFunction {
+		fn.Invoke(version.Module, core.ProtocolVersion)
+	} else {
+		js.Global().Get("console").Call("error",
+			"goowee: this page serves a goowee.js older than the app (protocol "+strconv.Itoa(core.ProtocolVersion)+
+				" expected); run `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web` to copy the matching assets")
+	}
+	return false
 }
 
 // serverRendered reports whether the page holds server markup for this URL
