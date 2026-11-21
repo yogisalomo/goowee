@@ -52,6 +52,7 @@ type DOMRenderer struct {
 	scopeStack     []scopeState
 	scopes         map[*core.ScopeNode]*scopeInfo
 	root           core.Node // the tree Render mounted (for Unmount)
+	rootParent     int       // the id of the container the root mounts into (0: #root)
 	hydrating      bool      // initial render claims server-rendered nodes
 	hydrateDynamic bool      // within a Dynamic subtree: re-apply values so client wins
 	currentNS      string    // XML namespace inherited by the subtree being rendered (SVG)
@@ -110,6 +111,36 @@ func (r *DOMRenderer) describeScope(key any) string {
 	return ""
 }
 
+// NewRoot returns a renderer for another root of the same app: it shares
+// base's scheduler, handler and binding registries and node id counter, so
+// one frame loop serves every root and node ids stay unique across them. Its
+// tree mounts into the container the runtime knows as rootParent (#root is
+// 0; others are registered with goowee.mountRoot).
+func NewRoot(base *DOMRenderer, rootParent int) *DOMRenderer {
+	r := &DOMRenderer{
+		Walker:     *walker.New(),
+		Scheduler:  base.Scheduler,
+		Bindings:   base.Bindings,
+		Registry:   base.Registry,
+		scopes:     map[*core.ScopeNode]*scopeInfo{},
+		rootParent: rootParent,
+	}
+	r.Walker.ShareIDs(&base.Walker)
+	// Name this root's dirty scopes too in the re-render-cycle log.
+	if prev := base.Scheduler.DescribeDirty; prev != nil {
+		base.Scheduler.DescribeDirty = func(key any) string {
+			if s := r.describeScope(key); s != "" {
+				return s
+			}
+			return prev(key)
+		}
+	}
+	return r
+}
+
+// SetRootParent sets the container this renderer's root mounts into.
+func (r *DOMRenderer) SetRootParent(id int) { r.rootParent = id }
+
 func (r *DOMRenderer) Reset() {
 	r.Scheduler = core.NewScheduler()
 	r.Scheduler.DescribeDirty = r.describeScope
@@ -145,7 +176,7 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 		// When hydrating, the root is already attached to #root by the server.
 		// Fragments and scopes attach their own content to the root container.
 		muts = append(muts, core.Mutation{
-			Type: core.MutAppendChild, NodeID: 0, ChildID: rootID,
+			Type: core.MutAppendChild, NodeID: r.rootParent, ChildID: rootID,
 		})
 	}
 	return muts, firstRoot(n)
@@ -180,7 +211,7 @@ func (r *DOMRenderer) renderFresh(n core.Node, parentID int, muts *[]core.Mutati
 // element, 0 for the root container, or `detached`.
 func (r *DOMRenderer) currentParent() int {
 	if len(r.parentStack) == 0 {
-		return 0
+		return r.rootParent
 	}
 	return r.parentStack[len(r.parentStack)-1]
 }

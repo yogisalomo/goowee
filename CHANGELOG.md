@@ -19,6 +19,14 @@ time. The public surface freezes under semver at v1.
   (`test/e2e/tinygo.sh`), and `make size-check-tinygo` holds its size. The
   serving guide says when to choose which toolchain, and why the 1 MB stack is
   required.
+- Mount anywhere, and islands (#154). `bridge.Mount(selector, node)` mounts a
+  root into any element and returns, so one binary can run several roots
+  sharing one scheduler and frame loop; `root.Unmount()` removes one, and
+  `bridge.Wait()` keeps the program alive. `ssr.Island(name, node, props)`
+  renders a component into any server page (html/template, templ) with its
+  props as JSON, and `bridge.Islands(factories)` hydrates every island on
+  the page independently. `bridge.Run` is now `Mount("#root")` plus `Wait`.
+  Guide: "Adding goowee to an existing Go site" (`docs/guides/islands.md`).
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from

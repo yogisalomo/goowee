@@ -19,22 +19,18 @@ import (
 // If the page was server-rendered — its nodes carry data-node-id — Run hydrates
 // by claiming that DOM instead of rebuilding it. Run does not return; it blocks
 // forever so the WASM module stays alive to service events.
+//
+// Run is Mount into #root, then Wait. To mount elsewhere, or several roots
+// (an app and a widget, islands in a server-rendered page), use Mount and
+// Islands.
 func Run(app core.Node) {
-	initObservability()
-
-	renderer := dom.New()
-	// Route core.Schedule onto this scheduler before the first render, so a
-	// mount effect can defer work (a ref read, say) to the first flush.
-	core.SetActiveScheduler(renderer.Scheduler)
-	// Hydrate when the document was server-rendered.
-	if serverRendered() {
-		renderer.SetHydrating(true)
+	el := js.Global().Get("document").Call("getElementById", "root")
+	if !el.Truthy() {
+		core.Log(core.LogWarn, "bridge.Run: the page has no element with id root to mount into", nil)
+		Wait()
 	}
-	muts, _ := renderer.Render(app)
-	renderer.Scheduler.Enqueue(muts...)
-	setInspectorRoot(app)
-	initBridge(renderer.Scheduler, renderer.Registry, newTransport())
-	select {}
+	mountInto(el, app, false)
+	Wait()
 }
 
 // serverRendered reports whether the page holds server markup for this URL
