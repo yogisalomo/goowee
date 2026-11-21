@@ -420,6 +420,9 @@ ssr.Handler(ssr.HandlerOptions{
 }) http.Handler
 ssr.RoutedPage(app func(*router.Router) core.Node) func(*http.Request) ssr.Page
 
+// An island in any server page (html/template, templ); bridge.Islands hydrates it.
+ssr.Island(name string, node core.Node, props any) (template.HTML, error)
+
 // router, for servers:
 router.NewURL(u *url.URL) *router.Router   // path + query from a request URL
 r.NotFound() bool                          // last Route render hit the 404 fallback
@@ -602,7 +605,11 @@ app. See [Canvas](../guides/concepts.md#canvas--drawing-from-go).
 ```go
 import "github.com/yogisalomo/goowee/bridge"
 
-bridge.Run(app core.Node)
+bridge.Run(app core.Node)                       // Mount("#root", app) + Wait()
+bridge.Mount(selector string, n core.Node) *bridge.Root // non-blocking; several roots per binary
+bridge.Islands(map[string]func(props json.RawMessage) core.Node) []*bridge.Root // hydrate ssr.Island markup
+bridge.Wait()                                   // block forever; call last in main
+(*bridge.Root).Unmount()
 
 // js/wasm only: the live DOM element a ref points at, for JS libraries.
 // js.Undefined() before render / after removal. Call from OnMount or later.

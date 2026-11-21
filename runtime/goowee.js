@@ -2,8 +2,22 @@ const nodeMap = {};
 let rootNode = null;
 
 function getRoot() {
-    if (!rootNode) rootNode = document.getElementById("root");
+    if (!rootNode) rootNode = rootContainers[0] || document.getElementById("root");
     return rootNode;
+}
+
+// Roots (#154). Go mounts each root into a container it registers with
+// goowee.mountRoot under a parent id: 0 for the app's main root (#root by
+// default), negative ids for the others (islands, extra mounts). Mutations
+// that attach to a root name that id.
+const rootContainers = {};
+let rootsRegistered = false;
+const pendingClear = []; // client-rendered roots, emptied by the first frame that paints them
+
+function containerOf(id) {
+    if (id > 0) return nodeMap[id];
+    if (id === 0) return getRoot();
+    return rootContainers[id] || null;
 }
 
 // Boot instrumentation (roadmap 3.2). All marks are one-shot and namespaced so
@@ -146,8 +160,9 @@ function stopEarly() {
 
 function finishEarly() {
     const queue = stopEarly();
-    const root = getRoot();
-    if (root && root.querySelector("[data-node-id]")) adoptFormState(root);
+    const roots = new Set(Object.values(rootContainers));
+    if (getRoot()) roots.add(getRoot());
+    for (const root of roots) if (root.querySelector("[data-node-id]")) adoptFormState(root);
     for (const e of queue) {
         const t = e.target;
         if (!t || !t.isConnected) continue; // the page it belonged to is gone
@@ -332,37 +347,27 @@ goowee.serverRendered = function serverRendered() {
     return norm(meta.getAttribute("content") || "") === norm(here);
 };
 
-function hydrateOnce() {
-    if (hydrated) return;
-    hydrated = true;
-    mark("goowee:hydrate-start");
-    const root = getRoot();
-    if (!root) { mark("goowee:hydrate-end"); return; }
-    if (!goowee.serverRendered()) {
-        // Server markup for another page (a static host's 404.html, say)
-        // goes too, so the app's first frame starts from an empty page.
-        for (const el of document.querySelectorAll("[data-node-id]")) el.remove();
-        root.replaceChildren();
-        mark("goowee:hydrate-end");
-        return;
-    }
-
-    root.querySelectorAll("[data-node-id]").forEach(el => {
-        preexistingNodes[parseInt(el.getAttribute("data-node-id"), 10)] = el;
+// claimServerNodes collects the server-rendered nodes inside container so the
+// first frame's Hydrate mutations can claim them. base is added to the ids
+// the markup carries: an island is server-rendered on its own (ids from 1),
+// while the client numbers every root's nodes from one counter (#154).
+function claimServerNodes(container, base) {
+    container.querySelectorAll("[data-node-id]").forEach(el => {
+        preexistingNodes[base + parseInt(el.getAttribute("data-node-id"), 10)] = el;
     });
 
     // Text nodes can't carry attributes; SSR marks each with a preceding
     // <!--g{id}--> comment. Claim the comment's next sibling, then drop the
     // marker so the live DOM matches the client tree. Scope end anchors are
     // <!--/{id}--> comments that stay in the DOM: claim the comment itself.
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_COMMENT);
     const markers = [];
     while (walker.nextNode()) {
         const data = walker.currentNode.data;
         let m = /^g(\d+)$/.exec(data);
-        if (m) { markers.push([parseInt(m[1], 10), walker.currentNode]); continue; }
+        if (m) { markers.push([base + parseInt(m[1], 10), walker.currentNode]); continue; }
         m = /^\/(\d+)$/.exec(data);
-        if (m) preexistingNodes[parseInt(m[1], 10)] = walker.currentNode;
+        if (m) preexistingNodes[base + parseInt(m[1], 10)] = walker.currentNode;
     }
     for (const [id, comment] of markers) {
         const next = comment.nextSibling;
@@ -377,6 +382,57 @@ function hydrateOnce() {
             preexistingNodes[id] = empty;
         }
     }
+}
+
+// goowee.mountRoot registers a root's container before Go renders into it.
+// With hydrate, the container's server markup is claimed (ids offset by
+// base); otherwise its content (a placeholder) is removed by the first frame
+// that paints the root, so nothing blank shows in between.
+goowee.mountRoot = function mountRoot(parentId, container, base, hydrate) {
+    rootsRegistered = true;
+    rootContainers[parentId] = container;
+    if (parentId === 0) rootNode = container;
+    if (hydrate) {
+        mark("goowee:hydrate-start");
+        claimServerNodes(container, base);
+        mark("goowee:hydrate-end");
+        return;
+    }
+    if (parentId === 0) {
+        // Server markup for another page (a static host's 404.html, say)
+        // goes too, with its head metadata.
+        for (const el of document.head.querySelectorAll("[data-node-id]")) el.remove();
+    }
+    pendingClear.push(container);
+};
+
+// goowee.unmountRoot forgets a root's container once its content is removed.
+goowee.unmountRoot = function unmountRoot(parentId) {
+    if (parentId !== 0) delete rootContainers[parentId];
+};
+
+function flushPendingClear() {
+    while (pendingClear.length > 0) pendingClear.shift().replaceChildren();
+}
+
+function hydrateOnce() {
+    if (hydrated) return;
+    hydrated = true;
+    flushPendingClear();
+    if (rootsRegistered) return; // the Go side registers its roots itself (goowee.mountRoot)
+    mark("goowee:hydrate-start");
+    const root = getRoot();
+    if (!root) { mark("goowee:hydrate-end"); return; }
+    if (!goowee.serverRendered()) {
+        // Server markup for another page (a static host's 404.html, say)
+        // goes too, so the app's first frame starts from an empty page.
+        for (const el of document.querySelectorAll("[data-node-id]")) el.remove();
+        root.replaceChildren();
+        mark("goowee:hydrate-end");
+        return;
+    }
+
+    claimServerNodes(root, 0);
     mark("goowee:hydrate-end");
 }
 
@@ -690,6 +746,7 @@ function restoreFocus(s) {
 // it: startBatch, applyMutation for each update in order, then finishBatch.
 function startBatch() {
     hydrateOnce();
+    flushPendingClear();
     // First flush = first paint of app-produced DOM = interactive (roadmap 3.2).
     if (!goowee._interactive) {
         goowee._interactive = true;
@@ -1075,7 +1132,7 @@ function applyMutation(mut, b) {
             }
             break;
         case 4: { // AppendChild
-            const parent = mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId];
+            const parent = containerOf(mut.nodeId);
             const child = nodeMap[mut.childId];
             if (parent && child && !child.parentNode) {
                 parent.appendChild(child);
@@ -1089,7 +1146,7 @@ function applyMutation(mut, b) {
             const child = nodeMap[mut.childId];
             const ref = mut.refId ? nodeMap[mut.refId] : null;
             const parent = ref && ref.parentNode ? ref.parentNode
-                : (mut.nodeId === 0 ? getRoot() : nodeMap[mut.nodeId]);
+                : containerOf(mut.nodeId);
             if (parent && child) {
                 b.movedLive = moveNode(parent, child, ref && ref.parentNode === parent ? ref : null) || b.movedLive;
             }

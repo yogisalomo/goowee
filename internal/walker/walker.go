@@ -9,8 +9,8 @@ import (
 // Visitor for each node. Both DOM and SSR renderers use the same walker,
 // guaranteeing identical node IDs by construction.
 type Walker struct {
-	nextID int
-	ctx    *Context // context values in scope at this point of the walk
+	ids *int     // the next id to allocate; shared by walkers that ShareIDs
+	ctx *Context // context values in scope at this point of the walk
 }
 
 // Context is the chain of context values in scope at a point of a walk,
@@ -70,23 +70,37 @@ func (w *Walker) WithProvided(sn *core.ScopeNode, fn func()) {
 }
 
 func New() *Walker {
-	return &Walker{nextID: 1}
+	next := 1
+	return &Walker{ids: &next}
 }
 
 func (w *Walker) Reset() {
-	w.nextID = 1
+	*w.counter() = 1
 	w.ctx = nil
 }
 
+// ShareIDs makes w allocate from other's id counter, so several renderers
+// (one per mounted root) never hand out the same node id.
+func (w *Walker) ShareIDs(other *Walker) { w.ids = other.counter() }
+
+func (w *Walker) counter() *int {
+	if w.ids == nil { // a zero Walker
+		next := 1
+		w.ids = &next
+	}
+	return w.ids
+}
+
 func (w *Walker) AllocID() int {
-	id := w.nextID
-	w.nextID++
+	c := w.counter()
+	id := *c
+	*c++
 	return id
 }
 
 // NextID returns the id the next AllocID will hand out. Ids are sequential, so
 // the ids allocated by a walk are exactly [NextID before, NextID after).
-func (w *Walker) NextID() int { return w.nextID }
+func (w *Walker) NextID() int { return *w.counter() }
 
 // Visitor is implemented by DOM and SSR renderers. Each method receives the
 // node (with its ID already set for element/text nodes) and a walkChild func
