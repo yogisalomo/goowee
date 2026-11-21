@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"fmt"
 	"github.com/yogisalomo/goowee/core"
 )
 
@@ -123,7 +122,7 @@ func MutationForBind(nodeID int, b core.Bind) core.Mutation {
 	if b.Target == core.BindToAttr {
 		return core.Mutation{
 			Type: core.MutSetAttribute, NodeID: nodeID, Key: b.Name,
-			Value: SafeURL(b.Name, fmt.Sprintf("%v", b.Signal.Value())),
+			Value: SafeURL(b.Name, core.FormatValue(b.Signal.Value())),
 		}
 	}
 	v := b.Signal.Value()

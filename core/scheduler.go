@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -408,7 +407,7 @@ func (s *Scheduler) Len() int {
 }
 
 func (s *Scheduler) String() string {
-	return fmt.Sprintf("Scheduler(queue=%d dirty=%d)", len(s.queue), len(s.dirty))
+	return "Scheduler(queue=" + strconv.Itoa(len(s.queue)) + " dirty=" + strconv.Itoa(len(s.dirty)) + ")"
 }
 
 type Mutation struct {

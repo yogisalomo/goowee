@@ -3,13 +3,13 @@
 package bridge
 
 import (
-	"encoding/json"
 	"errors"
 	"syscall/js"
 	"unsafe"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/dom"
+	"github.com/yogisalomo/goowee/internal/jsonlite"
 )
 
 // Run mounts app into the page and drives the render loop. It is the single
@@ -58,11 +58,7 @@ func initLogSink() {
 		for k, v := range e.Fields {
 			payload[k] = v
 		}
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return
-		}
-		js.Global().Get("goowee").Call("log", string(data))
+		js.Global().Get("goowee").Call("log", string(appendLogJSON(nil, payload)))
 	})
 }
 
@@ -238,9 +234,9 @@ type transport struct {
 	// applyAt is goowee.applyBatchAt, set when the runtime reads batches in
 	// place in the module's memory instead of from a copy in buf (#133).
 	applyAt js.Value
-	buf   js.Value // the Uint8Array batches are copied into
-	size  int      // buf's length
-	small int      // consecutive batches that used under an eighth of a big buf
+	buf     js.Value // the Uint8Array batches are copied into
+	size    int      // buf's length
+	small   int      // consecutive batches that used under an eighth of a big buf
 }
 
 // Like BatchEncoder's own buffers, buf is released after shrinkAfter batches in
@@ -332,17 +328,39 @@ func applyBatch(sched *core.Scheduler, tr *transport, muts []core.Mutation) {
 	if ret.Type() != js.TypeString {
 		return
 	}
-	var replies []struct {
-		Req   int `json:"req"`
-		Value any `json:"value"`
-	}
-	if err := json.Unmarshal([]byte(ret.String()), &replies); err != nil {
-		core.Log(core.LogWarn, "could not decode ref read replies", map[string]any{"error": err.Error()})
+	v, err := jsonlite.Decode(ret.String())
+	replies, ok := v.([]any)
+	if err != nil || !ok {
+		msg := "not an array"
+		if err != nil {
+			msg = err.Error()
+		}
+		core.Log(core.LogWarn, "could not decode ref read replies", map[string]any{"error": msg})
 		return
 	}
 	for _, r := range replies {
-		sched.Resolve(r.Req, r.Value)
+		if m, ok := r.(map[string]any); ok {
+			req, _ := m["req"].(float64)
+			sched.Resolve(int(req), m["value"])
+		}
 	}
+}
+
+// appendLogJSON writes a log entry's fields as a JSON object. A field
+// jsonlite can't write (an error, a panic value of some struct type) is
+// written as its %v text, which is more useful in the console than the {}
+// encoding/json gives most of them.
+func appendLogJSON(b []byte, payload map[string]any) []byte {
+	clean := make(map[string]any, len(payload))
+	for k, v := range payload {
+		if _, ok := jsonlite.Append(nil, v); ok {
+			clean[k] = v
+		} else {
+			clean[k] = core.FormatValue(v)
+		}
+	}
+	b, _ = jsonlite.Append(b, clean)
+	return b
 }
 
 // drawBuf is the Uint8Array draws are copied into, reused from frame to frame

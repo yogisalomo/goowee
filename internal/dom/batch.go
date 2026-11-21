@@ -2,12 +2,12 @@ package dom
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"math"
 	"strconv"
 	"unicode/utf8"
 
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/jsonlite"
 )
 
 // BatchVersion is the version of the binary batch format below. The runtime
@@ -229,8 +229,10 @@ func appendBatchValue(ops, strs []byte, v any) ([]byte, []byte, byte, bool) {
 		f, _ = strconv.ParseFloat(string(strconv.AppendFloat(digits[:0], f, 'g', -1, 32)), 64)
 		return appendBatchFloat(ops, f), strs, valueFloat, true
 	}
-	data, err := json.Marshal(v)
-	if err != nil {
+	// Arrays, objects and other Go types: JSON text, written by jsonlite
+	// (encoding/json only through core.UseJSON, #126).
+	data, ok := jsonlite.Append(nil, v)
+	if !ok {
 		return ops, strs, 0, false
 	}
 	ops, strs = appendBatchString(ops, strs, string(data))

@@ -1,7 +1,6 @@
 package devtools
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
 	"time"
@@ -196,7 +195,7 @@ func formatValue(v any) string {
 		}
 		return err.Error()
 	}
-	return fmt.Sprintf("%+v", v) // a struct with its field names
+	return core.FormatValueFields(v) // a struct with its field names, when fmt is linked
 }
 
 func walkNode(n core.Node) any {
@@ -237,10 +236,20 @@ func walkNode(n core.Node) any {
 		}
 		return node
 	case *core.TextNode:
+		// Bound text shows its current text and its signal, not the signal
+		// itself (which JSON wrote as {}).
+		if sig, ok := v.Value.(core.SignalAccessor); ok {
+			return map[string]any{
+				"type":   "text",
+				"id":     v.ID,
+				"value":  formatValue(sig.Value()),
+				"signal": SignalID(sig),
+			}
+		}
 		return map[string]any{
 			"type":  "text",
 			"id":    v.ID,
-			"value": v.Value,
+			"value": formatValue(v.Value),
 		}
 	case *core.FragmentNode:
 		return map[string]any{
@@ -263,7 +272,7 @@ func walkNode(n core.Node) any {
 		}
 		return node
 	default:
-		return map[string]any{"type": fmt.Sprintf("%T", n)}
+		return map[string]any{"type": reflect.TypeOf(n).String()}
 	}
 }
 
@@ -301,7 +310,7 @@ func frameHooks(frame *core.ComponentFrame) []map[string]any {
 			})
 		default:
 			hooks = append(hooks, map[string]any{
-				"kind": fmt.Sprintf("%T", h),
+				"kind": reflect.TypeOf(h).String(),
 			})
 		}
 	}

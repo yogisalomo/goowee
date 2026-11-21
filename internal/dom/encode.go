@@ -1,12 +1,12 @@
 package dom
 
 import (
-	"encoding/json"
 	"math"
 	"strconv"
 	"unicode/utf8"
 
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/jsonlite"
 )
 
 // EncodeBatch serializes a mutation batch for the JS runtime, as the JSON
@@ -107,11 +107,7 @@ func appendValue(b []byte, v any) ([]byte, bool) {
 	case float32:
 		return appendFloat(b, float64(v), 32)
 	}
-	data, err := json.Marshal(v)
-	if err != nil {
-		return b, false
-	}
-	return append(b, data...), true
+	return jsonlite.Append(b, v) // encoding/json only through core.UseJSON (#126)
 }
 
 // appendFloat formats f as encoding/json does (ES6 number formatting).

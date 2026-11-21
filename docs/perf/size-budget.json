@@ -1,5 +1,5 @@
 {
-  "comment": "Brotli -q 11 bytes of each program's wasm, as CI measures them (ubuntu, the latest Go 1.25.x); a local build with another Go patch release can differ by a percent or two. CI fails when a program grows more than `tolerance` over its record, or links a package on its deny list. A change that grows a program on purpose raises its record in the same diff; one that shrinks it lowers the record. See docs/perf/README.md.",
+  "comment": "Brotli -q 11 bytes of each program's wasm, as CI measures them (ubuntu, the latest Go 1.25.x); a local build with another Go patch release can differ by a percent or two. CI fails when a program grows more than `tolerance` over its record, or links a package on its deny list. A change that grows a program on purpose raises its record in the same diff; one that shrinks it lowers the record. See docs/perf/README.md. `maxCode` caps a package's code bytes, for a package linked only for its init: hello may link encoding/json's init (hooks and h import it) but none of its functions (#126).",
   "tolerance": 0.03,
   "programs": {
     "test/e2e/hello": {
@@ -9,8 +9,14 @@
         "net",
         "crypto/tls",
         "text/template",
-        "html/template"
-      ]
+        "html/template",
+        "fmt",
+        "log",
+        "net/url"
+      ],
+      "maxCode": {
+        "encoding/json": 8192
+      }
     },
     "test/e2e/hello -tags goowee_nodev": {
       "brotli": 792408,
@@ -20,8 +26,14 @@
         "crypto/tls",
         "text/template",
         "html/template",
-        "github.com/yogisalomo/goowee/devtools"
-      ]
+        "github.com/yogisalomo/goowee/devtools",
+        "fmt",
+        "log",
+        "net/url"
+      ],
+      "maxCode": {
+        "encoding/json": 8192
+      }
     },
     "examples/counter": {
       "brotli": 1025802,
@@ -36,8 +48,14 @@
       "deny": [
         "net/http",
         "net",
-        "crypto/tls"
-      ]
+        "crypto/tls",
+        "fmt",
+        "log",
+        "net/url"
+      ],
+      "maxCode": {
+        "encoding/json": 8192
+      }
     },
     "examples/counter (tinygo)": {
       "brotli": 309451,

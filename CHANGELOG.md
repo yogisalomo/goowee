@@ -73,6 +73,22 @@ time. The public surface freezes under semver at v1.
   on both transports and on an older `goowee.js`.
 
 ### Changed
+- **goowee's client code no longer links `fmt`, `encoding/json`, `log` or
+  `net/url`** (#126), so an app pays for them only if it uses them. The
+  smallest app (`test/e2e/hello`, now written with `strconv` instead of
+  `fmt`) went from 812 KB to 675 KB brotli, and under TinyGo from 199 KB to
+  116 KB. Event payloads and read replies are read by a small JSON reader
+  (fuzzed against `encoding/json`); `core.Log` in the browser goes to the
+  console sink only; the router escapes queries itself; bound values are
+  formatted by `core.FormatValue`, which matches `%v`. The serving guide has
+  a table of what each helper brings in. CI checks that `hello` links none
+  of `fmt`, `log` and `net/url`, and only `encoding/json`'s package init.
+  - New: `core.FormatValue`, `core.UseFmt` and `core.UseJSON`. A bound slice,
+    map or struct needs `core.UseFmt(fmt.Sprintf)` in the browser (`Textf`
+    calls it), and a struct or typed slice as a property value or
+    `ref.Call` argument needs `core.UseJSON(json.Marshal)`; without them
+    goowee logs a warning. Host builds always have both.
+  - `router.NewURL` is no longer in browser builds; use `router.New`.
 - Events and frames call into Go through WebAssembly exports instead of
   `syscall/js` callbacks, and the runtime reads each frame's batch where it is
   in the module's memory instead of from a copy (#133, ADR-031). In Chrome a

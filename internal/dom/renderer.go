@@ -1,7 +1,7 @@
 package dom
 
 import (
-	"fmt"
+	"reflect"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
@@ -952,7 +952,7 @@ func warnPreservedPlainComponent(name string) {
 var warnedKeyTypes = map[string]bool{}
 
 func warnUncomparableKey(k any) {
-	t := fmt.Sprintf("%T", k)
+	t := reflect.TypeOf(k).String() // %T without fmt (#126)
 	if warnedKeyTypes[t] {
 		return
 	}

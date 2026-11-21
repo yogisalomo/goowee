@@ -3,8 +3,10 @@
 package storage
 
 import (
-	"fmt"
+	"errors"
 	"syscall/js"
+
+	"github.com/yogisalomo/goowee/core"
 )
 
 // storage is the browser's Storage object. Reading window.localStorage throws
@@ -45,7 +47,7 @@ func (s *Store) set(key, value string) (err error) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("goowee/storage: %v", r) // QuotaExceededError
+			err = errors.New("goowee/storage: " + core.FormatValue(r)) // QuotaExceededError
 		}
 	}()
 	area.Call("setItem", key, value)
