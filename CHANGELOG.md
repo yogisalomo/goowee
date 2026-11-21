@@ -53,6 +53,17 @@ time. The public surface freezes under semver at v1.
   `Switch`, keyed `For`, components, portals), the document must equal a
   fresh render of the final state, with registries and mounted components
   matching. CI fuzzes it for 45 s per PR (#161).
+- More form bindings and targeted DOM updates (#149): `BindNumber`, `BindRadio`,
+  `BindSelectMulti` and `BindFiles` cover numeric inputs, radio groups,
+  multi-selects and file pickers. `ClassIf`/`Classes` toggle individual classes
+  and `StyleProp`/`StylePx` set individual CSS properties, so a signal change no
+  longer has to rewrite a whole `class` or `style` string and clobber another
+  binding's work. `AttrS` (also `HiddenS` and the `Aria*S` helpers) writes a
+  single attribute; boolean signals remove the attribute when false, and ARIA
+  state helpers render `"true"`/`"false"`. The older `BindAttr` keeps writing
+  `"true"`/`"false"` for bool signals, so existing ARIA state bindings don't
+  change meaning. SSR renders the initial values of all of these, and
+  gooweetest applies the same mutations as the browser.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from
@@ -137,6 +148,10 @@ time. The public surface freezes under semver at v1.
     changed and the `For` was built afresh (inside a parent row that
     re-rendered), or when the row had a duplicate key. Such rows are now
     keyed by their item too, so a changed item remounts them.
+- `BindNumber` no longer rewrites an empty or partial number input as `"0"`.
+  Clearing a field or typing `"-"` or `"1e"` now leaves the signal at its last
+  valid value and keeps the text the user typed; text that parses to the
+  signal's value isn't rewritten mid-edit.
 - On a server-rendered page, what the user did before the WASM booted was lost
   (#131). Clicks went nowhere, a form submitted natively (reloading the page),
   and text typed into a bound input stayed out of its signal, to be

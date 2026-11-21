@@ -1,6 +1,8 @@
 package dom
 
 import (
+	"strings"
+
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/runtime"
 )
@@ -685,7 +687,7 @@ func droppedBinding(b core.Bind, nw *core.ElementNode) bool {
 		}
 	}
 	switch b.Target {
-	case core.BindToAttr:
+	case core.BindToAttr, core.BindToAttrText:
 		for _, a := range nw.Attrs {
 			if a.Name == b.Name {
 				return false
@@ -697,15 +699,37 @@ func droppedBinding(b core.Bind, nw *core.ElementNode) bool {
 				return false
 			}
 		}
+	case core.BindToClass:
+		// A static class, or another binding toggling the same name, keeps
+		// the class alive; otherwise classList.toggle(name, false) clears it.
+		for _, a := range nw.Attrs {
+			if a.Name == "class" && strings.Contains(" "+a.Value+" ", " "+b.Name+" ") {
+				return false
+			}
+		}
+	case core.BindToStyle:
+		for _, a := range nw.Attrs {
+			if a.Name == "style" && strings.Contains(a.Value, b.Name+":") {
+				return false
+			}
+		}
 	}
 	return true
 }
 
-// clearBound undoes what binding b left in the DOM: the attribute goes; a
-// property goes back to empty (false for a boolean one).
+// clearBound undoes what binding b left in the DOM: an attribute goes, a
+// toggled class or CSS property is cleared, and a property goes back to empty
+// (false for a boolean one).
 func clearBound(id int, b core.Bind) core.Mutation {
-	if b.Target == core.BindToAttr {
+	switch b.Target {
+	case core.BindToAttr, core.BindToAttrText:
 		return core.Mutation{Type: core.MutRemoveAttribute, NodeID: id, Key: b.Name}
+	case core.BindToClass:
+		return core.Mutation{Type: core.MutToggleClass, NodeID: id, Key: b.Name, Value: false}
+	case core.BindToStyle:
+		return core.Mutation{Type: core.MutSetStyle, NodeID: id, Key: b.Name, Value: ""}
+	case core.BindToSelectMulti:
+		return core.Mutation{Type: core.MutSetSelected, NodeID: id, Value: []string{}}
 	}
 	var zero any = ""
 	if _, isBool := b.Signal.Value().(bool); isBool {

@@ -1964,3 +1964,37 @@ func TestDiffClearsDroppedBindings(t *testing.T) {
 		}
 	}
 }
+
+// A dropped targeted binding must clear only what it set: a toggled class
+// stays a classList.toggle, and a single CSS property is cleared by name.
+func TestDiffClearsDroppedTargetedBindings(t *testing.T) {
+	v := core.NewSignal(0)
+	on := core.NewSignal(true)
+	scope := &core.ScopeNode{
+		Deps: []core.SignalAccessor{v},
+		Render: func() core.Node {
+			if v.Get() == 0 {
+				return h.Span(h.Class("kept"), h.ClassIf("gone", on), h.StylePx("top", core.NewSignal(4.0)))
+			}
+			return h.Span(h.Class("kept"))
+		},
+	}
+	r := New()
+	renderFx(r, scope)
+	v.Set(1)
+	var classCleared, styleCleared bool
+	for _, m := range flushFx(r) {
+		if m.Type == core.MutToggleClass && m.Key == "gone" && m.Value == false {
+			classCleared = true
+		}
+		if m.Type == core.MutSetStyle && m.Key == "top" && m.Value == "" {
+			styleCleared = true
+		}
+		if m.Type == core.MutRemoveAttribute && m.Key == "class" {
+			t.Fatal("dropping a targeted binding removed the whole class attribute")
+		}
+	}
+	if !classCleared || !styleCleared {
+		t.Fatalf("dropped targeted bindings not cleared: class=%v style=%v", classCleared, styleCleared)
+	}
+}

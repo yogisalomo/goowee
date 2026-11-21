@@ -391,8 +391,8 @@ func TestStyleS(t *testing.T) {
 func TestClassS(t *testing.T) {
 	sig := core.NewSignal("foo")
 	el := El("div", ClassS(sig))
-	if len(el.Binds) != 1 || el.Binds[0].Target != core.BindToAttr {
-		t.Fatalf("expected attr bind for class, got %v", el.Binds)
+	if len(el.Binds) != 1 || el.Binds[0].Target != core.BindToAttrText {
+		t.Fatalf("expected text attr bind for class, got %v", el.Binds)
 	}
 }
 
@@ -415,8 +415,12 @@ func TestBindProp(t *testing.T) {
 func TestBindAttr(t *testing.T) {
 	sig := core.NewSignal("val")
 	el := El("div", BindAttr("title", sig))
+	if len(el.Binds) != 1 || el.Binds[0].Target != core.BindToAttrText {
+		t.Fatalf("expected text attr bind, got %v", el.Binds)
+	}
+	el = El("div", AttrS("title", sig))
 	if len(el.Binds) != 1 || el.Binds[0].Target != core.BindToAttr {
-		t.Fatalf("expected attr bind, got %v", el.Binds)
+		t.Fatalf("expected bool-removing attr bind, got %v", el.Binds)
 	}
 }
 

@@ -171,6 +171,32 @@ async function main() {
   await clickText("button", "Measure name");
   await waitFor(`/Name input is [1-9]\\d*px wide/.test(document.body.innerText)`, "ref.Get returned the input's offsetWidth");
 
+  // --- BindNumber + ClassIf: a numeric input and one class update independently ---
+  await evalJS(`(()=>{const set=(sel,val)=>{const el=document.querySelector(sel);el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}));};set('input[name="name"]','Ada');set('input[name="age"]','42');})()`);
+  await waitFor(`/Preview, Name: Ada, Email: , Age: 42/.test(document.querySelector('.preview').textContent)`, "BindNumber updated the age signal");
+  check(await evalJS(`document.querySelector('.preview').classList.contains('has-name')`), "ClassIf didn't add has-name when the name became non-empty");
+
+  // --- #149: real typing keeps an empty or partial number field ---
+  const ageSel = 'input[name="age"]';
+  const agePreview = (age) => `/Age: ${age}\\b/.test(document.querySelector('.preview').textContent)`;
+  const key = async (k, code, vk) => {
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
+    await sleep(50);
+  };
+  await evalJS(`(()=>{const el=document.querySelector('${ageSel}');el.focus();el.select();})()`);
+  await key("Backspace", "Backspace", 8);
+  check(await evalJS(`document.querySelector('${ageSel}').value`) === "", "clearing the age input wrote a value back");
+  check(await evalJS(agePreview(42)), "clearing the age input changed the signal");
+
+  await send("Input.insertText", { text: "-" });
+  await sleep(50);
+  check(await evalJS(`document.querySelector('${ageSel}').validity.badInput`), "typing a minus sign was rewritten");
+  check(await evalJS(agePreview(42)), "typing a minus sign changed the signal");
+
+  await send("Input.insertText", { text: "7" });
+  await waitFor(agePreview(-7), "typing -7 updated the age signal");
+
   // --- File input (e.Files + File.Bytes): the picked file's bytes reach Go ---
   const filePath = join(userDir, "note.txt");
   writeFileSync(filePath, "hello from e2e");
