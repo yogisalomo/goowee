@@ -28,6 +28,7 @@ func main() {
 		data, setData := hooks.UseState(items)
 		count := core.Computed([]core.SignalAccessor{data}, func() int { return len(data.Get()) })
 		bench, setBench := hooks.UseState(0.0)
+		shown, setShown := hooks.UseState(true)
 		var handle *VirtualListHandle[row]
 
 		return Div(
@@ -46,27 +47,30 @@ func main() {
 				}
 				setBench(float64(time.Since(start).Microseconds()) / 120)
 			}), Text("bench")),
+			Button(ID("hide"), OnClick(func() { setShown(false) }), Text("hide")),
 			Div(ID("status"), Textf("items=%d", count)),
 			Div(ID("benchresult"), Textf("bench=%.1fus", bench)),
-			VirtualList(data, func(r row) int { return r.ID },
-				func(i int, item row) core.Node {
-					return core.Component("E2ERow", func() core.Node {
-						n, setN := hooks.UseState(0)
-						return Div(
-							Class("vl-row"),
-							Attr("data-id", fmt.Sprint(item.ID)),
-							Textf("item-%d#%d", item.ID, n),
-							Button(Class("bump"), OnClick(func() { setN(n.Get() + 1) }), Text("+")),
-						)
-					})
-				},
-				VirtualListHeight(300),
-				VirtualListItemHeight(48),
-				VirtualListMeasure(),
-				VirtualListOverscan(2),
-				VirtualListOnHandle(func(h *VirtualListHandle[row]) { handle = h }),
-				VirtualListOnEndReached(func() {}),
-			),
+			Show(shown, func() core.Node {
+				return VirtualList(data, func(r row) int { return r.ID },
+					func(i int, item row) core.Node {
+						return core.Component("E2ERow", func() core.Node {
+							n, setN := hooks.UseState(0)
+							return Div(
+								Class("vl-row"),
+								Attr("data-id", fmt.Sprint(item.ID)),
+								Textf("item-%d#%d", item.ID, n),
+								Button(Class("bump"), OnClick(func() { setN(n.Get() + 1) }), Text("+")),
+							)
+						})
+					},
+					VirtualListHeight(300),
+					VirtualListItemHeight(48),
+					VirtualListMeasure(),
+					VirtualListOverscan(2),
+					VirtualListOnHandle(func(h *VirtualListHandle[row]) { handle = h }),
+					VirtualListOnEndReached(func() {}),
+				)
+			}),
 		)
 	}))
 }

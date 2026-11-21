@@ -244,6 +244,7 @@ func VirtualList[T any](itemsSig *core.Signal[[]T], keyOrHeight any, render func
 	}
 
 	return core.Component("VirtualList", func() core.Node {
+		listRef := Ref()
 		scrollTop, setScrollTop := hooks.UseState(0.0)
 		heights, setHeights := hooks.UseState([]float64{})
 		rng, _ := hooks.UseState(virtualRange{})
@@ -319,7 +320,9 @@ func VirtualList[T any](itemsSig *core.Signal[[]T], keyOrHeight any, render func
 
 		hooks.UseEffect([]core.SignalAccessor{itemsSig, heights}, func() func() {
 			rebuild()
-			if cfg.stickToBottom && atBottom.Get() {
+			// Snapshot: the scrollTop effect owns atBottom updates; this
+			// effect must not re-run when the user scrolls.
+			if cfg.stickToBottom && atBottom.Peek() {
 				setScrollTop(tree.Total())
 			}
 			recompute()
@@ -458,12 +461,22 @@ func VirtualList[T any](itemsSig *core.Signal[[]T], keyOrHeight any, render func
 			fn(handle)
 		}
 
+		if cfg.measure {
+			// Only a measuring list asks the runtime to watch its rows. The
+			// ref call runs after the first frame, when the list node exists.
+			hooks.OnMount(func() func() {
+				listRef.Call("gooweeObserveRows")
+				return func() { listRef.Call("gooweeUnobserveRows") }
+			})
+		}
+
 		sizeStyle := "height:auto;"
 		if cfg.height > 0 && !cfg.windowScroll {
 			sizeStyle = fmt.Sprintf("height:%dpx;", cfg.height)
 		}
 		attrs := []core.Item{
 			Class("vlist"),
+			RefTo(listRef),
 			Attr("data-goowee-virtual-list", "true"),
 			Attr("data-axis", axis),
 		}
