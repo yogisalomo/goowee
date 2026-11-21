@@ -22,6 +22,26 @@ time. The public surface freezes under semver at v1.
   host's `404.html` served for a page nobody prerendered is dropped and
   rendered on the client instead. The tutorial site is now prerendered
   (`cmd/site-export`, `make pages`).
+- `goowee.boot({transport: "json"})` selects the JSON transport, for
+  comparing the two or as a workaround; `goowee.transport` reports the one in
+  use.
+- `test/e2e/transport.mjs` measures both transports in headless Chrome,
+  replaying real frames and timing the real WASM app frame by frame;
+  `test/e2e/batch.mjs` (part of `make e2e`) checks the runtime's binary
+  decoder against `JSON.parse` on a Go-written corpus; the E2E smoke test runs
+  on both transports and on an older `goowee.js`.
+
+### Changed
+- **DOM updates cross from Go to JavaScript in a binary format** instead of
+  JSON (ADR-029, #134). The encoder reuses its buffers, so a frame no longer
+  allocates its own payload, and the runtime decodes each batch's strings with
+  one call. On a 5,000-update frame in Chrome the payload is 74% smaller
+  (255 → 67 KiB) and the frame is about 62% faster (8.9 → 3.4 ms on an M1),
+  most of the saving being Go garbage collection the JSON frame's
+  allocations paid for. Small frames (1 to 10 updates) cost about the same
+  end to end. The runtime sees the same values as before. No API changes. The wasm and `goowee.js` should come from the same goowee
+  version: with an older `goowee.js` the bridge falls back to JSON and logs a
+  warning.
 
 ### Changed
 - A re-render no longer rebinds every bound attribute, property and text it

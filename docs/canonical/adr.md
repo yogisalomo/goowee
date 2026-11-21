@@ -935,3 +935,58 @@ Every frame copies the buffer once (about 280 KB for the graph); a later
 `wasmimport` could hand the runtime a view of wasm memory instead (#133). In
 worker mode (#158) the worker will post the buffer to the page, whichever of
 the two lands second.
+
+---
+
+## ADR-029: DOM updates cross to JavaScript in a binary format; JSON stays as a fallback
+
+**Status:** Accepted (2026-11-06). Revisits roadmap 3.4's October conclusion
+that a binary transport "stays deferred", on new measurements.
+
+**Context.** Each frame's mutation batch (ADR-006) crossed into JavaScript as
+one JSON string. Roadmap 3.4 measured the pieces in isolation: after the
+hand-written encoder, 1.9 ms in WASM to encode the 5,000-update layout tick,
+~1.2 ms of `JSON.parse`, so a binary format looked worth ~2 ms. Timing the
+real app end to end (`test/e2e/transport.mjs`: the graph as real WASM in
+Chrome, every frame Go renders timed) put the JSON frame at 9–14 ms. The frame
+allocates ~570 KB (the encoded batch, and its copy as a Go string for
+`syscall/js`), and in Go's single-threaded WASM runtime an allocation made
+during a collection pays for part of the marking: with the GC switched off,
+the frame's Go side drops from 7–11 ms to ~3 ms. A benchmark that encodes in a
+loop amortizes that cost away.
+
+**Decision.** The bridge sends batches in a versioned binary format
+(`internal/dom/batch.go`, `BatchVersion`): a header, an op section (type and
+flag bytes, zigzag varints, float64s) and a string section of UTF-8 that the
+runtime decodes with one `TextDecoder` call per batch and slices by UTF-16
+lengths. `BatchEncoder` reuses its buffers, so a frame allocates nothing to
+encode; the bytes are copied with `js.CopyBytesToJS` into a `Uint8Array`
+reused across frames and applied by `goowee.applyBatch(u8, len)`. The runtime
+sees exactly the values `JSON.parse` gave it, which the Go tests (a decoder
+that mimics the runtime's, fuzzed) and `test/e2e/batch.mjs` (the runtime's own
+decoder against a Go-written corpus) check field by field, and one
+`applyMutation` applies both formats. JSON stays: `goowee.boot({transport:
+"json"})` selects it, and the bridge falls back to it, with a warning, when the
+page's `goowee.js` doesn't read the bridge's `BatchVersion`.
+
+**Alternatives.** (a) Keep JSON — rejected on the end-to-end numbers. (b) Let
+JavaScript read Go's memory in place (zero copy) — depends on `wasm_exec.js`
+internals, needs a new view after every memory growth and differs under
+TinyGo; `CopyBytesToJS` is the public API and costs a memcpy (~10 µs for the
+worst frame). (c) A `TextDecoder` call per string — its per-call cost adds up
+over thousands of short strings. (d) Build the values with `js.ValueOf` — an
+object and several crossings per mutation. (e) Drop the JSON path — it covers
+a mismatched `goowee.js`, lets the E2E suite run both transports, and is the
+natural format for a host that isn't WASM (a desktop webview's IPC).
+
+**Consequences.** On the 5,000-update layout tick in Chrome: 255 → 67 KiB per
+frame, the frame 63–67% faster across runs (9.3 → 3.4 ms on an idle M1), the
+whole update (signal writes and frame) 10–31% faster; 1- and 10-update frames
+16–37% faster; the WASM 0.5% larger (brotli). A string sliced from the batch shares its memory, so a string
+property value (other than `textContent` and `innerHTML`, which the DOM
+copies) is copied before a page can keep it. Node ids must stay below 2^52,
+since the runtime decodes varints with doubles; they are allocated one by one
+from 1. The wasm and `goowee.js` should come from the same goowee version; a
+mismatch degrades to JSON instead of breaking. Measure frames end to end, in
+the environment they run in: the frame's allocations cost more than its
+encoding.
