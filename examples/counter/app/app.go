@@ -383,24 +383,25 @@ func brokenBox() core.Node {
 
 func asyncPage(r *router.Router) core.Node {
 	return core.Component("AsyncPage", func() core.Node {
-		// A goroutine does the "loading" off the render loop; UseResource applies
-		// the result back safely via core.Schedule. Server renders the loading
-		// state; the client loads after hydration.
-		res := hooks.UseResource(nil, func(ctx context.Context) (string, error) {
+		// A goroutine does the "loading" off the render loop; the result comes
+		// back safely via core.Schedule. hooks.Load also runs it on the server:
+		// the page arrives with the data, and the client doesn't fetch again.
+		demo := hooks.Load("async-demo", nil, func(ctx context.Context) (string, error) {
 			select {
 			case <-time.After(500 * time.Millisecond):
 				return "Loaded at " + time.Now().Format("15:04:05.000"), nil
 			case <-ctx.Done(): // reloaded or navigated away: stop early
 				return "", ctx.Err()
 			}
+		}, func(res *hooks.Resource[string]) core.Node {
+			return Div(
+				ShowElse(res.Loading,
+					func() core.Node { return P(Text("Loading\u2026")) },
+					func() core.Node { return P(Class("preview"), TextS(res.Data)) },
+				),
+				Button(Type("button"), OnClick(func() { res.Refetch() }), Text("Reload")),
+			)
 		})
-		demo := Div(
-			ShowElse(res.Loading,
-				func() core.Node { return P(Text("Loading\u2026")) },
-				func() core.Node { return P(Class("preview"), TextS(res.Data)) },
-			),
-			Button(Type("button"), OnClick(func() { res.Refetch() }), Text("Reload")),
-		)
 		return lessonLayout(r, "Async data",
 			"Real work runs in a goroutine, off the render loop, and `UseResource` applies the result back safely. The view just binds the loading and data signals.",
 			demo, "async.go", asyncCode,
@@ -408,7 +409,7 @@ func asyncPage(r *router.Router) core.Node {
 				"`hooks.UseResource(deps, fetch)` runs `fetch` in a goroutine; its result lands on the render loop through `core.Schedule`.",
 				"`fetch` gets a context that is cancelled when a newer load starts or the page unmounts — pass it to your request.",
 				"It exposes `Data`, `Loading` and `Err` signals and a `Refetch()` method; a generation guard drops stale results.",
-				"Fetching is client-side, so SSR renders the loading state and the client fills it in after hydration.",
+				"hooks.Load(key, deps, fetch, render) is UseResource whose data the server loads too: the page arrives with it, embedded as JSON, and the client doesn't fetch it again.",
 			),
 			tutorialStepNav(r, "/async"),
 		)

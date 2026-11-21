@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/data"
 	"github.com/yogisalomo/goowee/router"
 )
 
@@ -38,6 +40,10 @@ type HandlerOptions struct {
 	// page instead. nil answers a panicked render with 500.
 	Fallback http.Handler
 
+	// DataTimeout bounds how long a request waits for the page's keyed data
+	// (hooks.Load) before rendering without it; 0 means DefaultDataTimeout.
+	DataTimeout time.Duration
+
 	// ClientOnly, if set, selects requests to hand straight to Fallback — pages
 	// that can't be server-rendered faithfully (e.g. ones whose content depends
 	// on the browser).
@@ -62,7 +68,7 @@ func Handler(opts HandlerOptions) http.Handler {
 			opts.Fallback.ServeHTTP(w, r)
 			return
 		}
-		page, body, head, rec := render(opts.Page, r)
+		page, body, head, rec := render(opts.Page, r, opts.DataTimeout)
 		if rec != nil {
 			core.Log(core.LogRecoverRender, "server render panicked; serving the fallback", map[string]any{
 				"path":  r.URL.Path,
@@ -87,12 +93,36 @@ func Handler(opts HandlerOptions) http.Handler {
 	})
 }
 
-func render(build func(*http.Request) Page, r *http.Request) (page Page, body, head string, rec any) {
+// render renders the page for r. A page that loads data (hooks.Load) is
+// rendered twice: the first pass collects the keyed fetches, the server runs
+// them concurrently (with r's context and dataTimeout), and the second pass
+// renders with the results, which are added to head as JSON for the client
+// (#152). A page without keyed data renders once, as before.
+func render(build func(*http.Request) Page, r *http.Request, dataTimeout time.Duration) (page Page, body, head string, rec any) {
 	defer func() { rec = recover() }()
-	page = build(r)
-	body, head = New().Render(page.Node)
+	store := data.NewServer()
+	pass := func() {
+		page = build(r)
+		body, head = New().renderWith(page.Node, data.Provided(store))
+	}
+	pass()
+	if store.Pending() {
+		if dataTimeout <= 0 {
+			dataTimeout = DefaultDataTimeout
+		}
+		store.Run(r.Context(), dataTimeout)
+		pass()
+	}
+	if script := store.Script(); script != "" {
+		head += script
+	}
 	return
 }
+
+// DefaultDataTimeout bounds how long a server render waits for its keyed
+// data (hooks.Load) when HandlerOptions.DataTimeout is 0. A fetch that takes
+// longer is left to the client.
+const DefaultDataTimeout = 5 * time.Second
 
 // RoutedPage adapts a router-based app — app(router) returns the root node —
 // into a Page func: the router starts at the request's path and query, and

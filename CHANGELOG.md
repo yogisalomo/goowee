@@ -35,6 +35,12 @@ time. The public surface freezes under semver at v1.
   server's process a call runs the handler directly; `rpc.Fake` stubs one in
   tests. New example `examples/notes` (list, detail, form, server-rendered)
   and the guide "Talking to your server" (`docs/guides/server.md`).
+- Server-side data (#152, ADR-030). `hooks.Load(key, deps, fetch, render)` is
+  `UseResource` whose data the server loads too: under `ssr.Handler` and
+  `ssr.Export` the server runs each keyed fetch (concurrently, with the
+  request's context and `HandlerOptions.DataTimeout`), renders the page with
+  the data, and embeds it as JSON; the client starts with it and doesn't
+  fetch again. The tutorial's `/async` page uses it.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from

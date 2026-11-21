@@ -235,6 +235,20 @@ async function main() {
   await waitFor(`/Loading…/.test(document.body.innerText)`, "async page shows loading");
   await waitFor(`/Loaded at /.test(document.body.innerText)`, "async resource resolved");
 
+  // #152: loaded directly, /async arrives server-rendered with its data
+  // (hooks.Load), and hydration doesn't fetch it again: the server's
+  // timestamp stays and "Loading…" never shows.
+  const asyncHTML = await (await fetch(URL + "/async")).text();
+  const served = (/Loaded at [\d:.]+/.exec(asyncHTML) || [""])[0];
+  check(served !== "" && asyncHTML.includes('id="goowee-data"'), "/async isn't server-rendered with its data");
+  await send("Page.navigate", { url: URL + "/async" });
+  await waitFor(`goowee._interactive === true && /Loaded at /.test(document.body.innerText)`, "async page hydrated");
+  const shown = await evalJS(`(/Loaded at [\\d:.]+/.exec(document.body.innerText) || [""])[0]`);
+  await evalJS(`window.__sawLoading = false; new MutationObserver(() => { if (/Loading…/.test(document.body.innerText)) window.__sawLoading = true; }).observe(document.body, {subtree: true, childList: true, characterData: true})`);
+  await sleep(1000); // the demo's fetch takes 500 ms
+  const later = await evalJS(`(/Loaded at [\\d:.]+/.exec(document.body.innerText) || [""])[0]`);
+  check(shown !== "" && shown === later && !(await evalJS(`window.__sawLoading`)), `/async fetched again after hydration: shown ${shown}, then ${later}`);
+
   // --- Error boundary: a panicking subtree shows a fallback; page keeps working ---
   await clickText("a", "goowee");
   await clickText("a", "Tutorial");

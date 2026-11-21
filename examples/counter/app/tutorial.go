@@ -138,16 +138,18 @@ hooks.OnMount(func() func() {                 // runs once, on the client
     return func() { close(stop); ticker.Stop() } // cleanup on unmount
 })`
 
-const asyncCode = `// UseResource runs fetch in a goroutine and exposes its state as
-// signals: Data, Loading, Err (+ Refetch). Applied safely on the loop.
-res := hooks.UseResource(nil, func(ctx context.Context) (string, error) {
+const asyncCode = `// hooks.Load runs fetch in a goroutine and exposes its state as
+// signals: Data, Loading, Err (+ Refetch). The server runs it too, so
+// the page arrives with the data and the client doesn't fetch again.
+hooks.Load("greeting", nil, func(ctx context.Context) (string, error) {
     return loadFromServer(ctx) // your blocking call, in a goroutine;
-})                             // ctx is cancelled on Reload/unmount
-
-return ShowElse(res.Loading,
-    func() core.Node { return P(Text("Loading…")) },
-    func() core.Node { return P(TextS(res.Data)) })
-// Pass deps — UseResource([]core.SignalAccessor{id}, …) — to reload on change.`
+},                             // ctx is cancelled on Reload/unmount
+func(res *hooks.Resource[string]) core.Node {
+    return ShowElse(res.Loading,
+        func() core.Node { return P(Text("Loading…")) },
+        func() core.Node { return P(TextS(res.Data)) })
+})
+// hooks.UseResource is the same without the server side.`
 
 const errorCode = `// ErrorBoundary renders the fallback if rendering its child panics,
 // so one broken subtree shows a message instead of blanking the page.
