@@ -29,8 +29,17 @@ func (r *Renderer) Reset() {
 // Effects don't run on the server, and no lock is held: concurrent requests
 // render in parallel.
 func (r *Renderer) Render(n core.Node) (body, head string) {
+	return r.renderWith(n, nil)
+}
+
+// renderWith renders n with provided in scope for the whole tree, without a
+// provider node, so node ids match a client that renders n alone.
+func (r *Renderer) renderWith(n core.Node, provided *core.ContextValue) (body, head string) {
 	runtime.ServerRender(func() {
 		r.Reset()
+		if provided != nil {
+			r.Walker.SetContext(walker.Provided(provided))
+		}
 		var buf strings.Builder
 		v := &ssrVisitor{r: r, buf: &buf}
 		r.Walker.Walk(n, v)

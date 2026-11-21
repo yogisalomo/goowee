@@ -396,6 +396,28 @@ This needs `goowee.js` in `<head>` as a plain `<script>`, not `defer` or
 `async`, so it is listening before the body is parsed. That is the setup in
 `cmd/ssr-server` and the Pages shells.
 
+### Data on the server
+
+`hooks.UseResource` fetches in the browser, so a server-rendered page shows
+its loading state. `hooks.Load` is the same resource with a key, and the
+server loads it too:
+
+```go
+hooks.Load("user:"+id, nil, func(ctx context.Context) (User, error) {
+    return api.GetUser.Call(ctx, api.UserReq{ID: id})
+}, func(res *hooks.Resource[User]) core.Node {
+    return h.ShowResource(res, loading, failed, view)
+})
+```
+
+Under `ssr.Handler` (or `ssr.Export`), the server runs each `Load`'s fetch
+before sending the page, renders it with the data, and embeds the data as
+JSON. In the browser the resource starts with it and doesn't fetch again;
+after that it refetches on a dep change or `Refetch`, as `UseResource` does.
+Keys name the data in the page, so include what it depends on. The data must
+be JSON-encodable. A fetch that fails or outlasts `DataTimeout` (5 s by
+default) is left to the client. See ADR-030.
+
 ### Deterministic markup
 
 Hydration trusts that server and client produce the **same markup**. For

@@ -45,10 +45,19 @@ type Resource[T any] struct {
 // For HTTP in the browser, use goowee/net's Fetch, which takes this ctx;
 // net/http adds ~7 MB to the WASM binary (docs/guides/serving.md).
 func UseResource[T any](deps []core.SignalAccessor, fetch func(ctx context.Context) (T, error)) *Resource[T] {
+	return useResource(deps, fetch, nil)
+}
+
+// useResource is UseResource, or, with initial, a resource that starts with
+// that data loaded and skips its first fetch (hooks.Load's server data).
+func useResource[T any](deps []core.SignalAccessor, fetch func(ctx context.Context) (T, error), initial *T) *Resource[T] {
 	var zero T
+	if initial != nil {
+		zero = *initial
+	}
 	r := &Resource[T]{
 		Data:    core.NewSignal(zero),
-		Loading: core.NewSignal(true),
+		Loading: core.NewSignal(initial == nil),
 		Err:     core.NewSignal[error](nil),
 		fetch:   fetch,
 	}
@@ -56,7 +65,9 @@ func UseResource[T any](deps []core.SignalAccessor, fetch func(ctx context.Conte
 	core.RegisterSignal(r.Loading, "resource.loading")
 	core.RegisterSignal(r.Err, "resource.err")
 	OnMount(func() func() {
-		r.load()
+		if initial == nil {
+			r.load()
+		}
 		return r.stop // unmount: cancel and ignore whatever is in flight
 	})
 	if len(deps) > 0 {

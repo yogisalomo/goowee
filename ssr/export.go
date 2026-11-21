@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/yogisalomo/goowee/core"
 )
@@ -52,6 +53,11 @@ type ExportOptions struct {
 	// for ClientOnly paths and, as Handler serves its Fallback, for pages
 	// whose render panics. Required when ClientOnly is set.
 	Shell []byte
+
+	// DataTimeout bounds how long each page waits for its keyed data
+	// (hooks.Load); 0 means DefaultDataTimeout. Exported pages carry their
+	// data as of the export.
+	DataTimeout time.Duration
 
 	// NotFoundPath is a path no route matches, rendered as 404.html, which
 	// static hosts serve for unknown URLs. Default "/404.html".
@@ -223,7 +229,7 @@ func exportRequest(p, base string) *http.Request {
 // renderDocument renders one page into a full document, marked with the URL
 // path it was rendered for.
 func renderDocument(opts ExportOptions, req *http.Request, urlPath string) (doc []byte, body string, status int, err error) {
-	page, body, head, rec := render(opts.Page, req)
+	page, body, head, rec := render(opts.Page, req, opts.DataTimeout)
 	if rec != nil {
 		return nil, "", 0, fmt.Errorf("%w: %v", errPanicked, rec)
 	}

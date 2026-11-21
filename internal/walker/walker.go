@@ -40,6 +40,10 @@ func (c *Context) with(p *core.ContextValue) *Context {
 	return &Context{key: p.Key, value: p.Value, parent: c}
 }
 
+// Provided is a context chain holding only p: a value a renderer provides to
+// the whole tree without a provider node (no scope, so no extra node id).
+func Provided(p *core.ContextValue) *Context { return (*Context)(nil).with(p) }
+
 // Context returns the context values in scope at this point of the walk.
 func (w *Walker) Context() *Context { return w.ctx }
 

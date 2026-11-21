@@ -754,7 +754,8 @@ runs in the browser, and host tests are sequential).
 
 ## ADR-025: Resource fetches are cancellable; server-side resource data is deferred
 
-**Status:** Accepted (2026-09-26)
+**Status:** Accepted (2026-09-26). Its deferral of server-side data is
+superseded by ADR-030.
 
 **Context.** `UseResource`'s fetch had no context, so a superseded or unmounted
 load kept its request running (#75). Separately, SSR renders a resource's
@@ -990,3 +991,52 @@ from 1. The wasm and `goowee.js` should come from the same goowee version; a
 mismatch degrades to JSON instead of breaking. Measure frames end to end, in
 the environment they run in: the frame's allocations cost more than its
 encoding.
+## ADR-030: Server-side data: keyed resources, a two-pass render, data embedded for hydration
+
+**Status:** Accepted (2026-11-21). Supersedes ADR-025's deferral of
+server-side data.
+
+**Context.** A server-rendered page that needs data rendered its loading state,
+and the client fetched after the binary had booted: no content for crawlers or
+link previews, and the first request seconds late (#152). ADR-025 deferred it
+because a hook couldn't reach per-request state under lock-free SSR (ADR-024).
+ADR-027 has since given renders a per-walk context.
+
+**Decision.**
+- `hooks.Load(key, deps, fetch, render)` is `UseResource` with a key. It is a
+  context consumer (`internal/data.Context`), not a bare hook, so it reaches
+  the store of the render it's in through the walk. `render` builds the view
+  from the resource, inside a component of its own so its state survives a
+  parent re-render.
+- `ssr.Handler` and `ssr.Export` give each render a store. It is provided to
+  the walk without a provider node (`walker.Provided`), so the markup and node
+  ids are exactly a plain render's and the client, which renders the app
+  alone, hydrates it.
+- Two passes. Pass 1 collects each `Load`'s keyed fetch; the server runs them
+  concurrently with the request's context and a deadline
+  (`HandlerOptions.DataTimeout`, default 5 s); pass 2 renders with the
+  results. A page without `Load` renders once, as before. A failed, panicking
+  or late fetch is left out: that `Load` renders its loading state and the
+  client fetches.
+- The results are written into `<head>` as
+  `<script type="application/json" id="goowee-data">`, with `</` escaped. In
+  the browser, the context's default store reads it once, if the page was
+  rendered for this URL (`goowee.serverRendered`). A `Load` that finds its key
+  starts with that data, `Loading` false, and skips its first fetch; the data
+  is used once, so a later mount fetches afresh.
+
+**Alternatives.** A key option on `UseResource` (`hooks.Key`) can't see the
+walk, so it would need ambient per-request state, which brings back the lock
+ADR-024 removed. Route-level loaders are a special case of this (the route
+params as the key) and need no separate mechanism. Streaming the shell first
+and each resource as it resolves remains possible on top of the same store.
+
+**Consequences.** Data pages are rendered with their content and make no
+request after hydration (the tutorial's `/async`, E2E-checked). Resource data
+must be JSON-encodable. A `Load` nested in data that only appears after
+another `Load` resolves is fetched on the client (one level per request); a
+server pays for its keyed fetches in latency, bounded by the deadline.
+Concurrent requests keep their data apart (tested with 16 overlapping
+requests). With `goowee/rpc` (#151), a `Load` that calls a server function
+runs its handler in-process during the server render.
+
