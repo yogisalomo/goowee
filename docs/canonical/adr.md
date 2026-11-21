@@ -79,6 +79,13 @@ excluded; `Signal.Peek` reads without being counted. Production cost: one nil
 check in `Get`. Auto-tracking stays out: the checker gives most of its safety
 without changing semantics.
 
+**Amended 2026-11-21 (#146).** `core.Derive`/`Derive2`, `h.ShowWhen` and
+`hooks.Watch1` take the signals as typed arguments and build their own dep
+lists. This removes the duplicated declaration/read for the common one- and
+two-signal cases, but dependencies remain explicit in the ADR's sense: there is
+still no global current-computation register or automatic subscription.
+`core.Deps(a, b, c)` keeps the many-dependency case readable with `Computed`.
+
 ---
 
 ## ADR-003: Typed Go DSL (`h` package) is the authoring API; templates are deferred

@@ -90,11 +90,11 @@ VirtualList(todos, 48 /* row height px */, func(i int, t todo) core.Node {
 const dashboardCode = `data, setData := hooks.UseState(rows)
 selected, setSelected := hooks.UseState(-1)
 
-// Computed derives a value from signals and recomputes only when a
-// dependency changes — never on unrelated updates.
-total := core.Computed([]core.SignalAccessor{data}, func() string {
+// Derive reads one signal and recomputes only when it changes — never on
+// unrelated updates. Derive2 takes two; use Computed for more.
+total := core.Derive(data, func(rows []dashboardRow) string {
     sum := 0
-    for _, r := range data.Get() { sum += r.Value }
+    for _, r := range rows { sum += r.Value }
     return fmt.Sprintf("Total: %d", sum)
 })
 // A row's OnClick(func(){ setSelected(i) }) makes the "selected" text recompute.`
@@ -181,10 +181,11 @@ only the exact DOM bound to it (no re-render, no virtual DOM).
   parent can pass new data, pass signals, use
   core.ComponentWithProps(name, props, func(p *core.Signal[P]) core.Node),
   or key it to remount: return core.SetKey(Card(id), id).
-- Derive with core.Computed(deps, fn); react with hooks.Watch(deps, fn)
-  or hooks.UseEffect(deps, fn). Deps are explicit — dev mode
-  (?goowee-dev) warns about signals read but not declared; use
-  sig.Peek() for an intentional snapshot.
+- Derive one value with core.Derive(sig, fn) or core.Derive2(a, b, fn);
+  use core.Computed(core.Deps(a, b, c), fn) for three or more. React with
+  hooks.Watch1(sig, fn), hooks.Watch(deps, fn) or hooks.UseEffect(deps, fn).
+  Deps stay explicit — dev mode (?goowee-dev) warns about signals read but
+  not declared; use sig.Peek() for an intentional snapshot.
 - hooks.OnMount(fn) runs AFTER the DOM exists: refs work there, and
   bridge.Element(ref) hands the element to a JS library.
 - Off the render loop (timers, goroutines, fetch callbacks) NEVER call a

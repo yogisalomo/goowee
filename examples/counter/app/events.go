@@ -21,8 +21,8 @@ func eventsPage(r *router.Router) core.Node {
 		sent, setSent := hooks.UseState("")
 		wheel, setWheel := hooks.UseState(0.0)
 
-		hoverText := core.Computed([]core.SignalAccessor{hovering}, func() string {
-			if hovering.Get() {
+		hoverText := core.Derive(hovering, func(in bool) string {
+			if in {
 				return "Pointer inside: yes"
 			}
 			return "Pointer inside: no"
