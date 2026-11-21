@@ -23,7 +23,9 @@ function chromePath() {
   if (existsSync(mac)) return mac;
   return "google-chrome";
 }
-const css = `.panel { opacity: 1; transition: opacity 60ms linear; }
+// The leave class is caught by a MutationObserver, but keep the animation
+// long enough that the inert-node click is exercised even on a busy machine.
+const css = `.panel { opacity: 1; transition: opacity 2000ms linear; }
 .panel.fade-enter { opacity: 0; transition: none; }
 .panel.fade-leave { opacity: 0; }`;
 const index = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style><script src="/wasm_exec.js"></script><script src="/goowee.js"></script></head><body><div id="root"></div><script>goowee.boot()</script></body></html>`;
@@ -41,7 +43,8 @@ const chrome = spawn(chromePath(), [
   `--remote-debugging-port=${DP}`, `--user-data-dir=${profile}`, "about:blank",
 ], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-setTimeout(() => { console.log("TRANSITIONS CHECK FAIL: timed out after 3 minutes"); chrome.kill(); process.exit(1); }, 180000).unref();
+const watchdog = setTimeout(() => { console.log("TRANSITIONS CHECK FAIL: timed out after 3 minutes"); chrome.kill(); process.exit(1); }, 180000);
+watchdog.unref();
 let target;
 for (let i = 0; i < 200 && !target; i++) { try { target = (await (await fetch(`http://localhost:${DP}/json`)).json()).find((t) => t.type === "page"); } catch {} if (!target) await sleep(100); }
 const ws = new WebSocket(target.webSocketDebuggerUrl);
@@ -65,15 +68,25 @@ try {
   const before = await ev(`goowee.nodeCount()`);
   check(await ev(`document.getElementById('panel').getAttribute('data-goowee-transition')`) === "fade", "Transition item did not render its data attribute");
 
+  // A MutationObserver records the leave class the moment it is added: a CDP
+  // poll can miss a short-lived class on a busy machine.
+  await ev(`(()=>{window.leaveSeen=null;
+    window.leaveObserver=new MutationObserver(ms=>{for(const m of ms){
+      if(m.type==='attributes'&&m.attributeName==='class'&&m.target.classList.contains('fade-leave'))
+        window.leaveSeen={inert:m.target.hasAttribute('inert'),connected:m.target.isConnected};
+    }});
+    window.leaveObserver.observe(document.getElementById('root'),{subtree:true,attributes:true,attributeFilter:['class']});
+  })()`);
   await ev(`document.getElementById('toggle').click()`);
-  await waitFor(`document.getElementById('panel')?.classList.contains('fade-leave')`, "leave class applied while the node is still present");
-  check(await ev(`!!document.getElementById('panel')`), "leaving node disappeared before its animation ended");
-  check(await ev(`document.getElementById('panel').hasAttribute('inert')`), "leaving node is not inert");
+  await waitFor(`!!window.leaveSeen`, "leave class applied while the node is still present");
+  check(await ev(`window.leaveSeen.connected`), "leaving node disappeared before its animation ended");
+  check(await ev(`window.leaveSeen.inert`), "leaving node is not inert");
   // The toggle's own click legitimately called into Go; reset before testing
   // the inert node.
   await ev(`window.goCalls = 0`);
   await ev(`document.getElementById('panel').click()`);
   check(await ev(`window.goCalls`) === 0, `a click on the inert leaving node called into Go ${await ev("window.goCalls")} times`);
+  await ev(`window.leaveObserver.disconnect()`);
 
   await waitFor(`!document.getElementById('panel')`, "leaving node removed after the animation");
   const after = await ev(`goowee.nodeCount()`);
@@ -91,12 +104,14 @@ try {
 } catch (e) {
   fail.push(String(e));
 } finally {
+  // The checks are over: never let cleanup time turn a pass into a failure.
+  clearTimeout(watchdog);
   if (fail.length) { console.log("TRANSITIONS CHECK FAIL:\n" + fail.join("\n")); process.exitCode = 1; }
   else console.log("TRANSITIONS CHECK OK");
   ws.close(); server.close(); chrome.kill();
   // Chrome's child processes can keep writing to the profile after kill(), so
   // a lingering file must not turn a passing check into a red CI job.
-  const rmOpts = { recursive: true, force: true, maxRetries: 100, retryDelay: 100 };
+  const rmOpts = { recursive: true, force: true, maxRetries: 2, retryDelay: 50 };
   for (const path of [dir, profile]) {
     try { rmSync(path, rmOpts); }
     catch (e) { console.log(`WARN: could not remove ${path}: ${e.code}`); }
