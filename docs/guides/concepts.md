@@ -178,10 +178,25 @@ created with).
 For very long lists, use `VirtualList` which only renders the visible window:
 
 ```go
-VirtualList(items, 48 /* row height in px */, func(i int, item Item) core.Node {
+// Key by item (recommended): rows are cached by key and keep their state,
+// focus and component instances when items are inserted above the viewport.
+VirtualList(items, func(it Item) int64 { return it.ID },
+    func(i int, item Item) core.Node { return Li(Text(item.Name)) },
+    VirtualListItemHeight(48), VirtualListHeight(300), VirtualListOverscan(5))
+
+// Legacy form: an int height keys rows by index.
+VirtualList(items, 48, func(i int, item Item) core.Node {
     return Li(Text(item.Name))
 }, VirtualListHeight(300))
 ```
+
+Variable-height rows can use `VirtualListMeasure()`: the runtime observes the
+mounted rows and reports their real sizes in one batched event, and a Fenwick
+tree keeps the spacers and scroll position honest. `VirtualListHorizontal()`,
+`VirtualListWindowScroll()`, `VirtualListStickToBottom()` and
+`VirtualListOnEndReached(fn)` cover carousels, page-length lists, chat logs and
+infinite loading. Capture the handle with `VirtualListOnHandle` to call
+`ScrollToIndex`, `ScrollToKey` or `Refresh` from a handler.
 
 ---
 
