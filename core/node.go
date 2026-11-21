@@ -286,6 +286,20 @@ type ScopeNode struct {
 	// Consumes makes the scope a context consumer (Context.Use): its content
 	// is Consumes.Render of the nearest provided value, in place of Render.
 	Consumes *ContextUse
+	// Patch, if set, is tried first when a dependency changes: it changes the
+	// mounted content through p (mount one child, remove one, move one) and
+	// returns true, or returns false, without touching p, to have the scope
+	// rendered again as usual. h.ForList uses it (#140).
+	Patch func(p ScopePatcher) bool
+}
+
+// ScopePatcher changes a mounted scope's content in place (ScopeNode.Patch).
+// Indexes are positions among the content's children.
+type ScopePatcher interface {
+	Len() int
+	Insert(index int, n Node) // mount n at index
+	Remove(index int)         // unmount the child at index
+	Move(from, to int)        // move the child at from so it ends up at to
 }
 
 func (s *ScopeNode) nodeMarker() {}

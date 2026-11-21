@@ -93,3 +93,6 @@ node test/e2e/calls.mjs
 
 echo "==> running canvas e2e (goowee/canvas buffers on real canvases)"
 node test/e2e/canvas.mjs
+
+echo "==> running ForList e2e (core.List operations in HTML and SVG)"
+node test/e2e/list.mjs
