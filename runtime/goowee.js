@@ -617,6 +617,69 @@ goowee.nodeCount = function nodeCount() {
     return Object.keys(nodeMap).length;
 };
 
+// Transitions (#156). A node with data-goowee-transition animates on insert
+// and on removal. The Go side tells us about removals with RemoveNodeAfter;
+// enter classes are discovered from the attribute when the node is inserted.
+// goowee.transitionTimeout is the fallback when neither transitionend nor
+// animationend fires (e.g. the class has no CSS rule).
+goowee.transitionTimeout = 1000;
+const reducedMotionQuery = typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+function motionReduced() {
+    return !!(reducedMotionQuery && reducedMotionQuery.matches);
+}
+
+// startEnterTree adds "<name>-enter" to every transitionable node in a newly
+// inserted subtree, then removes it on the next frame so CSS transitions begin
+// from that state. Hydrated nodes are marked _goHydrated and stay untouched.
+function startEnterTree(node) {
+    if (!node || node.nodeType !== 1) return;
+    const all = node.hasAttribute("data-goowee-transition")
+        ? [node].concat(Array.prototype.slice.call(node.querySelectorAll("[data-goowee-transition]")))
+        : Array.prototype.slice.call(node.querySelectorAll("[data-goowee-transition]"));
+    for (const el of all) {
+        if (el._goEntered || el._goInert || el._goHydrated || motionReduced()) continue;
+        const name = el.getAttribute("data-goowee-transition");
+        if (!name) continue;
+        el._goEntered = true;
+        el.classList.add(name + "-enter");
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                if (el.isConnected) el.classList.remove(name + "-enter");
+            });
+        });
+    }
+}
+
+// removeAfterTransition keeps a removed node in DOM for its leave animation.
+// Go has already disposed the subtree's reactive state, so the node is made
+// inert before the animation starts and is forgotten once it ends.
+function removeAfterTransition(node, name) {
+    if (!node) return;
+    const finish = function () {
+        if (node.parentNode) node.parentNode.removeChild(node);
+        forget(node);
+        delete nodeMap[node._nodeID];
+    };
+    if (!name || motionReduced()) { finish(); return; }
+    node.setAttribute("inert", "");
+    node._goInert = true;
+    node.classList.add(name + "-leave");
+    let done = false;
+    const end = function (e) {
+        if (e && e.target !== node) return;
+        if (done) return;
+        done = true;
+        node.removeEventListener("transitionend", end);
+        node.removeEventListener("animationend", end);
+        clearTimeout(timer);
+        finish();
+    };
+    node.addEventListener("transitionend", end);
+    node.addEventListener("animationend", end);
+    const timer = setTimeout(end, goowee.transitionTimeout);
+}
+
 function releaseFiles(el) {
     const prev = nodeFiles.get(el);
     if (!prev) return;
@@ -765,6 +828,9 @@ goowee.eventCalls = 0;
 function dispatchToGo(type, e, targetOnly) {
     let payload = null;
     for (let el = e.target; el; el = targetOnly ? null : el.parentNode) {
+        // A node kept in DOM for its leave animation is inert: no event on or
+        // inside it reaches Go, even before browsers that support `inert` do.
+        if (el._goInert) return 0;
         if (el._nodeID === undefined) continue;
         if (goowee.listenSets && !(el._goEvents && el._goEvents.has(type))) continue;
         if (payload === null) payload = JSON.stringify(buildPayload(type, e));
@@ -1293,6 +1359,9 @@ function applyMutation(mut, b) {
             }
             delete nodeMap[mut.nodeId];
             break;
+        case 17: // RemoveNodeAfter — keep the node for its leave animation
+            removeAfterTransition(nodeMap[mut.nodeId], mut.key);
+            break;
         case 2: // SetAttribute
             el = nodeMap[mut.nodeId];
             // Go validates names; a throw here must not abort the batch.
@@ -1322,6 +1391,7 @@ function applyMutation(mut, b) {
             const child = nodeMap[mut.childId];
             if (parent && child && !child.parentNode) {
                 parent.appendChild(child);
+                startEnterTree(child);
             }
             break;
         }
@@ -1335,6 +1405,7 @@ function applyMutation(mut, b) {
                 : containerOf(mut.nodeId);
             if (parent && child) {
                 b.movedLive = moveNode(parent, child, ref && ref.parentNode === parent ? ref : null) || b.movedLive;
+                startEnterTree(child);
             }
             break;
         }
@@ -1355,6 +1426,7 @@ function applyMutation(mut, b) {
             if (parent && child && child.parentNode !== parent) {
                 b.movedLive = moveNode(parent, child, null) || b.movedLive;
                 if (child.nodeName === "TITLE" && parent === document.head) claimTitle();
+                startEnterTree(child);
             }
             break;
         }
@@ -1402,6 +1474,7 @@ function applyMutation(mut, b) {
                     : document.createElement(mut.value);
             }
             el._nodeID = mut.nodeId;
+            el._goHydrated = true; // don't replay an enter animation on hydration
             nodeMap[mut.nodeId] = el;
             break;
         }

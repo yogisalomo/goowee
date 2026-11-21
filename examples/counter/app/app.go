@@ -311,6 +311,7 @@ func todosPage(r *router.Router) core.Node {
 
 		todoList := VirtualList(todos, 48, func(i int, t todo) core.Node {
 			return Li(
+				Transition("todo"),
 				Class(func() string {
 					if t.completed {
 						return "completed"
@@ -368,10 +369,11 @@ func todosPage(r *router.Router) core.Node {
 			todoList,
 		)
 		return lessonLayout(r, "Keyed lists & virtualization",
-			"This list holds 100 items but only renders the rows on screen. Each row is keyed, so toggling or removing one touches just that row.",
+			"This list holds 100 items but only renders the rows on screen. Each row is keyed, so toggling or removing one touches just that row. Try adding or removing one to see the enter/leave transition.",
 			demo, "todos.go", todosCode,
 			howItWorks(
 				"`VirtualList(sig, rowHeight, render, VirtualListHeight(h))` renders only the visible window of a large list.",
+				"`Transition(\"todo\")` marks a row for animation: the runtime adds `.todo-enter` on insert and holds a removed row with `.todo-leave` until its CSS transition ends. Reduced-motion users skip it.",
 				"Each row updates its slice immutably (copy, then `setTodos`) so the signal notices the change.",
 				"`doneCount` is a `Computed` over `todos`; it recomputes only when the list changes.",
 			),

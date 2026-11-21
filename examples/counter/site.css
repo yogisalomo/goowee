@@ -337,6 +337,14 @@ pre, code { font-family: var(--mono); }
 .submission-list .sub-email { color: var(--muted); }
 .submission-list .sub-agreed { margin-left: auto; font-size: 0.85rem; color: var(--accent-ink); font-family: var(--mono); }
 
+/* #156: enter/leave transitions for Show/Switch/For rows. */
+.todo-enter, .todo-leave {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.todo-enter { transition: none; } /* start state; removed on the next frame */
+
 @media (max-width: 820px) {
   .hero { grid-template-columns: 1fr; gap: 32px; padding-top: 48px; }
   .features { grid-template-columns: 1fr; }
