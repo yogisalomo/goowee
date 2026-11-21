@@ -22,6 +22,14 @@ time. The public surface freezes under semver at v1.
   their fields. The tutorial's form lesson and `examples/notes`' new-note
   form use it; the notes server checks the same `Validate`. Guide:
   `docs/guides/forms.md`.
+- **`core.List` and `h.ForList`** (#140): a keyed list that records each
+  change (`Append`, `Insert`, `Update`, `Remove`, `Move`, `Set`), and a `For`
+  that applies just that change to its rows. An append mounts one row, an
+  update sets one row's item signal, and a removal or move touches one row,
+  with the same mutations and allocations at 10,000 rows as at 1,000 (an
+  append: 5 mutations; an update: 1). `Set` compares rows by key as `For`
+  does. Rows get their item as a signal. `core.ScopeNode.Patch` is the
+  renderer hook it uses to change a scope's content in place.
 - **`goowee.boot({when})`** (#130): a server-rendered page can boot `"idle"`
   (after load, when the browser is idle), `"visible"` (when an element
   scrolls into view) or `"interaction"` (at the first pointerdown, keydown or
