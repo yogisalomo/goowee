@@ -1,6 +1,7 @@
-// Package web serves the browser assets that must match a goowee build:
-// goowee.js, embedded from this module, and wasm_exec.js, from the toolchain
-// that built the app.
+// Package web exposes the browser assets that must match a goowee build.
+// Handler serves goowee.js, embedded from this module; WasmExecJS returns the
+// app toolchain's loader for the `goowee assets` command to copy into the
+// app's static files. A server does not need a Go toolchain at request time.
 package web
 
 import (
@@ -17,7 +18,8 @@ func RuntimeJS() []byte {
 }
 
 // WasmExecJS returns the Go toolchain's wasm_exec.js, the loader that matches
-// the WASM binary this module built.
+// the WASM binary this module built. It reads the toolchain at asset-copy time
+// (`goowee assets`); ssr.Handler does not call it.
 func WasmExecJS() ([]byte, error) {
 	return wasmExecJS()
 }

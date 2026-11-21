@@ -27,7 +27,7 @@ These are the supported API. Import them freely.
 | `storage` | `Local` and `Session`: the browser's storage, in memory outside the browser. |
 | `canvas`  | `View` and its options, `Ctx` (recording), `Decode`/`Command` (tests). The buffer format is internal to goowee and versioned with the runtime. |
 | `ssr`     | Server-side rendering: `ssr.Handler`, `ssr.RoutedPage`, `ssr.New().Render(node)`. |
-| `web`     | Browser assets that match the build: `web.RuntimeJS()`, `web.Version`, `web.Handler()`; the `goowee assets` command. |
+| `web`     | Browser assets that match the build: `web.RuntimeJS()`, `web.Version`, `web.Handler()`, `web.WasmExecJS()`; the `goowee assets` command. |
 | `bridge`  | The client entry point: `bridge.Run(node)`. |
 | `devtools`| Optional dev-mode inspector: `devtools.Enable()`, `devtools.Snapshot()`, `devtools.Changes()`. |
 | `gooweetest` | Headless component tests: `gooweetest.Render(t, node)` → a `Screen` to find, click, type, flush; `NewFakeNet` fakes `net`. |

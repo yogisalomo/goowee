@@ -84,6 +84,7 @@ time. The public surface freezes under semver at v1.
   fresh render of the final state, with registries and mounted components
   matching. CI fuzzes it for 45 s per PR (#161).
 - `goowee/web` serves the browser assets that must match a build: `web.RuntimeJS()`, `web.Version` and `web.Handler()` (#144). `ssr.Handler` now serves `/goowee.js` and `/wasm_exec.js` through it, with ETags, so a server-rendered app cannot load a stale runtime. `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web` copies both files for static hosting, taking goowee's version from the app's `go.mod`; the guides use it instead of globbing the module cache. The binary and runtime now exchange a protocol version at boot: a mismatch stops before mounting and reports both versions and the command that fixes it.
+- `goowee/web` exposes the browser assets that must match a build: `web.RuntimeJS()`, `web.Version`, `web.Handler()` and `web.WasmExecJS()` (#144). `ssr.Handler` serves any path ending in `goowee.js` through it, with an ETag and `Cache-Control: no-cache`, so a server-rendered app cannot load a stale runtime. `wasm_exec.js` stays with the app's static files: the deployed server may have no Go toolchain. `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web` copies both files for static hosting, taking goowee's version from the app's `go.mod`; the guides use it instead of globbing the module cache. The binary and runtime now exchange a protocol version at boot: a mismatch stops before mounting and reports both versions and the command that fixes it.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from
@@ -172,6 +173,12 @@ time. The public surface freezes under semver at v1.
   `Textf` makes a new one each render) sends its value only if it differs.
   A no-op re-render of 100 rows with a bound class and text went from 200
   mutations and 1,834 allocations to none and about 520 (building the rows).
+
+### Changed
+- Upgrade note for #144: serve this release's `goowee.js` (for example with
+  `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web`). A runtime from
+  before the protocol handshake has no version marker, so a new binary will not
+  mount against it — the page reports the mismatch instead.
 
 ### Fixed
 - Moving between two routes whose functions return a component of the same

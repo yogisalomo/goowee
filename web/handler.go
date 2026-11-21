@@ -13,42 +13,33 @@ import (
 
 const jsContentType = "text/javascript; charset=utf-8"
 
-// AssetName reports which browser asset path names: "goowee.js" or
-// "wasm_exec.js". It matches the bare name and any sub-path ending in it, so
-// an app served under a base path still gets the matching runtime.
+// AssetName reports whether path names the embedded runtime, "goowee.js".
+// It matches the bare name and any sub-path ending in it, so an app served
+// under a base path still gets the matching runtime. wasm_exec.js is not an
+// embedded asset: the app serves that loader from its own static files.
 func AssetName(path string) string {
 	if i := strings.LastIndexByte(path, '/'); i >= 0 {
 		path = path[i+1:]
 	}
-	switch path {
-	case "goowee.js", "wasm_exec.js":
+	if path == "goowee.js" {
 		return path
 	}
 	return ""
 }
 
-// Handler serves goowee.js from this module and wasm_exec.js from the Go
-// toolchain, with content hashes for ETags. It never serves a runtime copied
-// into a static directory, so the bytes always match the linked binary.
+// Handler serves this module's goowee.js with a content-hash ETag. It never
+// serves a runtime copied into a static directory, so the bytes always match
+// the linked binary. wasm_exec.js belongs to the app's static files: it comes
+// from the app's Go toolchain, which a deployed server may not have.
 func Handler() http.Handler {
 	js := RuntimeJS()
-	jsTag := etag(js)
+	tag := etag(js)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		name := AssetName(r.URL.Path)
-		if name == "" {
+		if AssetName(r.URL.Path) == "" {
 			http.NotFound(w, r)
 			return
 		}
-		body, tag := js, jsTag
-		if name == "wasm_exec.js" {
-			b, err := wasmExecJS()
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			body, tag = b, etag(b)
-		}
-		serveJS(w, r, body, tag)
+		serveJS(w, r, js, tag)
 	})
 }
 
@@ -61,7 +52,10 @@ func serveJS(w http.ResponseWriter, r *http.Request, body []byte, tag string) {
 	h := w.Header()
 	h.Set("Content-Type", jsContentType)
 	h.Set("ETag", tag)
-	h.Set("Cache-Control", "public, max-age=31536000, immutable")
+	// The URL isn't content-hashed: revalidate on every visit so an upgrade
+	// picks up the runtime that matches the new binary instead of keeping an
+	// old one for a year. A repeat visit is a cheap 304.
+	h.Set("Cache-Control", "no-cache")
 	if r.Header.Get("If-None-Match") == tag {
 		w.WriteHeader(http.StatusNotModified)
 		return

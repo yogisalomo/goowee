@@ -33,8 +33,10 @@ cp index.html dist/
 
 `assets` takes goowee's version from your `go.mod` and the loader from the Go
 toolchain, so the three files in `dist/` always match. A `goowee.js` copied
-from another version is rejected at boot; an SSR app using `ssr.Handler` gets
-the matching runtime served for it automatically.
+from another version is rejected at boot. An SSR app using `ssr.Handler` serves
+the matching `goowee.js` automatically (any path ending in that name); its
+`wasm_exec.js` still comes from your static files, so the server needs no Go
+toolchain at runtime.
 
 Your `dist/` directory should contain:
 

@@ -53,8 +53,10 @@ type HandlerOptions struct {
 
 // Handler serves server-rendered HTML documents. Each request renders
 // independently and concurrently (no shared lock); the response is
-// gzip-compressed when the client accepts it. It also serves goowee.js and
-// wasm_exec.js from web.Handler, so the page cannot load a stale runtime.
+// gzip-compressed when the client accepts it. It also serves goowee.js from
+// web.Handler (any path ending in that name), so the page cannot load a stale
+// runtime. wasm_exec.js stays with the app's static files: the server usually
+// has no Go toolchain at runtime.
 //
 //	http.Handle("/", ssr.Handler(ssr.HandlerOptions{
 //	    Page:     ssr.RoutedPage(app.App),

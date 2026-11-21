@@ -3,8 +3,6 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -19,7 +17,9 @@ func TestAssetName(t *testing.T) {
 	for path, want := range map[string]string{
 		"goowee.js":              "goowee.js",
 		"/goowee.js":             "goowee.js",
-		"/base/sub/wasm_exec.js": "wasm_exec.js",
+		"/base/sub/goowee.js":    "goowee.js",
+		"/wasm_exec.js":          "",
+		"/base/sub/wasm_exec.js": "",
 		"/goowee.js.map":         "",
 		"/":                      "",
 		"/main.wasm":             "",
@@ -43,6 +43,9 @@ func TestHandlerGooweeJS(t *testing.T) {
 	if got := res.Header.Get("Content-Type"); got != jsContentType {
 		t.Errorf("Content-Type = %q, want %q", got, jsContentType)
 	}
+	if got := res.Header.Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", got)
+	}
 	tag := res.Header.Get("ETag")
 	if tag == "" || !strings.HasPrefix(tag, `"`) {
 		t.Fatalf("ETag = %q, want a quoted hash", tag)
@@ -60,27 +63,11 @@ func TestHandlerGooweeJS(t *testing.T) {
 	}
 }
 
-func TestHandlerWasmExecJS(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "lib", "wasm"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	loader := []byte("// wasm loader\n")
-	if err := os.WriteFile(filepath.Join(root, "lib", "wasm", "wasm_exec.js"), loader, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GOROOT", root)
-
+func TestHandlerLeavesWasmExecToStaticFiles(t *testing.T) {
 	w := httptest.NewRecorder()
 	Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/base/wasm_exec.js", nil))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d, want 200", w.Code)
-	}
-	if got := w.Body.String(); got != string(loader) {
-		t.Errorf("body is %d bytes, want %d", len(got), len(loader))
-	}
-	if w.Header().Get("ETag") == "" {
-		t.Error("no ETag on wasm_exec.js")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status %d, want 404", w.Code)
 	}
 }
 
