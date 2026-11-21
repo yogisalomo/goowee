@@ -56,12 +56,36 @@ const ev = async (expr) => (await send("Runtime.evaluate", { expression: expr, r
 const waitFor = async (expr, label) => { for (let i = 0; i < 200; i++) { if (await ev(expr)) return; await sleep(50); } throw new Error("timeout: " + label); };
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// Count observer targets before goowee.js runs: the row scanner must watch
+// only the opted-in list, and unmounting must unobserve its rows.
+await send("Page.addScriptToEvaluateOnNewDocument", { source: `
+  window.__obs = {mo: [], roObserved: 0, roUnobserved: 0};
+  const RealMO = window.MutationObserver;
+  window.MutationObserver = class extends RealMO {
+    observe(target, opts) {
+      const kind = target === document ? "document"
+        : target.getAttribute && target.hasAttribute("data-goowee-virtual-list") ? "vlist" : "other";
+      window.__obs.mo.push(kind);
+      return super.observe(target, opts);
+    }
+  };
+  const RealRO = window.ResizeObserver;
+  window.ResizeObserver = class extends RealRO {
+    observe(el) { window.__obs.roObserved++; return super.observe(el); }
+    unobserve(el) { window.__obs.roUnobserved++; return super.unobserve(el); }
+  };
+` });
 try {
   await send("Page.navigate", { url: `http://localhost:${PORT}/` });
   await waitFor(`document.querySelector("#status")?.textContent === "items=100000"`, "virtual list boot");
 
   const mounted = await ev(`document.querySelectorAll(".vlist-row").length`);
   check(mounted > 0 && mounted < 100, `expected a small window, got ${mounted} rows`);
+
+  const moTargets = await ev(`window.__obs.mo`);
+  check(!moTargets.includes("document"), `row scanner watched the document: ${moTargets}`);
+  check(moTargets.includes("vlist"), `row scanner did not watch the list: ${moTargets}`);
+  check((await ev(`window.__obs.roObserved`)) > 0, "no rows were observed for measurement");
 
   // A stateful row keeps its counter when 100 items are inserted above it.
   await ev(`document.querySelector('.vl-row[data-id="0"] .bump').click()`);
@@ -84,6 +108,12 @@ try {
   const us = Number(benchText.match(/bench=([\d.]+)us/)?.[1] || Infinity);
   check(us < 2000, `100k range recomputation took ${benchText}`);
   console.log(`VIRTUAL-LIST 100k scroll: ${mounted} mounted rows, ${benchText} per range update`);
+
+  // Unmounting the list must release every observed row.
+  const beforeHide = await ev(`window.__obs.roUnobserved`);
+  await ev(`document.querySelector("#hide").click()`);
+  await waitFor(`!document.querySelector(".vlist")`, "list unmount");
+  await waitFor(`window.__obs.roUnobserved > ${beforeHide}`, "rows unobserved on unmount");
   check(errors.length === 0, "console errors:\n" + errors.join("\n"));
 } catch (e) { fail.push(e.message); }
 console.log(fail.length ? "VIRTUAL-LIST CHECK FAIL:\n- " + fail.join("\n- ") : "VIRTUAL-LIST CHECK PASS: keyed rows keep state, ScrollToIndex works, and 100k rows scroll within frame budget");

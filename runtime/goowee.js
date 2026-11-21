@@ -945,6 +945,16 @@ function finishBatch(b) {
             catch (err) { console.error("goowee: ScrollWindow", err); }
             continue;
         }
+        // h.VirtualList opts in to row measurement after mount; apps without
+        // one never create a MutationObserver or ResizeObserver.
+        if (mut.key === "gooweeObserveRows") {
+            watchVirtualRows(nodeMap[mut.nodeId]);
+            continue;
+        }
+        if (mut.key === "gooweeUnobserveRows") {
+            stopVirtualRows(mut.nodeId);
+            continue;
+        }
         const el = nodeMap[mut.nodeId];
         if (!el || typeof el[mut.key] !== "function") continue;
         // A throwing method (setSelectionRange on an email input, say) must
@@ -1047,6 +1057,7 @@ function forgetCanvas(el) {
 // configured fixed item height.
 let rowObserver = null;
 let rowScan = null;
+const watchedVirtualLists = new Map(); // node id -> list element
 function virtualRowResizer() {
     if (!rowObserver && typeof ResizeObserver === "function") {
         rowObserver = new ResizeObserver(function (entries) {
@@ -1072,29 +1083,53 @@ function virtualRowResizer() {
     }
     return rowObserver;
 }
-function watchVirtualRows(root) {
+function virtualRowsIn(root, out) {
+    if (root.nodeType !== 1) return out;
+    if (root.classList && root.classList.contains("vlist-row")) out.push(root);
+    if (root.querySelectorAll) out.push(...root.querySelectorAll(".vlist-row"));
+    return out;
+}
+function watchVirtualRows(list) {
     const observer = virtualRowResizer();
-    if (!observer) return;
-    const lists = [];
-    if (root.nodeType === 1 && root.matches && root.matches("[data-goowee-virtual-list]")) lists.push(root);
-    if (root.querySelectorAll) lists.push(...root.querySelectorAll("[data-goowee-virtual-list]"));
-    for (const list of lists) {
-        for (const row of list.querySelectorAll(".vlist-row")) {
-            if (row._goRowWatched) continue;
-            row._goRowWatched = true;
-            observer.observe(row);
+    if (!observer || !list || list._nodeID === undefined || watchedVirtualLists.has(list._nodeID)) return;
+    watchedVirtualLists.set(list._nodeID, list);
+    // One observer for the opted-in lists only: apps without a VirtualList
+    // never create it, and the scan never watches the whole document.
+    if (!rowScan && typeof MutationObserver === "function") {
+        rowScan = new MutationObserver(function (records) {
+            for (const rec of records) {
+                for (const node of rec.removedNodes) unobserveVirtualRows(node);
+                for (const node of rec.addedNodes) {
+                    for (const row of virtualRowsIn(node, [])) observeVirtualRow(row);
+                }
+            }
+        });
+    }
+    if (rowScan) rowScan.observe(list, {childList: true, subtree: true});
+    for (const row of virtualRowsIn(list, [])) observeVirtualRow(row);
+}
+function observeVirtualRow(row) {
+    const observer = virtualRowResizer();
+    if (!observer || row._goRowWatched) return;
+    row._goRowWatched = true;
+    observer.observe(row);
+}
+function unobserveVirtualRows(root) {
+    if (rowObserver) {
+        for (const row of virtualRowsIn(root, [])) {
+            if (!row._goRowWatched) continue;
+            rowObserver.unobserve(row);
+            row._goRowWatched = false;
         }
     }
+    if (root.nodeType === 1 && root.hasAttribute && root.hasAttribute("data-goowee-virtual-list")) {
+        if (rowScan) rowScan.unobserve(root);
+        watchedVirtualLists.delete(root._nodeID);
+    }
 }
-if (typeof MutationObserver === "function") {
-    rowScan = new MutationObserver(function (records) {
-        for (const rec of records) {
-            for (const node of rec.addedNodes) {
-                if (node.nodeType === 1) watchVirtualRows(node);
-            }
-        }
-    });
-    rowScan.observe(document, {childList: true, subtree: true});
+function stopVirtualRows(id) {
+    const list = watchedVirtualLists.get(id);
+    if (list) unobserveVirtualRows(list);
 }
 
 // A VirtualList with VirtualListWindow(0) (or a window taller than itself)
