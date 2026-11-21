@@ -24,7 +24,7 @@ func (d *textDOM) apply(muts []core.Mutation) {
 	for _, m := range muts {
 		switch {
 		case m.Type == core.MutSetProperty && m.Key == "textContent":
-			d.text[m.NodeID] = fmt.Sprint(m.Value)
+			d.text[m.NodeID] = fmt.Sprint(m.Val())
 		case m.Type == core.MutRemoveNode:
 			delete(d.text, m.NodeID)
 		}

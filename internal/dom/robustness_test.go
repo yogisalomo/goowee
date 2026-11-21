@@ -16,7 +16,7 @@ import (
 func textOf(muts []core.Mutation, into map[int]string) {
 	for _, m := range muts {
 		if m.Type == core.MutSetProperty && m.Key == "textContent" {
-			into[m.NodeID] = fmt.Sprint(m.Value)
+			into[m.NodeID] = fmt.Sprint(m.Val())
 		}
 	}
 }
@@ -132,8 +132,8 @@ func TestBoundTextFormattedLikeSSR(t *testing.T) {
 		}
 		for _, m := range muts {
 			if m.Key == "textContent" {
-				if _, ok := m.Value.(string); !ok {
-					t.Fatalf("text must be sent as a string, got %T", m.Value)
+				if _, ok := m.Val().(string); !ok {
+					t.Fatalf("text must be sent as a string, got %T", m.Val())
 				}
 			}
 		}
@@ -144,8 +144,8 @@ func TestBoundTextFormattedLikeSSR(t *testing.T) {
 
 		sig.Set(v + 1)
 		for _, m := range r.Scheduler.Flush() {
-			if _, ok := m.Value.(string); m.Key == "textContent" && !ok {
-				t.Fatalf("updated text must be a string, got %T", m.Value)
+			if _, ok := m.Val().(string); m.Key == "textContent" && !ok {
+				t.Fatalf("updated text must be a string, got %T", m.Val())
 			}
 		}
 	}

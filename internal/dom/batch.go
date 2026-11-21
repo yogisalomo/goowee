@@ -123,7 +123,14 @@ func appendBatchMutation(ops, strs []byte, m core.Mutation) ([]byte, []byte, boo
 		flags |= batchKey
 		ops, strs = appendBatchString(ops, strs, m.Key)
 	}
-	if m.Value != nil {
+	if m.Kind != core.ValAny {
+		var kind byte
+		var ok bool
+		if ops, strs, kind, ok = appendBatchTyped(ops, strs, &m); !ok {
+			return ops, strs, false
+		}
+		flags |= kind << batchValueShift
+	} else if m.Value != nil {
 		var kind byte
 		var ok bool
 		if ops, strs, kind, ok = appendBatchValue(ops, strs, m.Value); !ok {
@@ -145,6 +152,37 @@ func appendBatchMutation(ops, strs []byte, m core.Mutation) ([]byte, []byte, boo
 	}
 	ops[at] = flags
 	return ops, strs, true
+}
+
+// appendBatchTyped encodes a typed value (#136) as appendBatchValue encodes
+// the same value boxed, without allocating: a number or bool as text is
+// formatted straight into the string section.
+func appendBatchTyped(ops, strs []byte, m *core.Mutation) ([]byte, []byte, byte, bool) {
+	switch m.Kind {
+	case core.ValString:
+		ops, strs = appendBatchString(ops, strs, m.Str)
+		return ops, strs, valueString, true
+	case core.ValFloatText, core.ValIntText, core.ValBoolText:
+		// ASCII, so its length in bytes is its length in UTF-16 units.
+		n := len(strs)
+		strs = m.AppendText(strs)
+		return binary.AppendUvarint(ops, uint64(len(strs)-n)), strs, valueString, true
+	case core.ValFloat:
+		f := m.Float()
+		if math.IsInf(f, 0) || math.IsNaN(f) {
+			return ops, strs, 0, false
+		}
+		return appendBatchFloat(ops, f), strs, valueFloat, true
+	case core.ValInt:
+		ops, kind := appendBatchInt(ops, int64(m.Int()))
+		return ops, strs, kind, true
+	case core.ValBool:
+		if m.Bool() {
+			return ops, strs, valueTrue, true
+		}
+		return ops, strs, valueFalse, true
+	}
+	return ops, strs, 0, false
 }
 
 // appendBatchValue encodes v and returns its kind. Numbers become the double

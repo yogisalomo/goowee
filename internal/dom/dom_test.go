@@ -36,7 +36,7 @@ func TestDOMRenderElement(t *testing.T) {
 	if len(muts) == 0 {
 		t.Fatal("expected mutations")
 	}
-	if muts[0].Type != core.MutCreateElement || muts[0].Value != "div" {
+	if muts[0].Type != core.MutCreateElement || muts[0].Val() != "div" {
 		t.Fatalf("expected CreateElement(div), got %v", muts[0])
 	}
 }
@@ -97,8 +97,8 @@ func TestDOMReactiveUpdate(t *testing.T) {
 		t.Fatalf("expected 1 mutation, got %d", len(updates))
 	}
 	// Text is formatted in Go (%v, like SSR) and sent as a string.
-	if updates[0].Value != "1" {
-		t.Fatalf(`expected "1", got %#v`, updates[0].Value)
+	if updates[0].Val() != "1" {
+		t.Fatalf(`expected "1", got %#v`, updates[0].Val())
 	}
 }
 
@@ -117,7 +117,7 @@ func TestDOMTextNodeSignal(t *testing.T) {
 	}
 	name.Set("universe")
 	updates := flushFx(r)
-	if len(updates) != 1 || updates[0].Value != "universe" {
+	if len(updates) != 1 || updates[0].Val() != "universe" {
 		t.Fatalf("expected 'universe', got %v", updates)
 	}
 }
@@ -151,7 +151,7 @@ func TestDOMComponentNode(t *testing.T) {
 	if len(muts) < 3 {
 		t.Fatalf("expected at least 3 mutations (create + prop + append root), got %d", len(muts))
 	}
-	if muts[0].Type != core.MutCreateElement || muts[0].Value != "p" {
+	if muts[0].Type != core.MutCreateElement || muts[0].Val() != "p" {
 		t.Fatalf("expected CreateElement(p), got %v", muts[0])
 	}
 }
@@ -171,7 +171,7 @@ func TestDOMNestedComponent(t *testing.T) {
 	if len(muts) < 4 {
 		t.Fatalf("expected at least 4 mutations, got %d: %v", len(muts), muts)
 	}
-	if muts[0].Type != core.MutCreateElement || muts[0].Value != "div" {
+	if muts[0].Type != core.MutCreateElement || muts[0].Val() != "div" {
 		t.Fatalf("expected CreateElement(div), got %v", muts[0])
 	}
 }
@@ -198,7 +198,7 @@ func TestDOMScopeNodeFirstRender(t *testing.T) {
 	if len(muts) < 3 {
 		t.Fatalf("expected at least 3 mutations, got %d", len(muts))
 	}
-	if muts[0].Type != core.MutCreateElement || muts[0].Value != "p" {
+	if muts[0].Type != core.MutCreateElement || muts[0].Val() != "p" {
 		t.Fatalf("expected CreateElement(p), got %v", muts[0])
 	}
 }
@@ -249,8 +249,8 @@ func TestDOMScopeReRender(t *testing.T) {
 	for _, m := range diffMuts {
 		if m.Type == core.MutSetAttribute && m.Key == "class" {
 			foundSet = true
-			if m.Value != "hidden" {
-				t.Fatalf("expected class=hidden, got %s", m.Value)
+			if m.Val() != "hidden" {
+				t.Fatalf("expected class=hidden, got %s", m.Val())
 			}
 		}
 	}
@@ -298,7 +298,7 @@ func TestDOMScopeStructuralChange(t *testing.T) {
 	hasCreate := false
 	hasAppend := false
 	for _, m := range diffMuts {
-		if m.Type == core.MutCreateElement && m.Value == "span" {
+		if m.Type == core.MutCreateElement && m.Val() == "span" {
 			hasCreate = true
 		}
 		if m.Type == core.MutRemoveNode && m.NodeID == 1 {
@@ -426,8 +426,8 @@ func TestDOMScopeInsideComponentInsideScope(t *testing.T) {
 	for _, m := range innerMuts {
 		if m.Type == core.MutSetProperty && m.Key == "textContent" {
 			foundTextContent = true
-			if m.Value != "Hello World" {
-				t.Fatalf("expected 'Hello World', got %v", m.Value)
+			if m.Val() != "Hello World" {
+				t.Fatalf("expected 'Hello World', got %v", m.Val())
 			}
 		}
 	}
@@ -522,7 +522,7 @@ func TestDiffTypeChangeNoPanic(t *testing.T) {
 		if m.Type == core.MutRemoveNode {
 			hasRemove = true
 		}
-		if m.Type == core.MutCreateElement && m.Value == "#text" {
+		if m.Type == core.MutCreateElement && m.Val() == "#text" {
 			hasCreate = true
 		}
 	}
@@ -553,7 +553,7 @@ func TestDOMFragmentInsideElement(t *testing.T) {
 
 	spanCount := 0
 	for _, m := range muts {
-		if m.Type == core.MutCreateElement && m.Value == "span" {
+		if m.Type == core.MutCreateElement && m.Val() == "span" {
 			spanCount++
 		}
 	}
@@ -629,7 +629,7 @@ func TestDOMEventNotEmitted(t *testing.T) {
 		if m.Key != "click" {
 			continue
 		}
-		if m.Type != core.MutListen || m.Value != true {
+		if m.Type != core.MutListen || m.Val() != true {
 			t.Fatalf("a handler reached the DOM as %v: %+v", m.Type, m)
 		}
 		listens++
@@ -663,7 +663,7 @@ func TestDOMDiffRebindsSignals(t *testing.T) {
 	}
 	found := false
 	for _, m := range muts {
-		if m.Type == core.MutSetProperty && m.Key == "textContent" && m.Value == "b" {
+		if m.Type == core.MutSetProperty && m.Key == "textContent" && m.Val() == "b" {
 			found = true
 		}
 	}
@@ -847,7 +847,7 @@ func TestDOMScopeEmptyToElementReattaches(t *testing.T) {
 
 	var createdID int
 	for _, m := range muts {
-		if m.Type == core.MutCreateElement && m.Value == "p" {
+		if m.Type == core.MutCreateElement && m.Val() == "p" {
 			createdID = m.NodeID
 		}
 	}
@@ -1128,7 +1128,7 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 	for _, m := range muts {
 		switch m.Type {
 		case core.MutCreateElement:
-			d.nodes[m.NodeID] = &fakeNode{ID: m.NodeID, Tag: m.Value.(string)}
+			d.nodes[m.NodeID] = &fakeNode{ID: m.NodeID, Tag: m.Val().(string)}
 		case core.MutAppendChild:
 			p, c := d.nodes[m.NodeID], d.nodes[m.ChildID]
 			if p != nil && c != nil && !c.attached {
@@ -1165,7 +1165,7 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 			if c == nil {
 				continue
 			}
-			p := d.container(m.Value.(string))
+			p := d.container(m.Val().(string))
 			if c.attached && c.ParentID == p.ID {
 				continue
 			}
@@ -1718,8 +1718,8 @@ func TestSchedulerBatchesScopeReRenders(t *testing.T) {
 	for _, m := range muts {
 		if m.Type == core.MutSetAttribute && m.Key == "data-v" {
 			setV++
-			if m.Value != "2-5" {
-				t.Fatalf("data-v should reflect final state 2-5, got %v", m.Value)
+			if m.Val() != "2-5" {
+				t.Fatalf("data-v should reflect final state 2-5, got %v", m.Val())
 			}
 		}
 	}
@@ -1786,7 +1786,7 @@ func TestSVGNamespacePropagation(t *testing.T) {
 	ns := map[string]string{}
 	for _, m := range muts {
 		if m.Type == core.MutCreateElement {
-			ns[m.Value.(string)] = m.NS
+			ns[m.Val().(string)] = m.NS
 		}
 	}
 	for _, tag := range []string{"svg", "g", "path"} {
@@ -1819,8 +1819,8 @@ func TestPortalEmitsPortalAppend(t *testing.T) {
 		switch m.Type {
 		case core.MutPortalAppend:
 			appended = append(appended, m.ChildID)
-			if m.Value != "#modal" {
-				t.Fatalf("portal target=%v, want #modal", m.Value)
+			if m.Val() != "#modal" {
+				t.Fatalf("portal target=%v, want #modal", m.Val())
 			}
 		case core.MutCreateElement:
 			creates++
@@ -1872,7 +1872,7 @@ func TestErrorBoundaryCatchesInitialPanic(t *testing.T) {
 	}
 	found := false
 	for _, m := range muts {
-		if m.Type == core.MutSetProperty && m.Key == "textContent" && m.Value == "fallback" {
+		if m.Type == core.MutSetProperty && m.Key == "textContent" && m.Val() == "fallback" {
 			found = true
 		}
 	}
@@ -1888,13 +1888,13 @@ func TestErrorBoundaryPassesThroughWhenOK(t *testing.T) {
 	}
 	muts, _ := New().Render(b)
 	for _, m := range muts {
-		if m.Type == core.MutCreateElement && m.Value == "p" {
+		if m.Type == core.MutCreateElement && m.Val() == "p" {
 			t.Fatal("fallback rendered despite no panic")
 		}
 	}
 	ok := false
 	for _, m := range muts {
-		if m.Type == core.MutSetProperty && m.Value == "ok" {
+		if m.Type == core.MutSetProperty && m.Val() == "ok" {
 			ok = true
 		}
 	}

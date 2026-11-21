@@ -140,7 +140,7 @@ func TestSSRIDMatchesDOM(t *testing.T) {
 		if m.Type == core.MutCreateElement {
 			expectedAttr := fmt.Sprintf(`data-node-id="%d"`, m.NodeID)
 			if !strings.Contains(ssrHTML, expectedAttr) {
-				t.Fatalf("SSR missing %s for element %s", expectedAttr, m.Value)
+				t.Fatalf("SSR missing %s for element %s", expectedAttr, m.Val())
 			}
 		}
 	}
@@ -160,7 +160,7 @@ func TestSSRRawSHydrates(t *testing.T) {
 		if m.Type == core.MutSetProperty && m.Key == "innerHTML" {
 			t.Fatalf("hydration rewrote the server's raw HTML: %v", m)
 		}
-		if m.Type == core.MutHydrate && m.Value == "div" {
+		if m.Type == core.MutHydrate && m.Val() == "div" {
 			rawID = m.NodeID
 		}
 	}
@@ -169,7 +169,7 @@ func TestSSRRawSHydrates(t *testing.T) {
 	}
 	body.Set("<b>approved</b>")
 	muts = r.Scheduler.Flush()
-	if len(muts) != 1 || muts[0].NodeID != rawID || muts[0].Value != "<b>approved</b>" {
+	if len(muts) != 1 || muts[0].NodeID != rawID || muts[0].Val() != "<b>approved</b>" {
 		t.Fatalf("update after hydration: %v", muts)
 	}
 }

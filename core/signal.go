@@ -1,6 +1,9 @@
 package core
 
-import "reflect"
+import (
+	"math"
+	"reflect"
+)
 
 // subscriber is one Subscribe registration. Unsubscribing marks it dead (O(1))
 // rather than splicing the slice; dead entries are skipped by notify and
@@ -78,6 +81,33 @@ func (s *Signal[T]) Peek() T {
 }
 
 func (s *Signal[T]) Value() any { return s.Get() }
+
+// TypedValue returns the signal's value without boxing it when T is string,
+// float64, int or bool (#136): its kind (ValAny for any other T), and the
+// value as a Mutation's Str or Bits hold it. It reads like Value.
+func (s *Signal[T]) TypedValue() (kind ValueKind, str string, bits uint64) {
+	s.Get()
+	switch p := any(&s.value).(type) {
+	case *string:
+		return ValString, *p, 0
+	case *float64:
+		return ValFloat, "", math.Float64bits(*p)
+	case *int:
+		return ValInt, "", uint64(int64(*p))
+	case *bool:
+		if *p {
+			return ValBool, "", 1
+		}
+		return ValBool, "", 0
+	}
+	return ValAny, "", 0
+}
+
+// TypedValuer is a signal that can hand over its value without boxing it
+// (see Signal.TypedValue).
+type TypedValuer interface {
+	TypedValue() (kind ValueKind, str string, bits uint64)
+}
 
 func (s *Signal[T]) currentVersion() uint64 {
 	// Called by Computeds checking their deps: not a user read.
@@ -226,6 +256,24 @@ func (s *Signal[T]) notify() {
 func (s *Signal[T]) equal(a, b T) bool {
 	if s.eq != nil {
 		return s.eq(a, b)
+	}
+	// The common types compare without boxing: this runs on every Set
+	// (#136). any(&a) holds a pointer, which doesn't allocate.
+	switch pa := any(&a).(type) {
+	case *string:
+		return *pa == *any(&b).(*string)
+	case *int:
+		return *pa == *any(&b).(*int)
+	case *float64:
+		return *pa == *any(&b).(*float64)
+	case *bool:
+		return *pa == *any(&b).(*bool)
+	case *int64:
+		return *pa == *any(&b).(*int64)
+	case *float32:
+		return *pa == *any(&b).(*float32)
+	case *uint:
+		return *pa == *any(&b).(*uint)
 	}
 	// Comparing uncomparable dynamic types (slices/maps/funcs) with == panics.
 	// Go can recover that runtime panic; TinyGo cannot, so we must not trigger

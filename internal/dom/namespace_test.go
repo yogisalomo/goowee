@@ -14,7 +14,7 @@ func createdNS(muts []core.Mutation) map[string]string {
 	ns := map[string]string{}
 	for _, m := range muts {
 		if m.Type == core.MutCreateElement {
-			if tag, _ := m.Value.(string); tag != "#text" && tag != "#comment" {
+			if tag, _ := m.Val().(string); tag != "#text" && tag != "#comment" {
 				ns[tag] = m.NS
 			}
 		}
