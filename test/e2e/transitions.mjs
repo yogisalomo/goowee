@@ -94,7 +94,11 @@ try {
   if (fail.length) { console.log("TRANSITIONS CHECK FAIL:\n" + fail.join("\n")); process.exitCode = 1; }
   else console.log("TRANSITIONS CHECK OK");
   ws.close(); server.close(); chrome.kill();
-  const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 };
-  rmSync(dir, rmOpts);
-  rmSync(profile, rmOpts);
+  // Chrome's child processes can keep writing to the profile after kill(), so
+  // a lingering file must not turn a passing check into a red CI job.
+  const rmOpts = { recursive: true, force: true, maxRetries: 100, retryDelay: 100 };
+  for (const path of [dir, profile]) {
+    try { rmSync(path, rmOpts); }
+    catch (e) { console.log(`WARN: could not remove ${path}: ${e.code}`); }
+  }
 }
