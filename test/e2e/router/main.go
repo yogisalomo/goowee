@@ -8,6 +8,7 @@
 package main
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/yogisalomo/goowee/bridge"
@@ -45,6 +46,10 @@ func main() {
 			Button(ID("go-b"), OnClick(func() { r.Navigate("/b?x=2") }), Text("b")),
 			Button(ID("go-c"), OnClick(func() { r.Navigate("/c?x=3#end") }), Text("c")),
 			Button(ID("go-docs"), OnClick(func() { r.Navigate("/docs#install") }), Text("docs fragment")),
+			Button(ID("go-top"), OnClick(func() { r.Navigate("#heading") }), Text("fragment only")),
+			Input(ID("search"), Placeholder("search"), OnInput(func(v string) {
+				r.NavigateReplace("?q=" + url.QueryEscape(v))
+			})),
 			Button(ID("set-y"), OnClick(func() { r.SetQueryParam("y", "1") }), Text("y")),
 			Button(ID("set-a"), OnClick(func() { r.SetQueryParam("a", "0") }), Text("a")),
 			Button(ID("clear"), OnClick(func() {

@@ -240,6 +240,11 @@ func (r *Router) applyScroll(kind navKind, fragment string, saved any, container
 		}
 		return
 	}
+	if kind == navFragment {
+		// A same-page fragment change with no target leaves the scroll where
+		// it is; it must not fall through to the "start at the top" rule.
+		return
+	}
 	if kind == navPop {
 		if x, y, ok := savedScroll(saved); ok {
 			scrollTo(x, y, el)
@@ -287,8 +292,14 @@ func announceRoute() {
 
 // applyNav is the browser half of a navigation: it runs after the route's
 // frame is in the DOM, so fragments, headings and scroll containers exist.
-func (r *Router) applyNav(kind navKind, fragment string, saved any, opt ScrollOptions) {
-	if opt.Disabled {
+// scope keeps query-only updates inert and limits fragment-only changes to a
+// scroll to the target.
+func (r *Router) applyNav(kind navKind, fragment string, saved any, opt ScrollOptions, scope navScope) {
+	if opt.Disabled || scope == navScopeNone {
+		return
+	}
+	if scope == navScopeFragment {
+		r.applyScroll(navFragment, fragment, nil, opt.Container)
 		return
 	}
 	r.applyScroll(kind, fragment, saved, opt.Container)
@@ -326,18 +337,30 @@ func (r *Router) BindHistory() {
 	r.replaceFn = func(url string) {
 		hist.Call("replaceState", r.scrollState(), "", url)
 	}
-	r.pushStateFn = func(url string) {
+	r.pushStateFn = func(url, prevPath, prevFragment string) {
+		scope := changedNavScope(prevPath, prevFragment, r.Path.Peek(), r.Fragment.Peek())
 		r.saveScroll()
-		hist.Call("pushState", r.freshScrollState(), "", url)
+		state := r.freshScrollState()
+		if scope == navScopeNone {
+			// A query-only push stays on the same page: keep this entry's
+			// scroll key instead of starting a fresh position map entry.
+			state = r.scrollState()
+		}
+		hist.Call("pushState", state, "", url)
 		core.AfterFrame(func() {
-			r.applyNav(navPush, r.Fragment.Peek(), nil, r.navOptions)
+			r.applyNav(navPush, r.Fragment.Peek(), nil, r.navOptions, scope)
 		})
 	}
-	r.replaceStateFn = func(url string) {
+	r.replaceStateFn = func(url, prevPath, prevFragment string) {
+		scope := changedNavScope(prevPath, prevFragment, r.Path.Peek(), r.Fragment.Peek())
 		r.saveScroll()
-		hist.Call("replaceState", r.freshScrollState(), "", url)
+		state := r.freshScrollState()
+		if scope == navScopeNone {
+			state = r.scrollState()
+		}
+		hist.Call("replaceState", state, "", url)
 		core.AfterFrame(func() {
-			r.applyNav(navReplace, r.Fragment.Peek(), nil, r.navOptions)
+			r.applyNav(navReplace, r.Fragment.Peek(), nil, r.navOptions, scope)
 		})
 	}
 	r.backFn = func() {
@@ -354,10 +377,12 @@ func (r *Router) BindHistory() {
 		// entry on top of the one the browser just popped. One batch: a
 		// watcher never sees the new path with the old query (#142).
 		loc := js.Global().Get("location")
+		prevPath, prevFragment := r.Path.Peek(), r.Fragment.Peek()
 		r.syncURL(trimSlash(stripBase(loc.Get("pathname").String(), r.base)), loc.Get("search").String(), loc.Get("hash").String())
 		saved := savedForPop(hist.Get("state"))
+		scope := changedNavScope(prevPath, prevFragment, r.Path.Peek(), r.Fragment.Peek())
 		core.AfterFrame(func() {
-			r.applyNav(navPop, r.Fragment.Peek(), saved, r.navOptions)
+			r.applyNav(navPop, r.Fragment.Peek(), saved, r.navOptions, scope)
 		})
 		return nil
 	})

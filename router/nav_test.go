@@ -93,6 +93,29 @@ func TestBeforeLeaveCancelsNavigation(t *testing.T) {
 	}
 }
 
+func TestChangedNavScope(t *testing.T) {
+	cases := []struct {
+		name                         string
+		prevPath, prevFrag, path, frag string
+		want                         navScope
+	}{
+		{"query only", "/docs", "", "/docs", "", navScopeNone},
+		{"fragment only", "/docs", "", "/docs", "top", navScopeFragment},
+		{"fragment changed", "/docs", "a", "/docs", "b", navScopeFragment},
+		{"fragment removed", "/docs", "a", "/docs", "", navScopeFragment},
+		{"path only", "/docs", "", "/docs/install", "", navScopeRoute},
+		{"path and query", "/docs", "", "/docs/install", "", navScopeRoute},
+		{"path and fragment", "/docs", "a", "/docs/install", "b", navScopeRoute},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := changedNavScope(tc.prevPath, tc.prevFrag, tc.path, tc.frag); got != tc.want {
+				t.Fatalf("changedNavScope() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNavigationOptions(t *testing.T) {
 	r := New("/")
 	want := ScrollOptions{

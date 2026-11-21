@@ -69,7 +69,9 @@ const attr = (sel, name) => ev(`document.querySelector(${JSON.stringify(sel)})?.
 const scrollY = () => ev(`window.scrollY`);
 const waitScroll = async (min, max, label) => { let y; for (let i = 0; i < 100; i++) { y = await scrollY(); if (y >= min && y <= max) return; await sleep(50); } throw new Error(`timeout: ${label}: scrollY ${y}, want ${min}..${max}`); };
 const focusText = () => ev(`document.activeElement?.textContent`);
+const activeId = () => ev(`document.activeElement?.id`);
 const routeStatus = () => ev(`document.querySelector("[data-goowee-route-status]")?.textContent`);
+const typeInto = (sel, value) => ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); el.focus({ preventScroll: true }); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new InputEvent("input", { bubbles: true })); })()`);
 try {
   const base = `http://localhost:${PORT}`;
   await send("Page.navigate", { url: base + "/a?x=1" });
@@ -116,6 +118,20 @@ try {
   await click("#clear"); await waitLoc("/c#end", "no trailing ? once the query is empty");
   await waitScroll(250, 350, "query updates do not scroll");
 
+  // Query-only NavigateReplace (a search box on every keystroke) must leave
+  // the page where it is: no top scroll, no focus move, no route announcement.
+  const statusBeforeQueryOnly = await routeStatus();
+  await typeInto("#search", "a"); await waitLoc("/c?q=a", "query-only NavigateReplace");
+  await waitScroll(250, 350, "query-only replace does not scroll");
+  check((await activeId()) === "search", "query-only replace does not move focus");
+  check((await routeStatus()) === statusBeforeQueryOnly, "query-only replace does not announce a route");
+  // A fragment-only change scrolls to its target, but still leaves focus and
+  // the live region alone.
+  await click("#go-top"); await waitLoc("/c?q=a#heading", "fragment-only Navigate");
+  await waitScroll(50, 200, "fragment-only change scrolls to its target near the heading");
+  check((await activeId()) === "search", "fragment-only change does not move focus");
+  check((await routeStatus()) === statusBeforeQueryOnly, "fragment-only change does not announce a route");
+
   await click("#go-docs"); await waitLoc("/docs#install", "Navigate /docs#install");
   await waitText("#heading", "Docs", "heading on /docs");
   await waitScroll(1300, 2200, "fragment scrolled to #install");
@@ -125,7 +141,7 @@ try {
   check(!(await cls("#nav-a")).split(" ").includes("active"), "A link inactive on /docs");
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "ROUTER CHECK FAIL:\n- " + fail.join("\n- ") : "ROUTER CHECK PASS: back/forward never mix path and query, scroll and fragments restored, focus/announcement and active links follow the route, SetQueryParam URLs sorted, fragment kept, no trailing ?");
+console.log(fail.length ? "ROUTER CHECK FAIL:\n- " + fail.join("\n- ") : "ROUTER CHECK PASS: back/forward never mix path and query, scroll and fragments restored, focus/announcement and active links follow the route, query-only updates stay inert, fragment-only changes only scroll, SetQueryParam URLs sorted, fragment kept, no trailing ?");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });
 try { rmSync(profile, { recursive: true, force: true, maxRetries: 3 }); } catch {}
