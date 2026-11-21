@@ -1,8 +1,6 @@
 package core
 
 import (
-	"fmt"
-	"log"
 	"strings"
 	"sync"
 )
@@ -38,7 +36,9 @@ var (
 )
 
 // SetLogSink registers an optional sink (e.g. the WASM bridge forwarding to
-// console). The default host sink always logs via log.Printf as well.
+// console). Host builds always log via log.Printf as well; in the browser the
+// sink is the only output (with none, println), so the log package isn't
+// linked (#126).
 func SetLogSink(fn func(LogEntry)) {
 	logSinkMu.Lock()
 	logSink = fn
@@ -48,10 +48,10 @@ func SetLogSink(fn func(LogEntry)) {
 // Log emits a structured entry to the host logger and any registered sink.
 func Log(kind LogKind, message string, fields map[string]any) {
 	entry := LogEntry{Kind: kind, Message: message, Fields: fields}
-	log.Printf("goowee[%s] %s", kind, formatFields(message, fields))
 	logSinkMu.Lock()
 	sink := logSink
 	logSinkMu.Unlock()
+	hostLog(kind, message, fields, sink != nil)
 	if sink != nil {
 		sink(entry)
 	}
@@ -67,7 +67,7 @@ func formatFields(message string, fields map[string]any) string {
 		b.WriteByte(' ')
 		b.WriteString(k)
 		b.WriteByte('=')
-		fmt.Fprintf(&b, "%v", v)
+		b.WriteString(FormatValue(v))
 	}
 	return b.String()
 }

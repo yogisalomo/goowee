@@ -10,7 +10,8 @@
 //
 // --check compares each named program's brotli size with its record in the
 // budget file, fails when it is more than `tolerance` (3%) larger, and fails
-// when the program links a package on its deny list. A change that makes a
+// when the program links a package on its deny list, or more of a package's
+// code than its maxCode allows. A change that makes a
 // program smaller is told to lower the record, so the budget follows it down.
 import { readFileSync } from "node:fs";
 import { gzipSync, brotliCompressSync, constants } from "node:zlib";
@@ -158,9 +159,16 @@ function check(budgetPath, programs) {
         console.log(`  smaller than the record by more than ${tolerance * 100}%: lower "brotli" for ${name} to ${m.brotli} so the budget follows it down`);
       }
     }
-    const present = new Set(m.pkgs.map(([p]) => p));
+    const code = new Map(m.pkgs);
     for (const pkg of rec.deny || []) {
-      if (present.has(pkg)) problems.push(`${name}: links ${pkg}, which is on its deny list in ${budgetPath}`);
+      if (code.has(pkg)) problems.push(`${name}: links ${pkg}, which is on its deny list in ${budgetPath}`);
+    }
+    // maxCode caps a package's code bytes: a package whose functions an app
+    // doesn't call can still be linked for its init when a linked package
+    // imports it (encoding/json for hooks.Load and h.JSONLD, #126).
+    for (const [pkg, max] of Object.entries(rec.maxCode || {})) {
+      const n = code.get(pkg) || 0;
+      if (n > max) problems.push(`${name}: links ${fmt(n)} bytes of ${pkg} code, over its cap of ${fmt(max)} in ${budgetPath} (a function of it is reachable, not just its init)`);
     }
   }
   if (problems.length) {

@@ -3,8 +3,8 @@
 package core
 
 import (
-	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -124,7 +124,7 @@ func reportUndeclared(kind string, deps []SignalAccessor, reads []trackedRead) {
 		where := "unknown location"
 		if fn := runtime.FuncForPC(rd.pc); fn != nil {
 			file, line := fn.FileLine(rd.pc)
-			where = fmt.Sprintf("%s:%d", trimPath(file), line)
+			where = trimPath(file) + ":" + strconv.Itoa(line)
 		}
 		Log(LogWarn, "signal read that isn't a declared dependency: this won't update when it changes", map[string]any{
 			"in":    kind,

@@ -1,8 +1,8 @@
 package devtools
 
 import (
-	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -155,7 +155,7 @@ func packageOf(function string) string {
 }
 
 func site(f runtime.Frame) (at, fn string) {
-	at = fmt.Sprintf("%s:%d", shortFile(f.File), f.Line)
+	at = shortFile(f.File) + ":" + strconv.Itoa(f.Line)
 	fn = f.Function
 	if i := strings.LastIndexByte(packageOf(fn), '/'); i >= 0 {
 		fn = fn[i+1:]

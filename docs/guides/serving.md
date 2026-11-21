@@ -38,6 +38,28 @@ error saying so, a `goowee:boot-error` event on `window`, and a rejected
 </script>
 ```
 
+**What costs what.** goowee's own client code doesn't link `fmt`,
+`encoding/json`, `log` or `net/url` (#126), so an app pays for them only
+when it uses them. Sizes are brotli, Go 1.25, for the smallest app
+(`test/e2e/hello`, 674 KB) plus one use of each:
+
+| The app uses | Brings in | Adds |
+|---|---|---|
+| `goowee/router` | | ~5 KB |
+| `h.Textf`, or `fmt` itself | `fmt` | ~35–40 KB |
+| `h.JSONLD`, `core.UseJSON(json.Marshal)` | `encoding/json` (marshal) | ~105 KB |
+| `json.Marshal` and `json.Unmarshal` | `encoding/json` | ~135 KB |
+| `hooks.UsePersist`, `hooks.Load` | `encoding/json` | ~140 KB |
+| `goowee/net` | `encoding/json`, more | ~145 KB |
+
+The costs overlap: an app that already uses `encoding/json` pays for it
+once. To format text without fmt, build the string with `strconv` and
+bind it with `TextS` (a `core.Computed`), as `test/e2e/hello` does. Bound
+strings, numbers and bools are formatted without fmt. A bound slice, map or
+struct needs `core.UseFmt(fmt.Sprintf)` (called for you by `Textf`), and a
+struct or typed slice as a property value or `ref.Call` argument needs
+`core.UseJSON(json.Marshal)`; without them goowee logs a warning.
+
 **Booting the module yourself.** `goowee.boot()` hands the WebAssembly
 instance to the runtime, which then calls into Go through the module's exports
 (about 20 ns a call) instead of `syscall/js` callbacks (about 18 µs). A page

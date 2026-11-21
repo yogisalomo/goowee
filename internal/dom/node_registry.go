@@ -1,9 +1,8 @@
 package dom
 
 import (
-	"encoding/json"
-
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/jsonlite"
 )
 
 type HandlerEntry struct {
@@ -107,8 +106,7 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 		return
 	}
 
-	var data map[string]any
-	_ = json.Unmarshal([]byte(dataJSON), &data)
+	data, _ := jsonlite.DecodeObject(dataJSON) // not encoding/json (#126)
 
 	handled = true
 	opts = entry.Options

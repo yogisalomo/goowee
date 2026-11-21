@@ -1,7 +1,6 @@
 package router
 
 import (
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -45,15 +44,6 @@ func New(initial string) *Router {
 		Fragment: core.NewSignal("").Named("router.fragment"),
 		params:   core.NewSignal(map[string]string{}).WithEquals(sameParams).Named("router.params"),
 	}
-}
-
-// NewURL creates a router positioned at u's path and query — what a server
-// renders for a request: router.NewURL(req.URL).
-func NewURL(u *url.URL) *Router {
-	r := New(u.Path)
-	r.setQuery(u.RawQuery)
-	r.Fragment.Set(u.Fragment)
-	return r
 }
 
 // NotFound reports whether the most recent Route render matched no pattern
@@ -262,11 +252,11 @@ func (r *Router) SetQueryParamPush(name, value string) {
 func (r *Router) updateQuery(name, value string) bool {
 	vals := parseValues(r.rawQuery)
 	if value == "" {
-		vals.Del(name)
+		delete(vals, name)
 	} else {
-		vals.Set(name, value)
+		vals[name] = []string{value}
 	}
-	raw := vals.Encode() // sorted by key: the same state is always the same URL
+	raw := vals.encode() // sorted by key: the same state is always the same URL
 	if raw == r.rawQuery {
 		return false
 	}
@@ -592,10 +582,13 @@ func parseQuery(raw string) map[string]string {
 	return q
 }
 
+// values is a query's parameters, as url.Values without net/url (#126).
+type values map[string][]string
+
 // parseValues parses a query string into every value of every key, in order.
 // Unlike url.ParseQuery it never fails: a malformed escape is kept as text.
-func parseValues(raw string) url.Values {
-	vals := url.Values{}
+func parseValues(raw string) values {
+	vals := values{}
 	raw = strings.TrimPrefix(raw, "?")
 	if raw == "" {
 		return vals
@@ -610,23 +603,104 @@ func parseValues(raw string) url.Values {
 	return vals
 }
 
+// encode is url.Values.Encode: "a=1&b=2", sorted by key.
+func (v values) encode() string {
+	keys := make([]string, 0, len(v))
+	for k := range v {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		ek := escapeQuery(k)
+		for _, val := range v[k] {
+			if b.Len() > 0 {
+				b.WriteByte('&')
+			}
+			b.WriteString(ek)
+			b.WriteByte('=')
+			b.WriteString(escapeQuery(val))
+		}
+	}
+	return b.String()
+}
+
 // encodeQuery encodes a map into a query string like "a=1&b=2", sorted by
 // key so the same map always gives the same string.
 func encodeQuery(m map[string]string) string {
-	vals := make(url.Values, len(m))
+	vals := make(values, len(m))
 	for k, v := range m {
-		vals.Set(k, v)
+		vals[k] = []string{v}
 	}
-	return vals.Encode()
+	return vals.encode()
 }
 
-func escapeQuery(s string) string { return url.QueryEscape(s) }
+const upperHex = "0123456789ABCDEF"
 
-// unescapeQuery decodes a query component (%XX escapes and '+' as space); a
-// malformed escape falls back to the raw text.
-func unescapeQuery(s string) string {
-	if u, err := url.QueryUnescape(s); err == nil {
-		return u
+// escapeQuery is url.QueryEscape: everything but letters, digits and -_.~ is
+// %XX-escaped, and a space becomes '+'.
+func escapeQuery(s string) string {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		if !unreserved(s[i]) {
+			n++
+		}
 	}
-	return s
+	if n == 0 {
+		return s
+	}
+	b := make([]byte, 0, len(s)+2*n)
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case unreserved(c):
+			b = append(b, c)
+		case c == ' ':
+			b = append(b, '+')
+		default:
+			b = append(b, '%', upperHex[c>>4], upperHex[c&15])
+		}
+	}
+	return string(b)
+}
+
+func unreserved(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '_' || c == '.' || c == '~'
+}
+
+// unescapeQuery decodes a query component (%XX escapes and '+' as space), as
+// url.QueryUnescape does; a malformed escape falls back to the raw text.
+func unescapeQuery(s string) string {
+	if !strings.ContainsAny(s, "%+") {
+		return s
+	}
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '+':
+			b = append(b, ' ')
+		case '%':
+			if i+2 >= len(s) || !isHex(s[i+1]) || !isHex(s[i+2]) {
+				return s
+			}
+			b = append(b, unhex(s[i+1])<<4|unhex(s[i+2]))
+			i += 2
+		default:
+			b = append(b, s[i])
+		}
+	}
+	return string(b)
+}
+
+func isHex(c byte) bool {
+	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
+}
+
+func unhex(c byte) byte {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0'
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10
+	}
+	return c - 'A' + 10
 }

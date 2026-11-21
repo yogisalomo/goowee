@@ -27,7 +27,6 @@ type Store struct {
 	server  bool
 	pending map[string]func(ctx context.Context) (any, error)
 	results map[string]json.RawMessage
-	load    func() map[string]json.RawMessage // client: reads the page's data once
 	loaded  bool
 }
 
@@ -137,8 +136,8 @@ func (s *Store) Take(key string) (json.RawMessage, bool) {
 	defer s.mu.Unlock()
 	if !s.loaded {
 		s.loaded = true
-		if s.load != nil {
-			s.results = s.load()
+		if s == client {
+			s.results = loadPage()
 		}
 	}
 	raw, ok := s.results[key]

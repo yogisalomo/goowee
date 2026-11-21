@@ -158,7 +158,7 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error("DEVTOOLS E2E ERROR:", e.message);
+  console.error("DEVTOOLS E2E ERROR:", e.message); for (const l of consoleLogs.slice(-15)) console.error("  console." + l.type + ": " + String(l.text).slice(0, 300));
   if (consoleLogs.length) console.error("--- captured console ---\n" + consoleLogs.map((l) => `[${l.type}] ${l.text}`).join("\n"));
   process.exitCode = 2;
 }).finally(() => {
