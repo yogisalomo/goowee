@@ -124,12 +124,18 @@ func BenchmarkForAppendOne5k(b *testing.B) {
 	}
 }
 
+// layout is a mounted layoutGraph.
+type layout struct {
+	mount []core.Mutation // the mount's mutations
+	tick  func(step int)  // moves every node: one tick of a force layout
+	nudge func(step int)  // moves node 0 alone
+}
+
 // layoutGraph mounts an SVG graph — nodes circles, edges lines whose endpoints
-// are bound to the same position signals — and returns a func that moves every
-// node once, as one tick of a force-layout animation. With 500 nodes and 1,000
-// edges a tick is 5,000 attribute updates: the mutation transport's heaviest
-// realistic frame (roadmap 3.4).
-func layoutGraph(r *DOMRenderer, nodes, edges int) (tick func(step int)) {
+// are bound to the same position signals. With 500 nodes and 1,000 edges a
+// tick is 5,000 attribute updates, the mutation transport's heaviest realistic
+// frame (roadmap 3.4), and a nudge is 10.
+func layoutGraph(r *DOMRenderer, nodes, edges int) layout {
 	xs := make([]*core.Signal[float64], nodes)
 	ys := make([]*core.Signal[float64], nodes)
 	var shapes []core.Item
@@ -144,15 +150,23 @@ func layoutGraph(r *DOMRenderer, nodes, edges int) (tick func(step int)) {
 			h.BindAttr("x2", xs[b]), h.BindAttr("y2", ys[b]),
 		))
 	}
-	r.Render(h.Svg(shapes...))
-	r.Scheduler.Flush()
-	return func(step int) {
-		core.Batch(func() {
-			for i := range xs {
-				xs[i].Set(float64(i) + float64(step)*0.37)
-				ys[i].Set(float64(i) - float64(step)*0.61)
-			}
-		})
+	mount, _ := r.Render(h.Svg(shapes...))
+	return layout{
+		mount: append(mount, r.Scheduler.Flush()...),
+		tick: func(step int) {
+			core.Batch(func() {
+				for i := range xs {
+					xs[i].Set(float64(i) + float64(step)*0.37)
+					ys[i].Set(float64(i) - float64(step)*0.61)
+				}
+			})
+		},
+		nudge: func(step int) {
+			core.Batch(func() {
+				xs[0].Set(float64(step) * 0.37)
+				ys[0].Set(-float64(step) * 0.61)
+			})
+		},
 	}
 }
 
@@ -160,23 +174,23 @@ func layoutGraph(r *DOMRenderer, nodes, edges int) (tick func(step int)) {
 // binding notifications and coalescing that turn into the frame's mutations.
 func BenchmarkLayoutTickFrame(b *testing.B) {
 	r := New()
-	tick := layoutGraph(r, 500, 1000)
+	g := layoutGraph(r, 500, 1000)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		tick(i + 1)
+		g.tick(i + 1)
 		if muts := r.Scheduler.Flush(); len(muts) != 5000 {
 			b.Fatalf("tick produced %d mutations, want 5000", len(muts))
 		}
 	}
 }
 
-// BenchmarkEncodeLayoutTick serializes one layout-tick frame for the JS
-// runtime (JSON today); bytes/op is the payload that crosses to JS.
+// BenchmarkEncodeLayoutTick serializes one layout-tick frame as JSON, the
+// fallback transport; bytes/op is the payload that crosses to JS.
 func BenchmarkEncodeLayoutTick(b *testing.B) {
 	r := New()
-	tick := layoutGraph(r, 500, 1000)
-	tick(1)
+	g := layoutGraph(r, 500, 1000)
+	g.tick(1)
 	muts := r.Scheduler.Flush()
 	data, _ := EncodeBatch(muts)
 	b.SetBytes(int64(len(data)))
@@ -184,5 +198,45 @@ func BenchmarkEncodeLayoutTick(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		EncodeBatch(muts)
+	}
+}
+
+// BenchmarkBatchEncodeLayoutTick is BenchmarkEncodeLayoutTick in the binary
+// format the bridge sends by default.
+func BenchmarkBatchEncodeLayoutTick(b *testing.B) {
+	r := New()
+	g := layoutGraph(r, 500, 1000)
+	g.tick(1)
+	muts := r.Scheduler.Flush()
+	var e BatchEncoder
+	data, _ := e.Encode(muts)
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.Encode(muts)
+	}
+}
+
+// smallBatch is a typical interaction's frame: a click that updates a label,
+// a class and a button's disabled state.
+var smallBatch = []core.Mutation{
+	{Type: core.MutSetProperty, NodeID: 41, Key: "textContent", Value: "Count: 42"},
+	{Type: core.MutSetAttribute, NodeID: 40, Key: "class", Value: "counter counter--even"},
+	{Type: core.MutSetProperty, NodeID: 43, Key: "disabled", Value: false},
+}
+
+func BenchmarkEncodeSmall(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		EncodeBatch(smallBatch)
+	}
+}
+
+func BenchmarkBatchEncodeSmall(b *testing.B) {
+	var e BatchEncoder
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		e.Encode(smallBatch)
 	}
 }

@@ -9,6 +9,9 @@
 //     route; browser back pops to the previous route and restores it,
 //   - refs both ways: ref.Focus reaches the node, ref.Get reads a value back,
 //     and a picked file's bytes reach Go through e.Files()[i].Bytes().
+//
+// TRANSPORT=json runs it all over the JSON transport instead of the default
+// binary one (goowee.transport); run.sh does both.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,6 +19,7 @@ import { join } from "node:path";
 
 const URL = process.env.URL || "http://localhost:8137";
 const DP = Number(process.env.CDP_PORT || 9345);
+const TRANSPORT = process.env.TRANSPORT || "binary";
 
 function chromePath() {
   if (process.env.CHROME) return process.env.CHROME;
@@ -68,6 +72,10 @@ async function main() {
 
   await send("Runtime.enable");
   await send("Page.enable");
+  if (TRANSPORT !== "binary") {
+    // Set before goowee.js runs; it keeps an existing window.goowee.
+    await send("Page.addScriptToEvaluateOnNewDocument", { source: `window.goowee = {transport: ${JSON.stringify(TRANSPORT)}};` });
+  }
   await send("Page.navigate", { url: URL + "/" }); // the server-rendered landing page
 
   const evalJS = async (expr) => {
@@ -100,6 +108,7 @@ async function main() {
   // --- Hydration on the landing page ---
   // Wait for a real hydration signal: the first applyMutations removes markers.
   await waitFor(hydrationReady, "landing hydration complete");
+  check(await evalJS(`goowee.transport`) === TRANSPORT, `DOM updates went over ${await evalJS(`goowee.transport`)}, not ${TRANSPORT}`);
   check(await evalJS(`(document.body.innerText.match(/Reactive web UIs, written in Go\\./g)||[]).length`) === 1, "landing headline duplicated (hydration)");
   check(await evalJS(`document.querySelectorAll('.count').length`) === 1, "hero demo duplicated");
   // Every server node — elements, text, scope anchors — must be claimed: the
@@ -298,9 +307,25 @@ async function main() {
     check(await evalJS(`goowee.noDevTools === undefined`), "a default build reports noDevTools");
   }
 
+  // --- A goowee.js older than the wasm: no binary decoder, so the bridge
+  // falls back to JSON, says why, and the app still works.
+  if (TRANSPORT === "binary" && !process.env.NODEV) {
+    const { identifier } = await send("Page.addScriptToEvaluateOnNewDocument", {
+      source: `window.goowee = {}; Object.defineProperty(window.goowee, "applyBatch", {get() {}, set() {}});`,
+    });
+    consoleLines.length = 0;
+    await send("Page.navigate", { url: URL + "/" });
+    await waitFor(hydrationReady, "hydration with an older goowee.js");
+    check(await evalJS(`goowee.transport`) === "json", "with an older goowee.js, the bridge did not fall back to JSON");
+    check(consoleLines.some((l) => /doesn't read the app's DOM update format/.test(l)), "the JSON fallback for an older goowee.js was not logged");
+    await clickText("button", "increment");
+    await waitFor(`${heroCount} === '1'`, "increment with an older goowee.js");
+    await send("Page.removeScriptToEvaluateOnNewDocument", { identifier });
+  }
+
   if (logs.length) console.log("--- browser logs ---\n" + logs.join("\n"));
   if (fail.length) { console.log("E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }
-  else console.log("E2E PASS" + (process.env.NODEV ? " (goowee_nodev build)" : "") + ": hydration reuses SSR DOM, interactive, routing + history work.");
+  else console.log(`E2E PASS (${TRANSPORT} transport${process.env.NODEV ? ", goowee_nodev build" : ""}): hydration reuses SSR DOM, interactive, routing + history work.`);
 }
 
 main().catch((e) => {

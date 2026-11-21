@@ -27,8 +27,8 @@ GOOS=js GOARCH=wasm go build -tags goowee_nodev -o dist/main.wasm ./cmd/app
 # 2. Copy Go's JS loader
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" dist/
 
-# 3. Copy the goowee bridge runtime
-cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js dist/
+# 3. Copy the goowee bridge runtime, from the goowee version your app uses
+cp "$(go list -m -f '{{.Dir}}' github.com/yogisalomo/goowee)/runtime/goowee.js" dist/
 
 # 4. Add your index.html (see examples/counter for a template)
 cp index.html dist/
@@ -46,6 +46,11 @@ dist/
 ```
 
 Serve `dist/` with any static host configured for SPA fallback.
+
+Ship the `goowee.js` from the same goowee version as `main.wasm`, and update
+the two together. They agree on how DOM updates cross from Go: with an older
+`goowee.js`, the app still works but falls back to the slower JSON format and
+logs a warning in the console.
 
 ## Host-specific configurations
 

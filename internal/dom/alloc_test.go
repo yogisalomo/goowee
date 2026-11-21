@@ -48,3 +48,17 @@ func TestAllocBudgetDiffTree(t *testing.T) {
 		t.Errorf("diffNode build+diff cycle (100-span tree): %.0f allocs/op, budget %d", avg, budget)
 	}
 }
+
+// The binary encoder reuses its buffers: once warmed up, encoding a
+// 5,000-mutation layout tick allocates nothing.
+func TestAllocBudgetBatchEncode(t *testing.T) {
+	r := New()
+	g := layoutGraph(r, 500, 1000)
+	g.tick(1)
+	muts := r.Scheduler.Flush()
+	var e BatchEncoder
+	e.Encode(muts)
+	if avg := testing.AllocsPerRun(20, func() { e.Encode(muts) }); avg > 0 {
+		t.Errorf("BatchEncoder.Encode (layout tick): %.1f allocs/op, want 0", avg)
+	}
+}

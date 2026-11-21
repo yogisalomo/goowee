@@ -179,20 +179,23 @@ longest-increasing-subsequence over retained rows (`lis` / `computeNeedsMove` in
 and removals send only subtree roots: appending to a 5,000-row list went from
 14 ms to 1.3 ms (#70, #71).
 
-**3.4 Mutation transport.** ✅ **Done (measured).** High-frequency events
-(scroll/pointermove) are coalesced to one per frame per element (#31, #68). The
-large-graph workload was measured (2026-10-16): a force-layout tick moving 500
-circles and 1,000 lines is 5,000 attribute updates, ~250 KB of JSON
-(`BenchmarkLayoutTickFrame`, `BenchmarkEncodeLayoutTick`, and
-`node test/e2e/transport.mjs` for the browser side). On an M1, Go as WASM spends
-16.4 ms producing the frame and spent **6.1 ms** in `json.Marshal`; in Chrome
-the JSON crossing costs 0.1 ms (UTF-8 decode) + ~1.2 ms (`JSON.parse`) next to
-~4 ms of DOM writes and ~1 ms of layout. So the cost was Go's reflection-based
-encoder, not the format: a hand-written encoder (byte-identical output, fuzzed
-against `encoding/json`) brought it to **1.9 ms**, with no runtime change. A
-binary transport would now save at most ~2 ms of a ~24 ms worst-case frame, so
-it stays deferred. The next lever is the reactive pipeline itself — 16 ms and
-15k allocations (3 per updated attribute) per frame. **M**
+**3.4 Mutation transport.** ✅ **Done (binary, 2026-11-06).** High-frequency
+events (scroll/pointermove) are coalesced to one per frame per element (#31,
+#68). The large-graph workload: a force-layout tick moving 500 circles and
+1,000 lines is 5,000 attribute updates (`BenchmarkLayoutTickFrame`). Measured in
+isolation in October, the JSON transport looked cheap once a hand-written
+encoder replaced `json.Marshal` (6.1 → 1.9 ms in WASM, byte-identical output),
+so a binary format was deferred. Measured end to end in November
+(`node test/e2e/transport.mjs`: the graph as real WASM in Chrome, every frame
+timed) the JSON frame cost 9–14 ms, most of it Go's GC: the frame allocated
+~570 KB, and an allocation during a collection pays for marking. Batches now
+cross in a binary format that encodes without allocating (ADR-029): 255 → 67
+KiB per tick, the frame 63–67% faster (9.3 → 3.4 ms on an idle M1), the whole
+update 10–31% faster, small frames 16–37% faster. JSON remains as a fallback (`goowee.boot({transport:
+"json"})`, or automatically with an older `goowee.js`). The next lever is the
+reactive pipeline: the tick's signal writes take 9–14 ms in Chrome but ~5 ms
+with the GC off, so its 15k allocations (3 per updated attribute) are what to
+cut. **M**
 
 **3.5 Profiling & regression budgets.** ✅ **Done.** Benchmarks cover signal
 fan-out, coalesce, list re-render, tree diff, and now deep trees
