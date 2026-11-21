@@ -600,6 +600,24 @@ app. See [Canvas](../guides/concepts.md#canvas--drawing-from-go).
 
 ---
 
+## `rpc` — typed server functions
+
+```go
+import "github.com/yogisalomo/goowee/rpc"
+
+var AddNote = rpc.Define[AddReq, Note]("notes.add")      // shared by server and client
+
+rpc.Handle(mux, AddNote, func(ctx context.Context, req AddReq) (Note, error) { … },
+    rpc.Before(auth), rpc.AllowCrossSite(), rpc.MaxBody(n)) // server only (not in wasm builds)
+note, err := AddNote.Call(ctx, req)                      // blocks: goroutine or UseQuery
+res := rpc.UseQuery(f, reqSignal)                        // *hooks.Resource[Res], refetches on change
+rpc.Fake(t, f, fn)                                       // stub one function in a test
+rpc.Invalid(msg, fields) / rpc.Errorf(code, format, ...) // *rpc.Error {Code, Message, Fields, Status}
+rpc.BasePath = "/_rpc"
+```
+
+See [Talking to your server](../guides/server.md).
+
 ## `bridge` — WASM entry point
 
 ```go

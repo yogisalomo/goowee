@@ -27,6 +27,14 @@ time. The public surface freezes under semver at v1.
   props as JSON, and `bridge.Islands(factories)` hydrates every island on
   the page independently. `bridge.Run` is now `Mount("#root")` plus `Wait`.
   Guide: "Adding goowee to an existing Go site" (`docs/guides/islands.md`).
+- `goowee/rpc`: typed server functions (#151). `rpc.Define[Req, Res](name)`
+  in a package both sides import; `rpc.Handle(mux, f, fn)` on the server
+  (same-origin and JSON-only by default, `rpc.Before` for auth); `f.Call(ctx,
+  req)` and `rpc.UseQuery(f, reqSignal)` on the client; failures are
+  `*rpc.Error` values with a code, a message and per-field messages. In the
+  server's process a call runs the handler directly; `rpc.Fake` stubs one in
+  tests. New example `examples/notes` (list, detail, form, server-rendered)
+  and the guide "Talking to your server" (`docs/guides/server.md`).
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from
