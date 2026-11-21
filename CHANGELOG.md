@@ -16,6 +16,15 @@ time. The public surface freezes under semver at v1.
   batch, HTML claimed like hydration, cloned row templates), and
   `BenchmarkMount1000*` its Go side. ADR-032 records why fresh subtrees stay
   per-node for now (#139).
+- **The dev overlay** (#148): in dev mode, a badge counts errors and
+  warnings, a new error (a contained panic, the cycle guard) opens a panel
+  with its panic value, component and Go stack until dismissed, warnings
+  list their fix hints, and an inspector shows the component tree, the
+  signals and a live, filterable change log. It is written in goowee and
+  mounted as a second root; `goowee_nodev` builds leave it out. Recovered
+  panics now carry `stack` (and a re-render's `component`) in dev mode
+  (`core.PanicFields`), and `devtools` keeps the log (`RecordLog`, `Logs`)
+  and can keep a signal out of the change log (`Silence`).
 - **`goowee/form`** (#150): a form's fields in one typed value, checked by a
   plain `Validate() form.Errors` method that the server runs too. `form.Use`
   holds the value, errors, touched fields and submit state; `form.Text`,

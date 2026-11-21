@@ -7,6 +7,7 @@ import (
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/devtools"
+	"github.com/yogisalomo/goowee/devtools/overlay"
 	"github.com/yogisalomo/goowee/internal/jsonlite"
 )
 
@@ -56,4 +57,27 @@ func initInspector() {
 		}
 		return rows
 	}))
+}
+
+// recordDevLog keeps a log entry for the dev overlay (#148), in dev mode.
+func recordDevLog(e core.LogEntry) {
+	if devtools.Enabled() {
+		devtools.RecordLog(e)
+	}
+}
+
+var overlayMounted bool
+
+// afterMount mounts the dev overlay as a root of its own once the app's
+// first root is mounted, in dev mode.
+func afterMount() {
+	if overlayMounted || !devtools.Enabled() {
+		return
+	}
+	overlayMounted = true
+	doc := js.Global().Get("document")
+	el := doc.Call("createElement", "div")
+	el.Set("id", "goowee-devtools")
+	doc.Get("body").Call("appendChild", el)
+	mountInto(el, overlay.View(), false)
 }

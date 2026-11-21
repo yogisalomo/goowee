@@ -100,6 +100,9 @@ func NameSignal(sig core.SignalAccessor, name string) bool {
 // entry. mu must be held.
 func register(sig core.SignalAccessor, kind string) signalMeta {
 	key := signalKey(sig)
+	if silenced[key] {
+		return signalMeta{Sig: sig}
+	}
 	if m, ok := signals[key]; ok {
 		return m
 	}

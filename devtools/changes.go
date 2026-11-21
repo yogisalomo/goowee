@@ -62,7 +62,7 @@ func recordChange(sig core.SignalAccessor, from, to any) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if !enabled {
+	if !enabled || isSilenced(sig) {
 		return
 	}
 	m := register(sig, "signal") // a signal no hook registered shows up once written

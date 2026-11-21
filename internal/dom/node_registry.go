@@ -124,11 +124,10 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 	defer func() {
 		r.ctls = append(r.ctls, ctl)
 		if rec := recover(); rec != nil {
-			core.Log(core.LogRecoverEventHandler, "panic in event handler", map[string]any{
+			core.Log(core.LogRecoverEventHandler, "panic in event handler", core.PanicFields(rec, map[string]any{
 				"event":  event,
 				"nodeId": nodeID,
-				"panic":  rec,
-			})
+			}))
 		}
 		// Static options plus whatever the handler decided while running.
 		pd, sp := ev.Decisions()

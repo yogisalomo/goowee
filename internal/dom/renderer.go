@@ -2,6 +2,7 @@ package dom
 
 import (
 	"reflect"
+	goruntime "runtime"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
@@ -442,8 +443,13 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 	var childMuts []core.Mutation
 	savedMuts := r.muts
 	r.muts = &childMuts
+	var stack string
 	id, rec := func() (id int, rec any) {
-		defer func() { rec = recover() }()
+		defer func() {
+			if rec = recover(); rec != nil {
+				stack = panicStack()
+			}
+		}()
 		id = walkInner()
 		return
 	}()
@@ -453,10 +459,7 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 		runtime.RestoreFrameStack(frameDepth)
 		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
 		r.abandon(mark, owner)
-		core.Log(core.LogRecoverErrorBoundary, "caught panic, rendering fallback", map[string]any{
-			"phase": "render",
-			"panic": rec,
-		})
+		core.Log(core.LogRecoverErrorBoundary, "caught panic, rendering fallback", boundaryFields("render", rec, stack))
 		fb := core.FlatTree(ebn.Fallback(rec))
 		ebn.Prev = fb
 		return r.Walker.Walk(fb, r)
@@ -587,9 +590,11 @@ func (r *DOMRenderer) reRenderScope(sn *core.ScopeNode) {
 				r.parentStack = r.parentStack[:baseStack]
 				runtime.RestoreFrameStack(frameDepth)
 				r.abandon(mark, nil)
-				core.Log(core.LogRecoverReRender, "panic during scope re-render; subtree kept previous state", map[string]any{
-					"panic": rec,
-				})
+				fields := map[string]any{}
+				if path := r.describeScope(sn); path != "" {
+					fields["component"] = path
+				}
+				core.Log(core.LogRecoverReRender, "panic during scope re-render; subtree kept previous state", core.PanicFields(rec, fields))
 			}
 		}()
 		if sn.Patch == nil || !r.patchScope(sn, info, &muts) {
@@ -1052,4 +1057,23 @@ func warnUncomparableKey(k any) {
 	core.Log(core.LogWarn, "uncomparable key; row matched positionally instead", map[string]any{
 		"keyType": t,
 	})
+}
+
+// panicStack is the panicking goroutine's stack in dev mode, for the dev
+// overlay (#148); "" otherwise. Call it from the deferred recover.
+func panicStack() string {
+	if !core.DevChecks() {
+		return ""
+	}
+	buf := make([]byte, 16<<10)
+	return string(buf[:goruntime.Stack(buf, false)])
+}
+
+// boundaryFields are an error boundary's log fields for a caught panic.
+func boundaryFields(phase string, rec any, stack string) map[string]any {
+	f := map[string]any{"phase": phase, "panic": rec}
+	if stack != "" {
+		f["stack"] = stack
+	}
+	return f
 }
