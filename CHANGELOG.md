@@ -83,6 +83,7 @@ time. The public surface freezes under semver at v1.
   `Switch`, keyed `For`, components, portals), the document must equal a
   fresh render of the final state, with registries and mounted components
   matching. CI fuzzes it for 45 s per PR (#161).
+- `goowee/web` serves the browser assets that must match a build: `web.RuntimeJS()`, `web.Version` and `web.Handler()` (#144). `ssr.Handler` now serves `/goowee.js` and `/wasm_exec.js` through it, with ETags, so a server-rendered app cannot load a stale runtime. `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web` copies both files for static hosting, taking goowee's version from the app's `go.mod`; the guides use it instead of globbing the module cache. The binary and runtime now exchange a protocol version at boot: a mismatch stops before mounting and reports both versions and the command that fixes it.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from

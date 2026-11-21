@@ -109,10 +109,14 @@ shell.
 
 ```bash
 GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app
-cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
-cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/
+go run github.com/yogisalomo/goowee/cmd/goowee assets ./web
 cd web && python3 -m http.server 8080
 ```
+
+`assets` copies the `goowee.js` and `wasm_exec.js` that match this build:
+goowee's version comes from your `go.mod`, the loader from the Go toolchain.
+Copying them by hand is easy to get wrong, and a stale `goowee.js` is rejected
+at boot with a message naming both versions and the command to fix it.
 
 Open `http://localhost:8080`. You should see a counter that increments when
 clicked.

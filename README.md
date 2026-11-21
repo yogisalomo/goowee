@@ -69,21 +69,21 @@ or `make serve-ssr` (SSR + hydration). Build and serve with:
 
 ```bash
 GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app
-cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
-cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/
+go run github.com/yogisalomo/goowee/cmd/goowee assets ./web
 cd web && python3 -m http.server 8080
 ```
+
+`assets` copies the `goowee.js` and `wasm_exec.js` that match the goowee version
+in your `go.mod` and the Go toolchain that built the binary. Serve both from
+the same directory as `main.wasm`; a mismatched runtime is rejected at boot
+with a message naming both versions.
 
 ```html
 <!-- web/index.html (minimal) -->
 <script src="wasm_exec.js"></script>
 <script src="goowee.js"></script>
 <div id="root"></div>
-<script>
-    const go = new Go();
-    WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
-        .then(r => go.run(r.instance));
-</script>
+<script>goowee.boot();</script>
 ```
 
 ## Guides
