@@ -66,9 +66,17 @@ try {
 
   await ev(`document.querySelector("#new-link").click()`);
   await waitText("h1", "New note", "the form");
+  const typeInto = (sel, value) => ev(`(() => { const t = document.querySelector(${JSON.stringify(sel)}); t.value = ${JSON.stringify(value)}; t.dispatchEvent(new InputEvent("input", {bubbles: true})); })()`);
+  // The form runs api.AddReq.Validate in the browser (goowee/form, #150)...
   await click("button[type=submit]");
-  await waitText("#title-error", "Give the note a title.", "a field error from rpc.Invalid");
-  await ev(`(() => { const t = document.querySelector("#title"); t.value = "Plan"; document.querySelector("#body").value = "Ship #151."; })()`);
+  await waitText("#title-error", "Give the note a title.", "the form's own check, before any request");
+  // ...and shows the server's field errors (rpc.Invalid) on their fields.
+  await typeInto("#title", "Groceries");
+  await waitText("#title-error", "", "the error clears as the title is fixed");
+  await click("button[type=submit]");
+  await waitText("#title-error", "A note with this title already exists.", "a field error from rpc.Invalid");
+  await typeInto("#title", "Plan");
+  await typeInto("#body", "Ship #151.");
   await click("button[type=submit]");
   await waitText("#note", /Plan.*Ship #151\./s, "saving navigates to the new note");
   check(await ev(`location.pathname`) === "/notes/3", "the new note's URL: " + await ev(`location.pathname`));

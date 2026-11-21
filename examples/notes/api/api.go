@@ -2,7 +2,12 @@
 // definition each, imported by the server and by the WASM client.
 package api
 
-import "github.com/yogisalomo/goowee/rpc"
+import (
+	"strings"
+
+	"github.com/yogisalomo/goowee/form"
+	"github.com/yogisalomo/goowee/rpc"
+)
 
 // Note is a note as both sides see it.
 type Note struct {
@@ -25,6 +30,18 @@ type GetReq struct {
 type AddReq struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
+}
+
+// Validate checks a new note. The form runs it in the browser as the user
+// types, and the server runs it again on what it receives (goowee/form, #150).
+func (r AddReq) Validate() form.Errors {
+	var errs form.Errors
+	if strings.TrimSpace(r.Title) == "" {
+		errs = errs.Add("title", "Give the note a title.")
+	} else if len(r.Title) > 80 {
+		errs = errs.Add("title", "Keep the title under 80 characters.")
+	}
+	return errs
 }
 
 var (

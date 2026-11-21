@@ -12,6 +12,16 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- **`goowee/form`** (#150): a form's fields in one typed value, checked by a
+  plain `Validate() form.Errors` method that the server runs too. `form.Use`
+  holds the value, errors, touched fields and submit state; `form.Text`,
+  `form.Int` and `form.Bool` bind inputs to fields (value, `name`,
+  `aria-invalid`, blur-to-touched) without reflection; `f.OnSubmit` validates,
+  runs the submit in a goroutine with `Submitting` set, cancels it on unmount,
+  and shows a server's field errors (`*rpc.Error` now has `FieldErrors`) on
+  their fields. The tutorial's form lesson and `examples/notes`' new-note
+  form use it; the notes server checks the same `Validate`. Guide:
+  `docs/guides/forms.md`.
 - **`goowee.boot({when})`** (#130): a server-rendered page can boot `"idle"`
   (after load, when the browser is idle), `"visible"` (when an element
   scrolls into view) or `"interaction"` (at the first pointerdown, keydown or

@@ -52,15 +52,24 @@ return Div(
         func() core.Node { return P(Text("(hidden)")) }),
 )`
 
-const formCode = `name, setName := hooks.UseState("")
-entries, setEntries := hooks.UseState([]entry{})
+const formCode = `type signup struct{ Name, Email string; Agreed bool }
 
+func (s signup) Validate() form.Errors {          // plain Go; a server can run it too
+    var errs form.Errors
+    if !strings.Contains(s.Email, "@") {
+        errs = errs.Add("email", "Enter an email address.")
+    }
+    return errs
+}
+
+f := form.Use(signup{})                            // value, errors, touched, submitting
 return Form(
-    OnSubmit(func(vals map[string]string) {          // vals = named field values
-        setEntries(append(entries.Get(), entry{name: vals["name"]}))
-        setName("")                                   // clear the bound input
-    }),
-    Input(Type("text"), Name("name"), RefTo(nameRef), BindValue(name)), // two-way binding
+    f.OnSubmit(func(ctx context.Context, v signup) error {
+        return nil                                 // e.g. api.Signup.Call(ctx, v)
+    }, func(v signup) { addEntry(v); f.Reset(signup{}) }),
+    Input(Type("email"), form.Text(f, "email", func(s *signup) *string { return &s.Email })),
+    P(TextS(f.Error("email"))),                    // shows once the field was left
+    Input(form.Bool(f, "agreed", func(s *signup) *bool { return &s.Agreed })),
     Input(Type("file"), OnChangeE(func(e core.EventData) {  // e.Files(): name, size, type
         f := e.Files()[0]
         go func() {                                       // bytes are read off-loop
@@ -68,9 +77,7 @@ return Form(
             core.Schedule(func() { setPicked(f.Name, data, err) })
         }()
     })),
-    Button(Text("Submit")),
-    For(entries, func(e entry) int { return e.id },     // keyed list
-        func(e entry) core.Node { return Li(Text(e.name)) }),
+    Button(Type("submit"), DisabledS(f.Submitting), Text("Submit")),
 )
 // Elsewhere: nameRef.Focus() to focus the field, or read a value back —
 // nameRef.Get("offsetWidth", func(v any) { w, _ := v.(float64); setWidth(int(w)) })`
