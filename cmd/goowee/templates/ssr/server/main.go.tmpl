@@ -1,0 +1,53 @@
+// Command server serves {{.Name}}: pages rendered on the server
+// (ssr.Handler), which the browser then hydrates, and the static files.
+//
+// `goowee dev` runs it behind its dev server; `goowee build` builds it into
+// dist/ next to the static files.
+package main
+
+import (
+	"flag"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/yogisalomo/goowee/ssr"
+
+	"{{.Module}}/app"
+)
+
+func document(w io.Writer, head, body string) {
+	io.WriteString(w, `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+`+head+`
+<link rel="preload" href="/main.wasm" as="fetch" type="application/wasm" crossorigin>
+<link rel="stylesheet" href="/style.css">
+<script src="/wasm_exec.js"></script><script src="/goowee.js"></script>
+</head><body><div id="root">`+body+`</div><script>goowee.boot({wasm: "/main.wasm"});</script></body></html>
+`)
+}
+
+func main() {
+	addr := flag.String("addr", "localhost:8080", "listen address")
+	static := flag.String("static", "web", "directory with main.wasm, wasm_exec.js and the other static files")
+	flag.Parse()
+
+	files := http.FileServer(http.Dir(*static))
+	pages := ssr.Handler(ssr.HandlerOptions{Page: ssr.RoutedPage(app.App), Document: document})
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if fi, err := os.Stat(filepath.Join(*static, filepath.Clean("/"+r.URL.Path))); err == nil && !fi.IsDir() {
+			if strings.HasSuffix(r.URL.Path, ".wasm") {
+				w.Header().Set("Content-Type", "application/wasm")
+			}
+			files.ServeHTTP(w, r)
+			return
+		}
+		pages.ServeHTTP(w, r)
+	})
+	log.Printf("{{.Name}} on http://%s", *addr)
+	log.Fatal(http.ListenAndServe(*addr, nil))
+}

@@ -64,19 +64,17 @@ func App() core.Node {
 }
 ```
 
-The runnable reference app lives in `examples/counter` — `make serve` (client)
-or `make serve-ssr` (SSR + hydration). Build and serve with:
+Start a project, and run it with a rebuild and a reload on every save:
 
 ```bash
-GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app
-go run github.com/yogisalomo/goowee/cmd/goowee assets ./web
-cd web && python3 -m http.server 8080
+go run github.com/yogisalomo/goowee/cmd/goowee new myapp
+cd myapp && go run github.com/yogisalomo/goowee/cmd/goowee dev
 ```
 
-`assets` copies the `goowee.js` and `wasm_exec.js` that match the goowee version
-in your `go.mod` and the Go toolchain that built the binary. Serve both from
-the same directory as `main.wasm`; a mismatched runtime is rejected at boot
-with a message naming both versions.
+`goowee build` writes a production build with a size report
+([Getting Started](docs/guides/getting-started.md)). The runnable reference
+app lives in `examples/counter`: `make serve` (client) or `make serve-ssr`
+(SSR + hydration).
 
 ```html
 <!-- web/index.html (minimal) -->

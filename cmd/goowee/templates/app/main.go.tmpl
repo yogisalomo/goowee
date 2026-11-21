@@ -1,0 +1,17 @@
+//go:build js && wasm
+
+// Command {{.Name}} is the browser side: `goowee dev` builds and serves it.
+package main
+
+import (
+	"github.com/yogisalomo/goowee/bridge"
+	"github.com/yogisalomo/goowee/router"
+
+	"{{.Module}}/app"
+)
+
+func main() {
+	r := router.New(router.CurrentPath())
+	r.BindHistory()
+	bridge.Run(app.App(r))
+}

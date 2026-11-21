@@ -1,0 +1,31 @@
+# {{.Name}}
+
+A goowee app: a Go UI compiled to WebAssembly.
+
+## Layout
+
+- `app/`: the whole UI, package `app`. It builds on the host, so
+  `go test ./...` runs its gooweetest tests without a browser.
+- `main.go`: the browser entry point (`//go:build js && wasm`).
+- `web/`: static files; `index.html` is the page shell.
+{{- if .SSR}}
+- `server/`: the server. It renders pages with `ssr.Handler` and serves the
+  static files.
+{{- end}}
+
+## Commands
+
+- `goowee dev`: build, serve on http://localhost:8080, and rebuild and
+  reload the page on every change. Build errors show in the page.
+- `go test ./...`: the tests.
+- `goowee build`: a production build in `dist/`, with a size report.
+
+(`goowee` is `go run github.com/yogisalomo/goowee/cmd/goowee`.)
+
+## Rules
+
+- Components are `core.Component` functions; state is `hooks.UseState`.
+- Bind changing values (`TextS`, `ClassS`, `BindAttr`) rather than reading
+  signals in render code; `go vet -vettool=$(which gooweevet)` checks it.
+- Format with `strconv` and `TextS` rather than `fmt`/`Textf` where size
+  matters: fmt adds about 35 KB brotli to the WASM.
