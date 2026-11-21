@@ -539,6 +539,9 @@ const (
 	MutCall         // call a method (Key) with arguments (Value, a []any), after the batch's writes
 	MutDraw         // replay a goowee/canvas command buffer (Value, a []uint32) on a <canvas>, after the batch
 	MutListen       // the node has (Value true) or no longer has (false) a Go handler for event Key
+	// MutRemoveNodeAfter is 17, leaving 14-16 for #149's targeted attribute,
+	// style and selected mutations. Explicit so either PR can merge first.
+	MutRemoveNodeAfter MutationType = 17 // remove a node after its leave transition (Key = transition name)
 )
 
 // DrawVersion is the goowee/canvas buffer format MutDraw carries. The runtime
@@ -575,6 +578,8 @@ func (mt MutationType) String() string {
 		return "Draw"
 	case MutListen:
 		return "Listen"
+	case MutRemoveNodeAfter:
+		return "RemoveNodeAfter"
 	default:
 		return "Unknown"
 	}
