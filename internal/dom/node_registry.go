@@ -2,7 +2,6 @@ package dom
 
 import (
 	"github.com/yogisalomo/goowee/core"
-	"github.com/yogisalomo/goowee/internal/jsonlite"
 )
 
 type HandlerEntry struct {
@@ -18,6 +17,7 @@ type DOMNode struct {
 type NodeRegistry struct {
 	nodes     map[int]*DOMNode
 	announced map[string]bool
+	ctls      []*core.EventControl // free event controls, reused by Dispatch
 
 	OnNewEventType func(eventType string, capture bool)
 }
@@ -106,12 +106,23 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 		return
 	}
 
-	data, _ := jsonlite.DecodeObject(dataJSON) // not encoding/json (#126)
+	// The payload stays JSON text: each accessor the handler calls reads its
+	// field from it (#135). The decisions go into a control reused across
+	// events; a stack, since a handler can dispatch another event (a focus()
+	// inside a click handler) before it returns.
+	var ctl *core.EventControl
+	if n := len(r.ctls); n > 0 {
+		ctl, r.ctls = r.ctls[n-1], r.ctls[:n-1]
+		ctl.Reset()
+	} else {
+		ctl = new(core.EventControl)
+	}
 
 	handled = true
 	opts = entry.Options
-	ev := core.NewEventData(event, nodeID, data)
+	ev := core.NewEventDataJSON(event, nodeID, dataJSON, ctl)
 	defer func() {
+		r.ctls = append(r.ctls, ctl)
 		if rec := recover(); rec != nil {
 			core.Log(core.LogRecoverEventHandler, "panic in event handler", map[string]any{
 				"event":  event,

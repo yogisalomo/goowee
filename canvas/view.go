@@ -233,7 +233,7 @@ func view(cfg config) core.Node {
 		items = append(items, h.RefTo(ref), h.Style(style))
 		if cfg.fill {
 			items = append(items, h.On(ResizeEvent, func(e core.EventData) {
-				setSize(area{num(e.Data["width"]), num(e.Data["height"])})
+				setSize(area{e.Number("width"), e.Number("height")})
 			}))
 		}
 		if cfg.label != "" {
@@ -250,10 +250,5 @@ func view(cfg config) core.Node {
 // it. In gooweetest, Screen.Dispatch(el, canvas.ResizeEvent, ...) stands in
 // for the browser's layout.
 const ResizeEvent = "goowee:canvasresize"
-
-func num(v any) float64 {
-	f, _ := v.(float64)
-	return f
-}
 
 func px(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) + "px" }

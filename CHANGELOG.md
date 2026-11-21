@@ -73,6 +73,17 @@ time. The public surface freezes under semver at v1.
   on both transports and on an older `goowee.js`.
 
 ### Changed
+- **An event reaches its handler without decoding its payload** (#135). The
+  payload stays the JSON text the runtime sent, and each accessor (`Key`,
+  `ClientX`, `Value`, …) finds its field in it without decoding the rest or
+  allocating. Delivering a `pointermove` to a handler that reads its position
+  allocates nothing in Go besides the payload text itself. `EventData.Data`
+  is now set only on `EventData` built with `NewEventData` (tests, custom
+  dispatchers); read a browser event's payload with the accessors, the new
+  `Number`, `String` and `Bool` for fields without one, `Field`, or `Fields`
+  for the whole map. A handler that keeps its `EventData` can no longer
+  prevent or stop a later event by calling `PreventDefault` after it
+  returned.
 - **goowee's client code no longer links `fmt`, `encoding/json`, `log` or
   `net/url`** (#126), so an app pays for them only if it uses them. The
   smallest app (`test/e2e/hello`, now written with `strconv` instead of
