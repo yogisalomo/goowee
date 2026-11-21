@@ -731,12 +731,64 @@ func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 		r.Bindings.Unbind(id)
 		r.Registry.Remove(id)
 	}
-	var roots []int
+	var roots, detached []int
 	appendRoots(n, &roots)
-	appendDetachedRoots(n, &roots)
+	appendDetachedRoots(n, &detached)
 	for _, id := range roots {
+		if name := transitionName(n, id); name != "" {
+			// Go-side state is already disposed above. The runtime keeps the
+			// DOM node around for its leave animation, with handlers inert.
+			*muts = append(*muts, core.Mutation{Type: core.MutRemoveNodeAfter, NodeID: id, Key: name})
+			continue
+		}
 		*muts = append(*muts, core.Mutation{Type: core.MutRemoveNode, NodeID: id})
 	}
+	// Portal and head content lives outside the animated subtree: remove it
+	// with the batch, not after a transition that won't be visible there.
+	for _, id := range detached {
+		*muts = append(*muts, core.Mutation{Type: core.MutRemoveNode, NodeID: id})
+	}
+}
+
+// transitionName reports the transition attached to the DOM root with id, if
+// any. It walks through wrappers (fragments, components, scopes, boundaries)
+// so a Transition on the root element of a Show/Switch row is found.
+func transitionName(n core.Node, id int) string {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		if v == nil {
+			return ""
+		}
+		if v.ID == id {
+			return v.Transition
+		}
+		for _, c := range v.Children {
+			if name := transitionName(c, id); name != "" {
+				return name
+			}
+		}
+	case *core.FragmentNode:
+		if v != nil {
+			for _, c := range v.Children {
+				if name := transitionName(c, id); name != "" {
+					return name
+				}
+			}
+		}
+	case *core.ComponentNode:
+		if v != nil {
+			return transitionName(v.Prev, id)
+		}
+	case *core.ScopeNode:
+		if v != nil {
+			return transitionName(v.Prev, id)
+		}
+	case *core.ErrorBoundaryNode:
+		if v != nil {
+			return transitionName(v.Prev, id)
+		}
+	}
+	return ""
 }
 
 // appendDetachedRoots adds the roots of portal and metadata content found

@@ -53,6 +53,13 @@ time. The public surface freezes under semver at v1.
   `Switch`, keyed `For`, components, portals), the document must equal a
   fresh render of the final state, with registries and mounted components
   matching. CI fuzzes it for 45 s per PR (#161).
+- `h.Transition(name)` animates nodes inserted or removed by `Show`, `Switch`,
+  `For` or a route (#156). The runtime adds `<name>-enter` on insert and holds
+  a removed node with `<name>-leave` until `transitionend`/`animationend` (or a
+  configurable timeout), then removes and forgets it. Go disposes the subtree's
+  reactive state immediately and a leaving node is inert. Reduced-motion users
+  skip the animation; `gooweetest` removes at once and records the request in
+  `Screen.Transitions()`. The tutorial's todo rows now animate add and remove.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from

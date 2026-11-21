@@ -183,6 +183,31 @@ VirtualList(items, 48 /* row height in px */, func(i int, item Item) core.Node {
 }, VirtualListHeight(300))
 ```
 
+### Enter and leave transitions
+
+Put `Transition(name)` on the root element of content that `Show`, `Switch`,
+`For` (or a route) inserts or removes. The runtime adds `<name>-enter` on
+insert and removes it on the next frame; on removal it disposes the Go-side
+state at once, marks the DOM node inert, adds `<name>-leave`, and removes the
+node only after `transitionend`/`animationend` (or a 1s timeout, configurable
+via `goowee.transitionTimeout`). Define the two classes in CSS:
+
+```go
+Show(open, func() core.Node {
+    return Div(Transition("fade"), Class("panel"), Text("panel"))
+})
+```
+
+```css
+.panel { transition: opacity 140ms ease; }
+.panel.fade-enter { opacity: 0; transition: none; }
+.panel.fade-leave { opacity: 0; }
+```
+
+Under `prefers-reduced-motion: reduce` nodes are removed immediately, with no
+animation classes. In `gooweetest` there is no animation clock: nodes are
+removed at once and `Screen.Transitions()` records the requested name and tag.
+
 ---
 
 ### Checking dependencies in dev mode
