@@ -300,16 +300,16 @@ func (r *Router) Route(routes map[string]func() core.Node) *core.ScopeNode {
 			r.notFound = false
 			if fn, ok := routes[path]; ok {
 				r.setParams(nil)
-				return fn()
+				return keyByRoute(fn(), path)
 			}
-			if fn, params, ok := matchCompiled(matchers, path); ok {
+			if fn, params, pattern, ok := matchPattern(matchers, path); ok {
 				r.setParams(params)
-				return fn()
+				return keyByRoute(fn(), pattern)
 			}
 			r.setParams(nil)
 			r.notFound = true
 			if fn, ok := routes["/404"]; ok {
-				return fn()
+				return keyByRoute(fn(), "/404")
 			}
 			return h.P(h.Text("404 — page not found"))
 		},
@@ -376,16 +376,16 @@ func (r *Router) SubRoute(prefix string, routes map[string]func() core.Node) cor
 			}
 			if fn, ok := routes[sub]; ok {
 				merge(nil)
-				return fn()
+				return keyByRoute(fn(), sub)
 			}
-			if fn, params, ok := matchCompiled(matchers, sub); ok {
+			if fn, params, pattern, ok := matchPattern(matchers, sub); ok {
 				merge(params)
-				return fn()
+				return keyByRoute(fn(), pattern)
 			}
 			merge(nil)
 			r.notFound = true
 			if fn, ok := routes["/404"]; ok {
-				return fn()
+				return keyByRoute(fn(), "/404")
 			}
 			return &core.FragmentNode{}
 		},
@@ -422,13 +422,49 @@ func compileRoutes(routes map[string]func() core.Node) []routeMatcher {
 // matchCompiled returns the handler and params of the first (most specific)
 // matcher that accepts path.
 func matchCompiled(matchers []routeMatcher, path string) (func() core.Node, map[string]string, bool) {
+	fn, params, _, ok := matchPattern(matchers, path)
+	return fn, params, ok
+}
+
+// matchPattern is matchCompiled that also reports the pattern that matched.
+func matchPattern(matchers []routeMatcher, path string) (func() core.Node, map[string]string, string, bool) {
 	pathSegs := segsOf(path)
 	for _, m := range matchers {
 		if params, ok := m.match(pathSegs); ok {
-			return m.fn, params, true
+			return m.fn, params, m.pattern, true
 		}
 	}
-	return nil, nil, false
+	return nil, nil, "", false
+}
+
+// routeKey keys a route's content by the pattern that matched it, so a
+// change of route remounts the content even when both routes render a
+// component of the same name (#124), while the same pattern with new params
+// keeps it (ParamSignal follows the params). A key the app set is kept
+// inside it.
+type routeKey struct {
+	pattern string
+	key     any
+}
+
+func keyByRoute(n core.Node, pattern string) core.Node {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		if v != nil {
+			v.Key = routeKey{pattern, v.Key}
+		}
+	case *core.ComponentNode:
+		if v != nil {
+			v.Key = routeKey{pattern, v.Key}
+		}
+	case *core.FragmentNode:
+		if v != nil {
+			for _, c := range v.Children {
+				keyByRoute(c, pattern)
+			}
+		}
+	}
+	return n
 }
 
 // Guard wraps a route handler with an access check. If check returns true,
