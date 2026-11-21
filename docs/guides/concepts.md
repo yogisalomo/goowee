@@ -432,7 +432,15 @@ Read a URL param reactively:
 P(Textf("User %s", r.ParamSignal("id")))
 ```
 
-Use `r.Param("id")` for a one-shot read inside a handler. Navigation:
+Use `r.Param("id")` for a one-shot read inside a handler.
+
+A route's content is keyed by the pattern that matched it. Moving to another
+route mounts the new route's content fresh, even when both routes render a
+component of the same name. The same pattern with new params (`/users/1` to
+`/users/2`) keeps the mounted content, which reads the new values through
+`ParamSignal`.
+
+Navigation:
 
 ```go
 r.Navigate("/about")

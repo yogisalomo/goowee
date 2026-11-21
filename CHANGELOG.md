@@ -24,6 +24,11 @@ time. The public surface freezes under semver at v1.
   (`cmd/site-export`, `make pages`).
 
 ### Fixed
+- Moving between two routes whose functions return a component of the same
+  name kept the first route's instance on screen: the URL changed but the
+  page didn't (#124). A route's content is now keyed by the pattern that
+  matched it, in `Route` and `SubRoute`, so a different route remounts and the
+  same pattern with new params keeps it.
 - On a server-rendered page, what the user did before the WASM booted was lost
   (#131). Clicks went nowhere, a form submitted natively (reloading the page),
   and text typed into a bound input stayed out of its signal, to be
