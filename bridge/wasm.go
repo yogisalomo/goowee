@@ -4,7 +4,7 @@ package bridge
 
 import (
 	"errors"
-	"fmt"
+	"strconv"
 	"syscall/js"
 	"unsafe"
 
@@ -52,9 +52,9 @@ func protocolMatches() bool {
 	if fn := g.Get("protocolMismatch"); fn.Type() == js.TypeFunction {
 		fn.Invoke(version.Module, core.ProtocolVersion)
 	} else {
-		js.Global().Get("console").Call("error", fmt.Sprintf(
-			"goowee: this page serves a goowee.js older than the app (protocol %d expected); run `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web` to copy the matching assets",
-			core.ProtocolVersion))
+		js.Global().Get("console").Call("error",
+			"goowee: this page serves a goowee.js older than the app (protocol "+strconv.Itoa(core.ProtocolVersion)+
+				" expected); run `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web` to copy the matching assets")
 	}
 	return false
 }
