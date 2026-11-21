@@ -48,6 +48,31 @@ func TestBindNumberClassIfAndStyleProp(t *testing.T) {
 		t.Fatalf("number input %q, want 7", got)
 	}
 
+	// Empty and partial entries have valueAsNumber NaN (null in the payload):
+	// the signal keeps its last valid value and the field keeps the user's text.
+	for _, text := range []string{"", "-", "1e"} {
+		s.InputNumberRaw(s.Find("#num"), text, nil)
+		if got := s.Find("#num").Value(); got != text {
+			t.Fatalf("partial number input %q was rewritten to %q", text, got)
+		}
+		if got := s.Find("#value").Text(); got != "7" {
+			t.Fatalf("partial number %q changed the signal to %q", text, got)
+		}
+	}
+	// Text that parses to the same value isn't normalized while typing.
+	s.InputNumberRaw(s.Find("#num"), "7.", 7)
+	if got := s.Find("#num").Value(); got != "7." {
+		t.Fatalf("partial decimal input rewritten to %q, want 7.", got)
+	}
+	if got := s.Find("#value").Text(); got != "7" {
+		t.Fatalf("partial decimal changed the signal to %q", got)
+	}
+	// A valid, different number still updates both.
+	s.InputNumber(s.Find("#num"), 8)
+	if got := s.Find("#num").Value(); got != "8" || s.Find("#value").Text() != "8" {
+		t.Fatalf("valid number: input %q, signal %q, want 8", got, s.Find("#value").Text())
+	}
+
 	s.Click(s.Find("#toggle"))
 	if got := s.Find("#box").Attr("class"); !strings.Contains(got, "active") {
 		t.Fatalf("class after toggle %q, want active", got)
@@ -134,5 +159,24 @@ func TestAttrSRemovesFalse(t *testing.T) {
 	s.Click(s.Find("#show"))
 	if got := s.Find("#box").Attr("hidden"); got != "" {
 		t.Fatalf("hidden after click %q, want removed", got)
+	}
+}
+
+func TestBindAttrKeepsBoolText(t *testing.T) {
+	var pressed *core.Signal[bool]
+	app := core.Component("LegacyAttr", func() core.Node {
+		pressed, _ = hooks.UseState(false)
+		return Button(
+			ID("toggle"), BindAttr("aria-pressed", pressed),
+			OnClick(func() { pressed.Set(!pressed.Get()) }), Text("toggle"),
+		)
+	})
+	s := gooweetest.Render(t, app)
+	if got := s.Find("#toggle").Attr("aria-pressed"); got != "false" {
+		t.Fatalf("initial aria-pressed %q, want false", got)
+	}
+	s.Click(s.Find("#toggle"))
+	if got := s.Find("#toggle").Attr("aria-pressed"); got != "true" {
+		t.Fatalf("aria-pressed after toggle %q, want true", got)
 	}
 }

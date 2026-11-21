@@ -248,6 +248,7 @@ BindFiles(sig *core.Signal[[]core.File])     // file input ↔ picked files
 
 ```go
 AttrS(name string, sig core.SignalAccessor)  // any attribute; false removes bool attrs
+BindAttr(name string, sig core.SignalAccessor) // old spelling; false writes "false"
 ClassS(sig core.SignalAccessor)              // whole class attribute
 ClassIf(name string, sig *core.Signal[bool]) // one class, composes with Class
 Classes(map[string]*core.Signal[bool])       // several independent classes

@@ -56,6 +56,7 @@ const (
 	BindToClass       // a bool signal toggles one class, leaving others alone
 	BindToStyle       // set one CSS property, leaving the others alone
 	BindToSelectMulti // keep a <select multiple>'s selected options in sync
+	BindToAttrText    // like BindToAttr, but false bools write "false" (old BindAttr behavior)
 )
 
 type Bind struct {

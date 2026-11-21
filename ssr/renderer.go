@@ -238,12 +238,14 @@ func (v *ssrVisitor) elementAttrs(id int, el *core.ElementNode) (writes []ssrAtt
 	}
 	for _, b := range el.Binds {
 		switch b.Target {
-		case core.BindToAttr:
+		case core.BindToAttr, core.BindToAttrText:
 			value := b.Signal.Value()
 			if on, ok := value.(bool); ok {
 				if on {
 					add(b.Name, "true")
-				} // false removes the attribute — write nothing
+				} else if b.Target == core.BindToAttrText {
+					add(b.Name, "false") // old BindAttr behavior: ARIA state needs the text
+				} // AttrS: false removes the attribute — write nothing
 			} else {
 				add(b.Name, fmt.Sprint(value))
 			}

@@ -422,7 +422,7 @@ type Mutation struct {
 	Value   any          `json:"value,omitempty"`
 	ChildID int          `json:"childId,omitempty"`
 	RefID   int          `json:"refId,omitempty"`
-	NS      string       `json:"ns,omitempty"` // XML namespace for CreateElement (SVG)
+	NS      string       `json:"ns,omitempty"` // XML namespace for CreateElement (SVG); also the unit for MutSetStyle
 
 	// A bound update carries its value typed rather than boxed in Value, so
 	// it reaches the encoders without an allocation (#136): Kind says which,

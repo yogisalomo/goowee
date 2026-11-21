@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/hooks"
 )
 
 func BindProp(name string, sig core.SignalAccessor) core.Item {
@@ -17,8 +18,13 @@ func AttrS(name string, sig core.SignalAccessor) core.Item {
 	return bindItem{core.BindToAttr, name, sig, ""}
 }
 
-// BindAttr is the older spelling of AttrS.
-func BindAttr(name string, sig core.SignalAccessor) core.Item { return AttrS(name, sig) }
+// BindAttr writes a bound attribute as text, as it always has: a false bool
+// signal renders "false", not a removed attribute. ARIA state attributes need
+// that text (an absent aria-pressed means "not a toggle button"). For the HTML
+// meaning of false — remove the attribute — use AttrS.
+func BindAttr(name string, sig core.SignalAccessor) core.Item {
+	return bindItem{core.BindToAttrText, name, sig, ""}
+}
 
 func ClassS(sig core.SignalAccessor) core.Item    { return BindAttr("class", sig) }
 func StyleS(sig core.SignalAccessor) core.Item    { return BindAttr("style", sig) }
@@ -99,12 +105,42 @@ func BindValue(sig *core.Signal[string]) core.Item {
 }
 
 // BindNumber binds a numeric input or range slider to a numeric signal. The
-// browser's valueAsNumber does the parsing (including empty-input handling),
-// so no Go-side strconv runs on every keystroke.
+// browser's valueAsNumber does the parsing, so no Go-side strconv runs on
+// every keystroke. Empty or partial input ("", "-", "1e") leaves both the
+// signal and the field alone, and text that already parses to the signal's
+// value isn't rewritten — the user can clear the field, type a sign, or pause
+// mid-decimal without the binding clobbering what they typed.
 func BindNumber[T bindNumber](sig *core.Signal[T]) core.Item {
+	text, setText := hooks.UseState(fmt.Sprint(sig.Get()))
+	last := sig.Get()
+
+	// A signal change from elsewhere (a reset, another binding) updates the
+	// field. Input events that already parsed to the new value skip the write,
+	// so a field showing "7." stays that way while its signal says 7.
+	hooks.Watch([]core.SignalAccessor{sig}, func() {
+		v := sig.Get()
+		if v == last {
+			return
+		}
+		last = v
+		setText(fmt.Sprint(v))
+	})
+
 	return Group(
-		ValueS(core.Computed([]core.SignalAccessor{sig}, func() string { return fmt.Sprint(sig.Get()) })),
-		OnInputE(func(e core.EventData) { sig.Set(T(e.ValueAsNumber())) }),
+		ValueS(text),
+		OnInputE(func(e core.EventData) {
+			n, ok := e.ValueAsNumberOK()
+			if !ok {
+				return // NaN: leave the in-progress text (and the signal) alone
+			}
+			v := T(n)
+			if v == last && float64(v) == n {
+				return // the field already says what the signal says
+			}
+			last = v
+			sig.Set(v)
+			setText(fmt.Sprint(v)) // also normalizes "1.5" for an int signal
+		}),
 	)
 }
 

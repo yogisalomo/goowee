@@ -27,12 +27,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/yogisalomo/goowee/canvas"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/yogisalomo/goowee/canvas"
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/dom"
 	"github.com/yogisalomo/goowee/storage"
@@ -345,9 +344,16 @@ func (s *Screen) Change(el *Element, value string) {
 // as a browser does for a typed number or a range slider.
 func (s *Screen) InputNumber(el *Element, value float64) {
 	s.t.Helper()
-	text := strconv.FormatFloat(value, 'f', -1, 64)
+	s.InputNumberRaw(el, strconv.FormatFloat(value, 'f', -1, 64), value)
+}
+
+// InputNumberRaw sets a number input's text and fires input with the given
+// valueAsNumber payload. Pass nil for an empty or partial entry ("" , "-",
+// "1e"), whose browser valueAsNumber is NaN and whose JSON payload is null.
+func (s *Screen) InputNumberRaw(el *Element, text string, valueAsNumber any) {
+	s.t.Helper()
 	el.n.props["value"] = text
-	s.Dispatch(el, "input", map[string]any{"value": text, "valueAsNumber": value})
+	s.Dispatch(el, "input", map[string]any{"value": text, "valueAsNumber": valueAsNumber})
 }
 
 // SelectMultiple selects the given option values in a <select multiple> and

@@ -120,7 +120,11 @@ func MutationForBind(nodeID int, b core.Bind) core.Mutation {
 			if m.Kind, m.Str, m.Bits = tv.TypedValue(); m.Kind != core.ValAny {
 				// AttrS removes a false boolean; it must not write "false".
 				if b.Target == core.BindToAttr && m.Kind == core.ValBool && !m.Bool() {
-					return core.Mutation{Type: core.MutRemoveAttribute, NodeID: nodeID, Key: b.Name}
+					// AttrS removes a false boolean, but keep its typed value so
+					// both transports encode it exactly as the boxed path does.
+					m.Type = core.MutRemoveAttribute
+					m.AsText()
+					return m
 				}
 				if m.Kind == core.ValString {
 					m.Str = SafeURL(b.Name, m.Str) // textContent isn't a URL attribute
@@ -132,10 +136,12 @@ func MutationForBind(nodeID int, b core.Bind) core.Mutation {
 		}
 	}
 	switch b.Target {
-	case core.BindToAttr:
+	case core.BindToAttr, core.BindToAttrText:
 		v := b.Signal.Value()
-		if on, ok := v.(bool); ok && !on {
-			return core.Mutation{Type: core.MutRemoveAttribute, NodeID: nodeID, Key: b.Name}
+		if b.Target == core.BindToAttr {
+			if on, ok := v.(bool); ok && !on {
+				return core.Mutation{Type: core.MutRemoveAttribute, NodeID: nodeID, Key: b.Name}
+			}
 		}
 		return core.Mutation{
 			Type: core.MutSetAttribute, NodeID: nodeID, Key: b.Name,
@@ -175,12 +181,19 @@ func (r *BindingRegistry) Len() int {
 	return n
 }
 
+// attrText is how AttrS renders a bound attribute. A true boolean is written
+// as "true" (also valid for HTML boolean attributes); false removes the
+// attribute, handled by the caller.
+// attrText renders a bound attribute's value. Bool signals render as the text
+// "true"/"false": AttrS intercepts false and removes the attribute, while the
+// old BindAttr spelling (BindToAttrText) keeps writing both values, as ARIA
+// state attributes require.
 func attrText(v any) string {
 	if on, ok := v.(bool); ok {
 		if on {
 			return "true"
 		}
-		return ""
+		return "false"
 	}
 	return fmt.Sprintf("%v", v)
 }

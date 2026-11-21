@@ -18,6 +18,7 @@ func TestSSRBindingHelpers(t *testing.T) {
 	left := core.NewSignal(10.0)
 	hidden := core.NewSignal(false)
 	open := core.NewSignal(true)
+	pressed := core.NewSignal(false)
 	multi := core.NewSignal([]string{"b"})
 
 	node := h.Div(
@@ -28,6 +29,7 @@ func TestSSRBindingHelpers(t *testing.T) {
 			h.Option(h.Value("a"), h.Text("A")),
 			h.Option(h.Value("b"), h.Text("B"))),
 		h.Button(h.HiddenS(hidden), h.AriaExpandedS(open), h.Text("menu")),
+		h.Button(h.BindAttr("aria-pressed", pressed), h.Text("toggle")),
 	)
 	body, _ := New().Render(node)
 	for _, want := range []string{
@@ -37,6 +39,7 @@ func TestSSRBindingHelpers(t *testing.T) {
 		`multiple`,
 		`value="b" selected`,
 		`aria-expanded="true"`,
+		`aria-pressed="false"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("SSR output missing %q:\n%s", want, body)
