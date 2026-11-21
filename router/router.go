@@ -21,10 +21,25 @@ type Router struct {
 	rawQuery string
 
 	params    *core.Signal[map[string]string]
-	navFn     func(string) // Navigate — calls pushState
-	replaceFn func(string) // NavigateReplace — calls replaceState
+	navFn     func(string) // Navigate — raw pushState callback (SetNavFn, or BindHistory)
+	replaceFn func(string) // NavigateReplace / SetQueryParam — raw replaceState callback
 	backFn    func()       // Back
 	forwardFn func()       // Forward
+
+	// pushStateFn and replaceStateFn, when set by BindHistory, wrap navFn and
+	// replaceFn with scroll saving and the post-frame browser behaviour. They
+	// are separate so query-parameter updates can use the raw callbacks and
+	// stay on the same page.
+	pushStateFn    func(string)
+	replaceStateFn func(string)
+	navOptions     ScrollOptions
+	linkPathSig    *core.Signal[string] // one shared computed for every NavLink
+
+	// leaveGuards are registered by components through BeforeLeave. The map
+	// lives on the render loop; beforeunload and navigation callbacks also run
+	// there, so no lock is needed.
+	leaveGuards map[int]func(string) bool
+	nextGuard   int
 	// base is the URL prefix the app is served under (e.g. "/goowee" on a
 	// GitHub Pages project site), "" at the domain root. Internal paths
 	// (Path, route patterns) are always base-relative; the base is added back
@@ -56,6 +71,9 @@ func (r *Router) NotFound() bool { return r.notFound }
 // compatibility; prefer BindHistory which sets all callbacks at once.
 func (r *Router) SetNavFn(fn func(string)) {
 	r.navFn = fn
+	// A caller-provided callback replaces BindHistory's wrapped one; it owns
+	// whatever browser behaviour it wants.
+	r.pushStateFn = nil
 }
 
 // Navigate goes to target, a base-relative URL: "/rooms/2", or with a query
@@ -64,7 +82,13 @@ func (r *Router) SetNavFn(fn func(string)) {
 // the history entry gets the whole URL. A target that is only "?query" keeps
 // the current path, and only "#fragment" keeps the path and query.
 func (r *Router) Navigate(target string) {
-	if url := r.setURL(target); r.navFn != nil {
+	if !r.canLeave(target) {
+		return
+	}
+	url := r.setURL(target)
+	if r.pushStateFn != nil {
+		r.pushStateFn(url)
+	} else if r.navFn != nil {
 		r.navFn(url)
 	}
 }
@@ -74,7 +98,13 @@ func (r *Router) Navigate(target string) {
 // switches, search params, wizard steps where back should skip the
 // intermediate step.
 func (r *Router) NavigateReplace(target string) {
-	if url := r.setURL(target); r.replaceFn != nil {
+	if !r.canLeave(target) {
+		return
+	}
+	url := r.setURL(target)
+	if r.replaceStateFn != nil {
+		r.replaceStateFn(url)
+	} else if r.replaceFn != nil {
 		r.replaceFn(url)
 	}
 }
@@ -130,7 +160,12 @@ func (r *Router) syncURL(path, search, hash string) {
 }
 
 // Back navigates backward in browser history. Only works after BindHistory.
+// A BeforeLeave guard can veto it with the current URL as its target; the
+// browser's own back button is not blockable in a same-document navigation.
 func (r *Router) Back() {
+	if !r.canLeave(r.url()) {
+		return
+	}
 	if r.backFn != nil {
 		r.backFn()
 	}
@@ -138,6 +173,9 @@ func (r *Router) Back() {
 
 // Forward navigates forward in browser history. Only works after BindHistory.
 func (r *Router) Forward() {
+	if !r.canLeave(r.url()) {
+		return
+	}
 	if r.forwardFn != nil {
 		r.forwardFn()
 	}

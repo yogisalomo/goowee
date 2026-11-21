@@ -20,6 +20,17 @@ time. The public surface freezes under semver at v1.
   reactive state immediately and a leaving node is inert. Reduced-motion users
   skip the animation; `gooweetest` removes at once and records the request in
   `Screen.Transitions()`. The tutorial's todo rows now animate add and remove.
+- The router now behaves like a browser navigation (#155). After a route's
+  frame is applied, a push scrolls to the top, a `#fragment` scrolls to its
+  element, and back/forward restore the position saved in that history entry
+  (`history.scrollRestoration` is `"manual"`). Focus moves to the first
+  `[data-route-focus]`, `h1` or `main`, and an `aria-live` region announces the
+  document title. `router.ScrollOptions` (via `SetNavigationOptions`) can
+  disable the behaviour, scope scrolling to a container, or skip focus and
+  announcement. `r.NavLink` binds `active`/`aria-current` from one shared
+  computed, and `r.BeforeLeave` registers a component-scoped navigation guard
+  that is also asked on `beforeunload`. `core.AfterFrame` runs a callback once
+  a frame's DOM mutations are applied.
 
 ## [0.4.0] — 2026-11-24
 
