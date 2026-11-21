@@ -156,71 +156,71 @@ func (r *DOMRenderer) diffElement(old, nw *core.ElementNode, muts *[]core.Mutati
 		nw.Ref.ID = old.ID // a ref created by this render points at the reused node
 	}
 
-	oldAttrs := map[string]string{}
-	for _, a := range old.Attrs {
-		oldAttrs[a.Name] = a.Value
-	}
-	for _, a := range nw.Attrs {
+	// Attribute and property lists are short: linear scans, no maps (#137).
+	for i, a := range nw.Attrs {
 		if !runtime.ValidAttrName(a.Name) {
 			runtime.WarnInvalidAttr(a.Name)
 			continue
 		}
-		if ov, ok := oldAttrs[a.Name]; !ok || ov != a.Value {
+		if lastAttr(nw.Attrs, a.Name) != i {
+			continue // a later attribute of the same name wins
+		}
+		if ov, ok := attrValue(old.Attrs, a.Name); !ok || ov != a.Value {
 			*muts = append(*muts, core.Mutation{
 				Type: core.MutSetAttribute, NodeID: old.ID, Key: a.Name, Value: runtime.SafeURL(a.Name, a.Value),
 			})
 		}
-		delete(oldAttrs, a.Name)
 	}
-	for name := range oldAttrs {
-		if !runtime.ValidAttrName(name) {
+	for i, a := range old.Attrs {
+		if _, kept := attrValue(nw.Attrs, a.Name); kept || firstAttr(old.Attrs, a.Name) != i {
+			continue
+		}
+		if !runtime.ValidAttrName(a.Name) {
 			continue // never set, so nothing to remove
 		}
 		*muts = append(*muts, core.Mutation{
-			Type: core.MutRemoveAttribute, NodeID: old.ID, Key: name,
+			Type: core.MutRemoveAttribute, NodeID: old.ID, Key: a.Name,
 		})
 	}
 
-	oldProps := map[string]any{}
-	for _, p := range old.Props {
-		oldProps[p.Name] = p.Value
-	}
-	for _, p := range nw.Props {
+	for i, p := range nw.Props {
+		if lastProp(nw.Props, p.Name) != i {
+			continue // a later property of the same name wins
+		}
 		// SafeEqual: a slice/map prop value must count as changed, not
 		// panic the differ (which would freeze the subtree).
-		if ov, ok := oldProps[p.Name]; !ok || !runtime.SafeEqual(ov, p.Value) {
+		if ov, ok := propValue(old.Props, p.Name); !ok || !runtime.SafeEqual(ov, p.Value) {
 			*muts = append(*muts, core.Mutation{
 				Type: core.MutSetProperty, NodeID: old.ID, Key: p.Name, Value: runtime.SafeURLValue(p.Name, p.Value),
 			})
 		}
-		delete(oldProps, p.Name)
 	}
-	for name, ov := range oldProps {
+	for i, p := range old.Props {
+		if _, kept := propValue(nw.Props, p.Name); kept || firstProp(old.Props, p.Name) != i {
+			continue
+		}
+		ov, _ := propValue(old.Props, p.Name)
 		var zero any = ""
 		if _, isBool := ov.(bool); isBool {
 			zero = false
 		}
 		*muts = append(*muts, core.Mutation{
-			Type: core.MutSetProperty, NodeID: old.ID, Key: name, Value: zero,
+			Type: core.MutSetProperty, NodeID: old.ID, Key: p.Name, Value: zero,
 		})
 	}
 
-	r.Bindings.Unbind(old.ID)
-	for _, b := range nw.Binds {
-		r.Bindings.Bind(old.ID, b)
-		*muts = append(*muts, runtime.MutationForBind(old.ID, b))
-	}
+	r.Bindings.Update(old.ID, nw.Binds, muts)
 
-	newEvents := map[string]bool{}
 	for _, hd := range nw.Handlers {
 		if !r.Registry.Has(old.ID, hd.Event) {
 			*muts = append(*muts, listen(old.ID, hd.Event, true))
 		}
+		// Always re-registered: the new render's closure must replace the
+		// old one (it may capture new values).
 		r.Registry.RegisterHandler(old.ID, hd.Event, hd.Fn, hd.Options)
-		newEvents[hd.Event] = true
 	}
 	for _, hd := range old.Handlers {
-		if !newEvents[hd.Event] && r.Registry.Has(old.ID, hd.Event) {
+		if !hasHandler(nw.Handlers, hd.Event) && r.Registry.Has(old.ID, hd.Event) {
 			r.Registry.RemoveHandler(old.ID, hd.Event)
 			*muts = append(*muts, listen(old.ID, hd.Event, false))
 		}
@@ -252,14 +252,29 @@ func (r *DOMRenderer) diffText(old, nw *core.TextNode, muts *[]core.Mutation) {
 		}
 		return
 	}
-	r.Bindings.Unbind(old.ID)
+	// A bound text node (TextS, Textf) keeps its binding when the signal is
+	// the same, and sends its text only when it changed (#137).
 	if newSig, ok := nw.Value.(core.SignalAccessor); ok {
-		r.Bindings.Bind(old.ID, core.Bind{Target: core.BindToProp, Name: "textContent", Signal: newSig})
-		*muts = append(*muts, core.Mutation{
-			Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent",
-			Value: runtime.TextValue(newSig.Value()),
-		})
-	} else if newIsStr {
+		bind := []core.Bind{{Target: core.BindToProp, Name: "textContent", Signal: newSig}}
+		if !oldIsStr {
+			r.Bindings.Update(old.ID, bind, muts)
+			return
+		}
+		// Static text becoming bound: Update has no old binding to compare
+		// with, so compare with the text the node shows.
+		var sent []core.Mutation
+		r.Bindings.Update(old.ID, bind, &sent)
+		if v := runtime.TextValue(newSig.Value()); v != oldStr {
+			*muts = append(*muts, core.Mutation{Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent", Value: v})
+		}
+		return
+	}
+	var shown any = oldStr
+	if oldSig, ok := old.Value.(core.SignalAccessor); ok {
+		shown = runtime.TextValue(oldSig.Value())
+	}
+	r.Bindings.Unbind(old.ID)
+	if newIsStr && shown != newStr {
 		*muts = append(*muts, core.Mutation{
 			Type: core.MutSetProperty, NodeID: old.ID, Key: "textContent", Value: newStr,
 		})
@@ -587,4 +602,69 @@ func typeCompatible(a, b core.Node) bool {
 		return ok && va.Name == vb.Name
 	}
 	return false
+}
+
+// attrValue is the value of the last attribute named name in attrs (later
+// ones win, as with a map), and whether there is one.
+func attrValue(attrs []core.Attr, name string) (string, bool) {
+	for i := len(attrs) - 1; i >= 0; i-- {
+		if attrs[i].Name == name {
+			return attrs[i].Value, true
+		}
+	}
+	return "", false
+}
+
+func firstAttr(attrs []core.Attr, name string) int {
+	for i, a := range attrs {
+		if a.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func propValue(props []core.Prop, name string) (any, bool) {
+	for i := len(props) - 1; i >= 0; i-- {
+		if props[i].Name == name {
+			return props[i].Value, true
+		}
+	}
+	return nil, false
+}
+
+func firstProp(props []core.Prop, name string) int {
+	for i, p := range props {
+		if p.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func hasHandler(hs []core.Handler, event string) bool {
+	for _, h := range hs {
+		if h.Event == event {
+			return true
+		}
+	}
+	return false
+}
+
+func lastAttr(attrs []core.Attr, name string) int {
+	for i := len(attrs) - 1; i >= 0; i-- {
+		if attrs[i].Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func lastProp(props []core.Prop, name string) int {
+	for i := len(props) - 1; i >= 0; i-- {
+		if props[i].Name == name {
+			return i
+		}
+	}
+	return -1
 }

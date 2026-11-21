@@ -23,6 +23,14 @@ time. The public surface freezes under semver at v1.
   rendered on the client instead. The tutorial site is now prerendered
   (`cmd/site-export`, `make pages`).
 
+### Changed
+- A re-render no longer rebinds every bound attribute, property and text it
+  rebuilds, or re-sends their values (#137). A binding whose signal is the
+  same keeps its subscription and sends nothing. One whose signal changed (a
+  `Textf` makes a new one each render) sends its value only if it differs.
+  A no-op re-render of 100 rows with a bound class and text went from 200
+  mutations and 1,834 allocations to none and about 520 (building the rows).
+
 ### Fixed
 - On a server-rendered page, what the user did before the WASM booted was lost
   (#131). Clicks went nowhere, a form submitted natively (reloading the page),
