@@ -24,7 +24,7 @@ func TestUsePersistLoadsAfterHydration(t *testing.T) {
 		return h.P(h.Textf("%d", n))
 	}))
 	for _, m := range muts {
-		if m.Type != core.MutHydrate || fmt.Sprint(m.Value) == "5" {
+		if m.Type != core.MutHydrate || fmt.Sprint(m.Val()) == "5" {
 			t.Fatalf("hydration must only claim the server's nodes: %v %+v", m.Type, m)
 		}
 	}
@@ -35,7 +35,7 @@ func TestUsePersistLoadsAfterHydration(t *testing.T) {
 	got := r.Scheduler.Flush()
 	updated := false
 	for _, m := range got {
-		updated = updated || (m.Type == core.MutSetProperty && fmt.Sprint(m.Value) == "5")
+		updated = updated || (m.Type == core.MutSetProperty && fmt.Sprint(m.Val()) == "5")
 	}
 	if n.Get() != 5 || !updated {
 		t.Fatalf("after mount n=%d, mutations %+v", n.Get(), got)

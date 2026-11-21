@@ -65,7 +65,7 @@ func TestReRenderSwapsABindingsSignal(t *testing.T) {
 	muts := flushFx(r)
 	got := map[string]any{}
 	for _, m := range muts {
-		got[m.Key] = m.Value
+		got[m.Key] = m.Val()
 	}
 	if got["class"] != "b" || got["textContent"] != "b" {
 		t.Fatalf("after the swap: %+v", muts)
@@ -98,7 +98,7 @@ func TestReRenderComputedBindingComparesValues(t *testing.T) {
 	}
 	n.Set(2)
 	muts := flushFx(r)
-	if len(muts) != 1 || muts[0].Value != "n=2" {
+	if len(muts) != 1 || muts[0].Val() != "n=2" {
 		t.Fatalf("after n changed: %+v", muts)
 	}
 	tick.Set(2)
@@ -107,7 +107,7 @@ func TestReRenderComputedBindingComparesValues(t *testing.T) {
 	last := ""
 	for _, m := range muts {
 		if m.Key == "textContent" {
-			last, _ = m.Value.(string)
+			last, _ = m.Val().(string)
 		}
 	}
 	if last != "n=3" {
@@ -135,11 +135,11 @@ func TestReRenderTextStaticAndBound(t *testing.T) {
 		t.Fatalf("static to bound with the same text: %+v", muts)
 	}
 	s.Set("changed") // now bound
-	if muts := flushFx(r); len(muts) != 1 || muts[0].Value != "changed" {
+	if muts := flushFx(r); len(muts) != 1 || muts[0].Val() != "changed" {
 		t.Fatalf("bound text change: %+v", muts)
 	}
 	bound.Set(false) // bound "changed" → static "same": send it, and unbind
-	if muts := flushFx(r); len(muts) != 1 || muts[0].Value != "same" {
+	if muts := flushFx(r); len(muts) != 1 || muts[0].Val() != "same" {
 		t.Fatalf("bound to static: %+v", muts)
 	}
 	s.Set("ignored")
@@ -164,8 +164,8 @@ func TestDiffDuplicateAttrsLastWins(t *testing.T) {
 	renderFx(r, scope)
 	v.Set(1)
 	for _, m := range flushFx(r) {
-		if m.Key == "class" && m.Value != "b" {
-			t.Fatalf("class set to %v; the last attribute (b) must win", m.Value)
+		if m.Key == "class" && m.Val() != "b" {
+			t.Fatalf("class set to %v; the last attribute (b) must win", m.Val())
 		}
 	}
 }

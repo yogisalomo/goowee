@@ -2,7 +2,9 @@ package core
 
 import (
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"sync"
 )
 
@@ -22,7 +24,16 @@ type dirtyScope struct {
 }
 
 type Scheduler struct {
-	queue    []Mutation
+	queue []Mutation
+	// frame counts flushes; a Slot is valid for the frame it was taken in.
+	frame uint64
+	// plainLast counts the last-write-wins mutations enqueued without a
+	// slot this frame: with fewer than two, nothing can supersede anything,
+	// and Flush skips coalescing (#136).
+	plainLast int
+	// spare and entries are reused by Flush from pass to pass.
+	spare    map[any]*dirtyScope
+	entries  []*dirtyScope
 	dirty    map[any]*dirtyScope // scopes to re-render on next flush, keyed by token
 	flushing map[any]*dirtyScope // entries being processed in the current pass
 	inFlush  bool
@@ -139,7 +150,33 @@ func (s *Scheduler) signalWork() {
 }
 
 func (s *Scheduler) Enqueue(muts ...Mutation) {
+	for i := range muts {
+		if lastWins(muts[i].Type) {
+			s.plainLast++
+		}
+	}
 	s.queue = append(s.queue, muts...)
+	s.signalWork()
+}
+
+// Slot is a place in a frame's queue that a binding keeps for its update, so
+// that writing the binding again in the same frame replaces its update instead
+// of adding one (#136). The zero Slot is empty.
+type Slot struct {
+	frame uint64 // the frame it was taken in, plus one
+	index int
+}
+
+// EnqueueSlot enqueues m in slot: in its place if slot already holds an
+// update this frame, else at the end. Coalescing then has nothing to do for
+// it. Two slots writing the same key of the same node apply in queue order.
+func (s *Scheduler) EnqueueSlot(m Mutation, slot *Slot) {
+	if slot.frame == s.frame+1 && slot.index < len(s.queue) {
+		s.queue[slot.index] = m
+		return
+	}
+	slot.frame, slot.index = s.frame+1, len(s.queue)
+	s.queue = append(s.queue, m)
 	s.signalWork()
 }
 
@@ -254,34 +291,63 @@ func (s *Scheduler) Flush() []Mutation {
 	s.drainPosted()
 	for pass := 0; pass < maxDirtyPasses && len(s.dirty) > 0; pass++ {
 		current := s.dirty
-		s.dirty = make(map[any]*dirtyScope)
+		s.dirty = s.spare
+		if s.dirty == nil {
+			s.dirty = make(map[any]*dirtyScope)
+		}
+		s.spare = nil
 		s.flushing = current
 
-		entries := make([]*dirtyScope, 0, len(current))
+		entries := s.entries[:0]
 		for _, e := range current {
 			entries = append(entries, e)
 		}
-		sort.Slice(entries, func(i, j int) bool { return entries[i].seq < entries[j].seq })
+		if len(entries) > 1 {
+			sort.Slice(entries, func(i, j int) bool { return entries[i].seq < entries[j].seq })
+		}
 		for _, e := range entries {
 			if !e.cancelled {
 				e.render()
 			}
 		}
 		s.flushing = nil
+		clear(entries)
+		s.entries = entries[:0]
+		clear(current)
+		s.spare = current
 	}
 	if len(s.dirty) > 0 {
 		s.dropCycle()
 	}
 	s.inFlush = false
 
-	out := coalesce(s.queue)
-	s.queue = nil
+	// The caller owns the batch; the queue's array is kept for the next
+	// frame, unless an unusually large one (a big mount) left it oversized.
+	var out []Mutation
+	switch {
+	case len(s.queue) == 0:
+	case s.plainLast >= 2:
+		out = coalesce(s.queue)
+	default:
+		out = append([]Mutation(nil), s.queue...)
+	}
+	clear(s.queue)
+	if cap(s.queue) > maxKeptQueue {
+		s.queue = nil
+	} else {
+		s.queue = s.queue[:0]
+	}
+	s.plainLast = 0
+	s.frame++
 	return out
 }
 
 // dropCycle logs and drops the scopes still dirty after maxDirtyPasses: a
 // render keeps dirtying scopes (its own or another's), which only a code
 // change ends.
+// maxKeptQueue is the largest queue array Flush keeps for the next frame.
+const maxKeptQueue = 1 << 15
+
 func (s *Scheduler) dropCycle() {
 	fields := map[string]any{"passes": maxDirtyPasses, "scopes": len(s.dirty)}
 	if s.DescribeDirty != nil {
@@ -353,6 +419,107 @@ type Mutation struct {
 	ChildID int          `json:"childId,omitempty"`
 	RefID   int          `json:"refId,omitempty"`
 	NS      string       `json:"ns,omitempty"` // XML namespace for CreateElement (SVG)
+
+	// A bound update carries its value typed rather than boxed in Value, so
+	// it reaches the encoders without an allocation (#136): Kind says which,
+	// and Value is nil. Read it with Val. See ValueKind.
+	Kind ValueKind `json:"-"`
+	Str  string    `json:"-"` // the value, for ValString
+	Bits uint64    `json:"-"` // the value, for the number and bool kinds; see Float, Int, Bool
+}
+
+// ValueKind says where a Mutation's value is (#136).
+type ValueKind uint8
+
+const (
+	ValAny    ValueKind = iota // Value
+	ValString                  // Str
+	ValFloat                   // a float64 (Float)
+	ValInt                     // an int (Int)
+	ValBool                    // a bool (Bool)
+	// The text of a number or bool as fmt's %v writes it: what an attribute
+	// or textContent holds. Encoders write it as a string.
+	ValFloatText
+	ValIntText
+	ValBoolText
+)
+
+// Float is the value of a ValFloat or ValFloatText mutation.
+func (m *Mutation) Float() float64 { return math.Float64frombits(m.Bits) }
+
+// Int is the value of a ValInt or ValIntText mutation.
+func (m *Mutation) Int() int { return int(int64(m.Bits)) }
+
+// Bool is the value of a ValBool or ValBoolText mutation.
+func (m *Mutation) Bool() bool { return m.Bits != 0 }
+
+// IsText reports whether the mutation's value is text: a string, or a number
+// or bool to be written as its %v text.
+func (m *Mutation) IsText() bool {
+	switch m.Kind {
+	case ValString, ValFloatText, ValIntText, ValBoolText:
+		return true
+	}
+	return false
+}
+
+// AppendText appends a text value (see IsText) to b, formatted as fmt's %v
+// would, without allocating.
+func (m *Mutation) AppendText(b []byte) []byte {
+	switch m.Kind {
+	case ValString:
+		return append(b, m.Str...)
+	case ValFloatText:
+		return strconv.AppendFloat(b, m.Float(), 'g', -1, 64)
+	case ValIntText:
+		return strconv.AppendInt(b, int64(m.Int()), 10)
+	case ValBoolText:
+		return strconv.AppendBool(b, m.Bool())
+	}
+	return b
+}
+
+// Val is the mutation's value, typed values included, as Value would hold
+// it: a number or bool as text is the string. It allocates for those; the
+// encoders read the typed fields instead.
+func (m Mutation) Val() any {
+	switch m.Kind {
+	case ValString:
+		return m.Str
+	case ValFloat:
+		return m.Float()
+	case ValInt:
+		return m.Int()
+	case ValBool:
+		return m.Bool()
+	case ValFloatText, ValIntText, ValBoolText:
+		return string(m.AppendText(nil))
+	}
+	return m.Value
+}
+
+// SetString, SetFloat, SetInt and SetBool store a typed value (#136).
+func (m *Mutation) SetString(s string) { m.Kind, m.Str, m.Value = ValString, s, nil }
+func (m *Mutation) SetFloat(f float64) { m.Kind, m.Bits, m.Value = ValFloat, math.Float64bits(f), nil }
+func (m *Mutation) SetInt(i int)       { m.Kind, m.Bits, m.Value = ValInt, uint64(int64(i)), nil }
+func (m *Mutation) SetBool(v bool) {
+	m.Kind, m.Bits, m.Value = ValBool, 0, nil
+	if v {
+		m.Bits = 1
+	}
+}
+
+// AsText turns a typed number or bool into its %v text (ValFloat into
+// ValFloatText, and so on), as an attribute or textContent holds it.
+func (m *Mutation) AsText() {
+	switch m.Kind {
+	case ValFloat:
+		m.Kind = ValFloatText
+	case ValInt:
+		m.Kind = ValIntText
+	case ValBool:
+		m.Kind = ValBoolText
+	}
 }
 
 type MutationType int

@@ -38,7 +38,7 @@ func TestRootsShareSchedulerAndIDs(t *testing.T) {
 
 	// A binding in the first root still updates through the shared scheduler.
 	a.Set("a2")
-	if muts := base.Scheduler.Flush(); len(muts) != 1 || muts[0].Value != "a2" {
+	if muts := base.Scheduler.Flush(); len(muts) != 1 || muts[0].Val() != "a2" {
 		t.Fatalf("binding update: %+v", muts)
 	}
 
@@ -49,7 +49,7 @@ func TestRootsShareSchedulerAndIDs(t *testing.T) {
 		t.Fatalf("unmount: %+v", muts)
 	}
 	a.Set("a3")
-	if muts := base.Scheduler.Flush(); len(muts) != 1 || muts[0].Value != "a3" {
+	if muts := base.Scheduler.Flush(); len(muts) != 1 || muts[0].Val() != "a3" {
 		t.Fatalf("the first root stopped updating after the second unmounted: %+v", muts)
 	}
 }

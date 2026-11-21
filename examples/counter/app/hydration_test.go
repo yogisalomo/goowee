@@ -45,7 +45,7 @@ func domIDKinds(muts []core.Mutation) map[int]string {
 	out := map[int]string{}
 	for _, m := range muts {
 		if m.Type == core.MutCreateElement {
-			out[m.NodeID] = m.Value.(string)
+			out[m.NodeID] = m.Val().(string)
 		}
 	}
 	return out

@@ -62,12 +62,12 @@ func TestContextHydrates(t *testing.T) {
 		if m.Type != core.MutHydrate {
 			continue
 		}
-		if m.Value == "#comment" {
+		if m.Val() == "#comment" {
 			if !strings.Contains(html, fmt.Sprintf("<!--/%d-->", m.NodeID)) {
 				t.Fatalf("scope anchor %d not in the server markup: %s", m.NodeID, html)
 			}
-		} else if m.Value != "#text" && !strings.Contains(html, fmt.Sprintf(`data-node-id="%d"`, m.NodeID)) {
-			t.Fatalf("node %d (%v) not in the server markup: %s", m.NodeID, m.Value, html)
+		} else if m.Val() != "#text" && !strings.Contains(html, fmt.Sprintf(`data-node-id="%d"`, m.NodeID)) {
+			t.Fatalf("node %d (%v) not in the server markup: %s", m.NodeID, m.Val(), html)
 		}
 	}
 	if !strings.Contains(html, ">ada<") || !strings.Contains(html, ">anonymous<") {

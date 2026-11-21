@@ -86,8 +86,9 @@ func sameBinding(a, b core.Bind) bool {
 }
 
 func (r *BindingRegistry) subscribe(nodeID int, b core.Bind) boundBinding {
+	var slot core.Slot // its update's place in the frame: a rewrite replaces it
 	unsub := b.Signal.Subscribe(func() {
-		r.scheduler.Enqueue(MutationForBind(nodeID, b))
+		r.scheduler.EnqueueSlot(MutationForBind(nodeID, b), &slot)
 	})
 	return boundBinding{bind: b, unsub: unsub}
 }
@@ -102,6 +103,23 @@ func (r *BindingRegistry) Unbind(nodeID int) {
 }
 
 func MutationForBind(nodeID int, b core.Bind) core.Mutation {
+	// A string, float64, int or bool signal stores its value typed: no boxing
+	// and no formatting here (#136). The encoders format numbers and bools
+	// as fmt's %v does, which is what the boxed path below sends.
+	if tv, ok := b.Signal.(core.TypedValuer); ok {
+		m := core.Mutation{Type: core.MutSetProperty, NodeID: nodeID, Key: b.Name}
+		if b.Target == core.BindToAttr {
+			m.Type = core.MutSetAttribute
+		}
+		if m.Kind, m.Str, m.Bits = tv.TypedValue(); m.Kind != core.ValAny {
+			if m.Kind == core.ValString {
+				m.Str = SafeURL(b.Name, m.Str) // textContent isn't a URL attribute
+			} else if m.Type == core.MutSetAttribute || b.Name == "textContent" {
+				m.AsText()
+			}
+			return m
+		}
+	}
 	if b.Target == core.BindToAttr {
 		return core.Mutation{
 			Type: core.MutSetAttribute, NodeID: nodeID, Key: b.Name,

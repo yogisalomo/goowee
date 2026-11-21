@@ -70,7 +70,7 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 		switch m.Type {
 		case core.MutCreateElement:
 			d.nodes[m.NodeID] = &fnode{
-				id: m.NodeID, tag: m.Value.(string), parent: -1,
+				id: m.NodeID, tag: m.Val().(string), parent: -1,
 				attrs: map[string]string{}, props: map[string]any{},
 			}
 		case core.MutHydrate:
@@ -78,7 +78,7 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 			// (the JS-side fallback for a hydration miss).
 			if _, ok := d.nodes[m.NodeID]; !ok {
 				d.nodes[m.NodeID] = &fnode{
-					id: m.NodeID, tag: m.Value.(string), parent: -1,
+					id: m.NodeID, tag: m.Val().(string), parent: -1,
 					attrs: map[string]string{}, props: map[string]any{},
 				}
 			}
@@ -88,7 +88,7 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 			d.forget(m.NodeID)
 		case core.MutSetAttribute:
 			if n := d.nodes[m.NodeID]; n != nil {
-				n.attrs[m.Key] = toStr(m.Value)
+				n.attrs[m.Key] = toStr(m.Val())
 			}
 		case core.MutRemoveAttribute:
 			if n := d.nodes[m.NodeID]; n != nil {
@@ -96,7 +96,7 @@ func (d *fakeDOM) apply(muts []core.Mutation) {
 			}
 		case core.MutSetProperty:
 			if n := d.nodes[m.NodeID]; n != nil {
-				n.props[m.Key] = m.Value
+				n.props[m.Key] = m.Val()
 			}
 		case core.MutAppendChild:
 			p, c := d.nodes[m.NodeID], d.nodes[m.ChildID]

@@ -83,6 +83,20 @@ time. The public surface freezes under semver at v1.
   instance)` before `go.run`, or keeps the callbacks. `goowee.boot({calls:
   "callbacks"})` keeps them too, and `goowee.calls` reports which is in use.
   TinyGo builds, and pages with an older `goowee.js`, keep the callbacks.
+- **A bound update no longer allocates** (#136). A string, float64, int or
+  bool signal hands its value to the binding typed, and the encoders format
+  it the way `%v` did, so nothing is boxed or formatted into a new string.
+  Each binding keeps its place in the frame's queue, so a second write in the
+  same frame replaces its update and the frame needs no coalescing map. The
+  scheduler reuses its queue and its re-render bookkeeping from frame to
+  frame, and `Set` compares the common types without reflection. A frame of
+  6,000 bound updates allocates 17 times instead of about 15,500.
+  `BenchmarkLayoutTickFrame` under WASM drops from 9.7 ms to 2.1 ms, and in
+  Chrome the 5,000-update layout tick (signal writes and frame) from 13.7 ms
+  to 4.5 ms, with a quarter of the garbage collections.
+  `core.Mutation` gains `Kind`, `Str` and `Bits` for such values, with `Val`
+  to read any mutation's value; code that reads `Value` of a bound
+  attribute or property update should use `Val`.
 - **DOM updates cross from Go to JavaScript in a binary format** instead of
   JSON (ADR-029, #134). The encoder reuses its buffers, so a frame no longer
   allocates its own payload, and the runtime decodes each batch's strings with

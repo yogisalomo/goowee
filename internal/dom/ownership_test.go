@@ -279,8 +279,8 @@ func TestRawHydratesAsDiv(t *testing.T) {
 	r.SetHydrating(true)
 	muts, _ := r.Render(h.Section(h.Raw("<b>hi</b>")))
 	for _, m := range muts {
-		if m.Type == core.MutHydrate && m.NodeID == 2 && m.Value != "div" {
-			t.Fatalf("raw node claimed as %v, want div", m.Value)
+		if m.Type == core.MutHydrate && m.NodeID == 2 && m.Val() != "div" {
+			t.Fatalf("raw node claimed as %v, want div", m.Val())
 		}
 	}
 }
@@ -294,8 +294,8 @@ func TestRawSUpdatesContentInPlace(t *testing.T) {
 	rawID := 0
 	for _, m := range muts {
 		if m.Type == core.MutSetProperty && m.Key == "innerHTML" {
-			if m.Value != "<b>pending</b>" {
-				t.Fatalf("initial innerHTML %v", m.Value)
+			if m.Val() != "<b>pending</b>" {
+				t.Fatalf("initial innerHTML %v", m.Val())
 			}
 			rawID = m.NodeID
 		}
@@ -306,7 +306,7 @@ func TestRawSUpdatesContentInPlace(t *testing.T) {
 	body.Set("<b>approved</b>")
 	muts = flushFx(r)
 	if len(muts) != 1 || muts[0].Type != core.MutSetProperty || muts[0].NodeID != rawID ||
-		muts[0].Key != "innerHTML" || muts[0].Value != "<b>approved</b>" {
+		muts[0].Key != "innerHTML" || muts[0].Val() != "<b>approved</b>" {
 		t.Fatalf("update: got %v, want one innerHTML write on node %d", muts, rawID)
 	}
 }

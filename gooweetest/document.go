@@ -248,7 +248,7 @@ func (d *document) apply(muts []core.Mutation) {
 			}
 		case core.MutSetAttribute:
 			if n := d.nodes[m.NodeID]; n != nil {
-				n.setAttr(m.Key, fmt.Sprint(m.Value))
+				n.setAttr(m.Key, fmt.Sprint(m.Val()))
 			}
 		case core.MutRemoveAttribute:
 			if n := d.nodes[m.NodeID]; n != nil {
@@ -261,13 +261,13 @@ func (d *document) apply(muts []core.Mutation) {
 			}
 			switch m.Key {
 			case "textContent":
-				n.setTextContent(fmt.Sprint(m.Value))
+				n.setTextContent(fmt.Sprint(m.Val()))
 			case "innerHTML":
-				n.raw = fmt.Sprint(m.Value)
+				n.raw = fmt.Sprint(m.Val())
 			case "value":
-				d.setValue(n, m.Value)
+				d.setValue(n, m.Val())
 			default:
-				n.props[m.Key] = m.Value
+				n.props[m.Key] = m.Val()
 			}
 		case core.MutAppendChild:
 			p, c := d.byID(m.NodeID), d.nodes[m.ChildID]

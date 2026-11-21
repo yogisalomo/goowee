@@ -207,7 +207,7 @@ func TestPortalAnchorKeepsHydrationIDParity(t *testing.T) {
 	})
 	var pID int
 	for _, m := range muts {
-		if m.Type == core.MutHydrate && m.Value == "p" {
+		if m.Type == core.MutHydrate && m.Val() == "p" {
 			pID = m.NodeID
 		}
 	}

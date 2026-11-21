@@ -11,7 +11,7 @@ func listens(muts []core.Mutation) []string {
 	for _, m := range muts {
 		if m.Type == core.MutListen {
 			s := "+"
-			if m.Value != true {
+			if m.Val() != true {
 				s = "-"
 			}
 			out = append(out, s+m.Key)

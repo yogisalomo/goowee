@@ -48,7 +48,20 @@ func appendMutation(b []byte, m core.Mutation) ([]byte, bool) {
 		b = append(b, `,"key":`...)
 		b = appendString(b, m.Key)
 	}
-	if m.Value != nil {
+	if m.Kind != core.ValAny {
+		b = append(b, `,"value":`...)
+		switch m.Kind {
+		case core.ValString:
+			b = appendString(b, m.Str)
+		case core.ValFloatText, core.ValIntText, core.ValBoolText:
+			b = append(m.AppendText(append(b, '"')), '"') // ASCII: nothing to escape
+		default:
+			var ok bool
+			if b, ok = appendValue(b, m.Val()); !ok {
+				return b, false
+			}
+		}
+	} else if m.Value != nil {
 		b = append(b, `,"value":`...)
 		var ok bool
 		if b, ok = appendValue(b, m.Value); !ok {
@@ -187,7 +200,7 @@ func LogDropped(dropped []core.Mutation) {
 			"type":   m.Type.String(),
 			"nodeId": m.NodeID,
 			"key":    m.Key,
-			"value":  m.Value,
+			"value":  m.Val(),
 		})
 	}
 }

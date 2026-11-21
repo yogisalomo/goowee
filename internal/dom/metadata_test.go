@@ -25,7 +25,7 @@ func metadataTree() core.Node {
 func headAppends(muts []core.Mutation) int {
 	n := 0
 	for _, m := range muts {
-		if m.Type == core.MutPortalAppend && m.Value == "head" {
+		if m.Type == core.MutPortalAppend && m.Val() == "head" {
 			n++
 		}
 	}
@@ -56,7 +56,7 @@ func TestMetadataHydrationNoDuplicateHead(t *testing.T) {
 	}
 	for _, m := range muts {
 		if m.Type == core.MutCreateElement {
-			if s, _ := m.Value.(string); s == "meta" {
+			if s, _ := m.Val().(string); s == "meta" {
 				t.Fatalf("hydration must not re-create head element %q", s)
 			}
 		}
@@ -98,7 +98,7 @@ func TestMetadataHydrationIDParity(t *testing.T) {
 func createID(muts []core.Mutation, tag string) int {
 	for _, m := range muts {
 		if m.Type == core.MutCreateElement {
-			if s, _ := m.Value.(string); s == tag {
+			if s, _ := m.Val().(string); s == tag {
 				return m.NodeID
 			}
 		}
@@ -109,7 +109,7 @@ func createID(muts []core.Mutation, tag string) int {
 func hydrateID(muts []core.Mutation, tag string) int {
 	for _, m := range muts {
 		if m.Type == core.MutHydrate {
-			if s, _ := m.Value.(string); s == tag {
+			if s, _ := m.Val().(string); s == tag {
 				return m.NodeID
 			}
 		}
@@ -137,8 +137,8 @@ func TestHydratedTitleIsLive(t *testing.T) {
 	textID := 0
 	for _, m := range muts {
 		if m.Type == core.MutCreateElement {
-			created[fmt.Sprint(m.Value)]++
-			if m.Value == "#text" {
+			created[fmt.Sprint(m.Val())]++
+			if m.Val() == "#text" {
 				textID = m.NodeID
 			}
 		}
@@ -148,7 +148,7 @@ func TestHydratedTitleIsLive(t *testing.T) {
 	}
 	appended := false
 	for _, m := range muts {
-		if m.Type == core.MutPortalAppend && m.Value == "head" {
+		if m.Type == core.MutPortalAppend && m.Val() == "head" {
 			appended = true
 		}
 	}
@@ -158,7 +158,7 @@ func TestHydratedTitleIsLive(t *testing.T) {
 	// The body's ids match a plain render's, so it claims the server's nodes.
 	bodyID := func(ms []core.Mutation, typ core.MutationType) int {
 		for _, m := range ms {
-			if m.Type == typ && m.Value == "p" {
+			if m.Type == typ && m.Val() == "p" {
 				return m.NodeID
 			}
 		}
@@ -169,7 +169,7 @@ func TestHydratedTitleIsLive(t *testing.T) {
 	}
 	title.Set("(3) dure")
 	muts = r.Scheduler.Flush()
-	if len(muts) != 1 || muts[0].NodeID != textID || muts[0].Value != "(3) dure" {
+	if len(muts) != 1 || muts[0].NodeID != textID || muts[0].Val() != "(3) dure" {
 		t.Fatalf("title update: %v (text node %d)", muts, textID)
 	}
 }
