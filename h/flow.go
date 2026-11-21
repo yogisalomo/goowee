@@ -4,6 +4,7 @@ import (
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/internal/runtime"
+	"reflect"
 )
 
 // Show renders then() while cond is true and nothing otherwise. It
@@ -16,19 +17,20 @@ func Show(cond *core.Signal[bool], then func() core.Node) core.Node {
 func ShowElse(cond *core.Signal[bool], then, otherwise func() core.Node) core.Node {
 	return hooks.UseScope(func() core.Node {
 		if cond.Get() {
-			return orEmpty(then)
+			return keyBranch(orEmpty(then), branchThen)
 		}
-		return orEmpty(otherwise)
+		return keyBranch(orEmpty(otherwise), branchElse)
 	}, cond)
 }
 
 // Switch re-renders on sig changes, choosing cases[sig.Get()] or def.
 func Switch[T comparable](sig *core.Signal[T], cases map[T]func() core.Node, def func() core.Node) core.Node {
 	return hooks.UseScope(func() core.Node {
-		if fn, ok := cases[sig.Get()]; ok {
-			return orEmpty(fn)
+		v := sig.Get()
+		if fn, ok := cases[v]; ok {
+			return keyBranch(orEmpty(fn), switchCase{v})
 		}
-		return orEmpty(def)
+		return keyBranch(orEmpty(def), branchDefault)
 	}, sig)
 }
 
@@ -70,7 +72,11 @@ func For[T any, K comparable](items *core.Signal[[]T], key func(T) K, render fun
 				// Duplicate key: render it uncached; the differ warns and
 				// matches the extra row as unkeyed.
 				n := render(x)
-				core.SetKey(n, k)
+				var dupKey any = k
+				if c, ok := n.(*core.ComponentNode); ok && !c.HasProps() && comparableValue(x) {
+					dupKey = itemKey{k, any(x)} // as below: remount when the item changes
+				}
+				core.SetKey(n, dupKey)
 				children = append(children, n)
 				continue
 			}
@@ -89,7 +95,13 @@ func For[T any, K comparable](items *core.Signal[[]T], key func(T) K, render fun
 				}
 			}
 			var rowKey any = k
-			if gen > 0 {
+			if c, ok := n.(*core.ComponentNode); ok && !c.HasProps() && comparableValue(x) {
+				// A plain component row captures its item at mount, so it
+				// must remount when the item changes. Keying it by the item
+				// too does that even for a For built afresh (inside a parent
+				// row that re-rendered), which has no gen history (#161).
+				rowKey = itemKey{k, any(x)}
+			} else if gen > 0 {
 				rowKey = remountKey[K]{k, gen}
 			}
 			core.SetKey(n, rowKey)
@@ -116,4 +128,59 @@ func orEmpty(fn func() core.Node) core.Node {
 		return n
 	}
 	return &core.FragmentNode{}
+}
+
+// itemKey keys a plain component row by its key and its item.
+type itemKey struct {
+	key  any
+	item any
+}
+
+// comparableValue reports whether v can be compared with ==, as a key must.
+func comparableValue(v any) bool {
+	return v != nil && reflect.ValueOf(v).Comparable()
+}
+
+// Branch keys: the content of a ShowElse or Switch branch is keyed by the
+// branch, so switching branches mounts the new branch's content even when
+// both render a component of the same name (#161, found by FuzzDiffer; the
+// router does the same for routes, #124). A key the app set is kept inside.
+type branchKey struct {
+	branch any
+	key    any
+}
+
+type switchCase struct{ v any }
+
+const (
+	branchThen    = "then"
+	branchElse    = "else"
+	branchDefault = "default"
+)
+
+func keyBranch(n core.Node, branch any) core.Node {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		if v != nil {
+			v.Key = branchKey{branch, v.Key}
+		}
+	case *core.ComponentNode:
+		if v != nil {
+			v.Key = branchKey{branch, v.Key}
+		}
+	case *core.FragmentNode:
+		if v != nil {
+			for i, c := range v.Children {
+				v.Children[i] = keyBranch(c, branch)
+			}
+		}
+	case *core.ScopeNode, *core.PortalNode, *core.ErrorBoundaryNode:
+		// These have no key: wrap them in a component that does, so another
+		// branch's scope (a For, say), portal or boundary isn't adopted in
+		// their place. Within one branch the wrapper is kept, and the content
+		// updates itself (a scope re-renders, a portal's content is reactive).
+		inner := n
+		return core.SetKey(core.Component("Branch", func() core.Node { return inner }), branchKey{branch, nil})
+	}
+	return n
 }

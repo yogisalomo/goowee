@@ -173,3 +173,15 @@ func DispatchBits(opts core.HandlerOptions, handled bool) int {
 	}
 	return b
 }
+
+// Len is how many nodes have a handler registered (tests check that removed
+// nodes leave none behind).
+func (r *NodeRegistry) Len() int {
+	n := 0
+	for _, node := range r.nodes {
+		if len(node.Events) > 0 {
+			n++
+		}
+	}
+	return n
+}
