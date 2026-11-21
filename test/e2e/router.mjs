@@ -1,9 +1,12 @@
-// Drives test/e2e/router in headless Chrome (#142):
+// Drives test/e2e/router in headless Chrome (#142, #155):
 //   - back and forward set the router's path and query together: a Watch on
 //     both never sees the new path with the old query;
 //   - the fragment follows Navigate and history;
 //   - SetQueryParam writes sorted parameters, keeps the fragment, and leaves
-//     no "?" once the query is empty.
+//     no "?" once the query is empty;
+//   - a push scrolls to the top, back restores the saved position, a fragment
+//     scrolls to its target, focus lands on the new heading, and NavLink
+//     follows the active route.
 // Usage: node test/e2e/router.mjs   (run.sh runs it)
 import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdtempSync, copyFileSync, rmSync } from "node:fs";
@@ -61,17 +64,44 @@ await send("Runtime.enable"); await send("Page.enable");
 const click = (sel) => ev(`document.querySelector(${JSON.stringify(sel)}).click()`);
 const loc = () => ev(`location.pathname + location.search + location.hash`);
 const waitLoc = async (want, label) => { let t; for (let i = 0; i < 100; i++) { t = await loc(); if (t === want) return; await sleep(50); } throw new Error(`timeout: ${label}: location ${t}, want ${want}`); };
+const cls = async (sel) => (await ev(`document.querySelector(${JSON.stringify(sel)})?.className`)) ?? "";
+const attr = (sel, name) => ev(`document.querySelector(${JSON.stringify(sel)})?.getAttribute(${JSON.stringify(name)})`);
+const scrollY = () => ev(`window.scrollY`);
+const waitScroll = async (min, max, label) => { let y; for (let i = 0; i < 100; i++) { y = await scrollY(); if (y >= min && y <= max) return; await sleep(50); } throw new Error(`timeout: ${label}: scrollY ${y}, want ${min}..${max}`); };
+const focusText = () => ev(`document.activeElement?.textContent`);
+const activeId = () => ev(`document.activeElement?.id`);
+const routeStatus = () => ev(`document.querySelector("[data-goowee-route-status]")?.textContent`);
+const typeInto = (sel, value) => ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); el.focus({ preventScroll: true }); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new InputEvent("input", { bubbles: true })); })()`);
 try {
   const base = `http://localhost:${PORT}`;
   await send("Page.navigate", { url: base + "/a?x=1" });
   await waitText("#log", "/a|1", "first render");
+  await waitText("#heading", "Page A", "heading on /a");
+  check((await cls("#nav-a")).split(" ").includes("active"), "A link active on /a");
+  check((await attr("#nav-a", "aria-current")) === "page", "A link aria-current on /a");
+  check(!(await cls("#nav-docs")).split(" ").includes("active"), "Docs link inactive on /a");
+
+  await ev(`window.scrollTo(0, 600)`);
+  await waitScroll(550, 650, "scrolled down on /a");
   await click("#go-b"); await waitLoc("/b?x=2", "Navigate /b");
+  await waitScroll(0, 5, "push scrolls to top");
+  await waitText("#heading", "Page B", "heading on /b");
+  check((await focusText()) === "Page B", "focus moved to the new page's heading");
+  check(((await routeStatus()) ?? "").includes("/b"), "aria-live region announced the route");
+  check(!(await cls("#nav-a")).split(" ").includes("active"), "A link inactive on /b");
+
   await click("#go-c"); await waitLoc("/c?x=3#end", "Navigate /c");
   await waitText("#fragment", "end", "Fragment after Navigate");
+  await waitScroll(1500, 2500, "fragment scrolled to #end");
+  check((await focusText()) === "Page C", "focus moved to the heading without undoing fragment scroll");
   await ev(`history.back()`); await waitLoc("/b?x=2", "back to /b");
   await waitText("#fragment", "", "fragment cleared by back");
+  await waitScroll(0, 5, "back to /b top");
   await ev(`history.back()`); await waitLoc("/a?x=1", "back to /a");
+  await waitScroll(550, 650, "back restored the /a scroll position");
+  check((await cls("#nav-a")).split(" ").includes("active"), "A link active again after back");
   await ev(`history.forward()`); await waitLoc("/b?x=2", "forward to /b");
+  await waitScroll(0, 5, "forward to /b top");
   await waitText("#log", /\/a\|1,\/b\|2$/, "the watcher saw forward to /b");
   const pairs = (await text("#log")).split(",");
   const want = { "/a": "1", "/b": "2", "/c": "3" };
@@ -81,12 +111,37 @@ try {
 
   await ev(`history.forward()`); await waitLoc("/c?x=3#end", "forward to /c");
   await waitText("#fragment", "end", "fragment restored by forward");
+  await waitScroll(1500, 2500, "fragment scroll restored by forward");
+  await ev(`window.scrollTo(0, 300)`); await waitScroll(250, 350, "scroll before a query update");
   await click("#set-y"); await waitLoc("/c?x=3&y=1#end", "SetQueryParam keeps the fragment");
   await click("#set-a"); await waitLoc("/c?a=0&x=3&y=1#end", "SetQueryParam sorts parameters");
   await click("#clear"); await waitLoc("/c#end", "no trailing ? once the query is empty");
+  await waitScroll(250, 350, "query updates do not scroll");
+
+  // Query-only NavigateReplace (a search box on every keystroke) must leave
+  // the page where it is: no top scroll, no focus move, no route announcement.
+  const statusBeforeQueryOnly = await routeStatus();
+  await typeInto("#search", "a"); await waitLoc("/c?q=a", "query-only NavigateReplace");
+  await waitScroll(250, 350, "query-only replace does not scroll");
+  check((await activeId()) === "search", "query-only replace does not move focus");
+  check((await routeStatus()) === statusBeforeQueryOnly, "query-only replace does not announce a route");
+  // A fragment-only change scrolls to its target, but still leaves focus and
+  // the live region alone.
+  await click("#go-top"); await waitLoc("/c?q=a#heading", "fragment-only Navigate");
+  await waitScroll(50, 200, "fragment-only change scrolls to its target near the heading");
+  check((await activeId()) === "search", "fragment-only change does not move focus");
+  check((await routeStatus()) === statusBeforeQueryOnly, "fragment-only change does not announce a route");
+
+  await click("#go-docs"); await waitLoc("/docs#install", "Navigate /docs#install");
+  await waitText("#heading", "Docs", "heading on /docs");
+  await waitScroll(1300, 2200, "fragment scrolled to #install");
+  check((await focusText()) === "Docs", "focus on the docs heading");
+  check((await cls("#nav-docs")).split(" ").includes("active"), "Docs link active on /docs");
+  check((await attr("#nav-docs", "aria-current")) === "page", "Docs link aria-current on /docs");
+  check(!(await cls("#nav-a")).split(" ").includes("active"), "A link inactive on /docs");
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "ROUTER CHECK FAIL:\n- " + fail.join("\n- ") : "ROUTER CHECK PASS: back/forward never mix path and query, fragment follows history, SetQueryParam URLs sorted, fragment kept, no trailing ?");
+console.log(fail.length ? "ROUTER CHECK FAIL:\n- " + fail.join("\n- ") : "ROUTER CHECK PASS: back/forward never mix path and query, scroll and fragments restored, focus/announcement and active links follow the route, query-only updates stay inert, fragment-only changes only scroll, SetQueryParam URLs sorted, fragment kept, no trailing ?");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });
 try { rmSync(profile, { recursive: true, force: true, maxRetries: 3 }); } catch {}
