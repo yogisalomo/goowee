@@ -1,5 +1,10 @@
 # Implementing `recover()` for TinyGo's WebAssembly target
 
+> **Resolved (2026-11-21):** TinyGo PR #5550 implemented `recover` on wasm with
+> goroutines (Asyncify unwinding), released in TinyGo 0.43. goowee builds with
+> TinyGo 0.44 and CI tests it (#128); see `docs/guides/serving.md`. The rest of
+> this document is the history of the investigation.
+
 *Authored 2026-07-23. Updated 2026-07-24. Written from goowee's perspective (a
 long-lived, in-browser WASM UI runtime) but scoped around the upstream TinyGo
 effort.*

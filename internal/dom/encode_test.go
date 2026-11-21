@@ -22,7 +22,7 @@ var encodeSamples = []any{
 	"tab\tnew\nline\rcr\bbs\fff\x00nul\x1funit", "é ü 漢字 🎉", "\u2028\u2029",
 	"bad \xff utf8 \xc3", "\x7f del",
 	true, false,
-	0, 1, -1, math.MaxInt64, math.MinInt64, int64(42), int32(-7), uint(7), uint64(math.MaxUint64),
+	0, 1, -1, math.MaxInt, math.MinInt, int64(math.MaxInt64), int64(math.MinInt64), int64(42), int32(-7), uint(7), uint64(math.MaxUint64),
 	0.0, math.Copysign(0, -1), 1.5, -12.375, 0.1, 1e-6, 9.99e-7, 1e-7, 1e20, 1e21, 123456789.125,
 	math.SmallestNonzeroFloat64, math.MaxFloat64, float32(0.1), float32(1e-7), float32(3.4e38),
 	celsius(21.5), []string{"a", "<b>"}, map[string]int{"z": 1, "a": 2}, json.RawMessage(`{"raw":true}`),

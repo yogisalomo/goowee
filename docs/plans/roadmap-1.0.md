@@ -151,14 +151,15 @@ re-render (ADR-017, amended 2026-10-16).
 
 **3.1 Bundle size.** ~4.7 MB raw / ~1.2 MB gzip for the example app today.
 `docs/guides/serving.md` now warns that `net/http` alone adds ~7 MB (#54);
-`goowee/net` (fetch + WebSocket, ~80 KB raw) replaces it (#103, ADR-026). TinyGo is a dead end for now
-(`docs/plans/tinygo-recover-implementation.md`). *gzip/brotli serving:*
+`goowee/net` (fetch + WebSocket, ~80 KB raw) replaces it (#103, ADR-026).
+*TinyGo:* ✅ supported since TinyGo 0.43 brought `recover` with goroutines;
+CI builds and smoke-tests a TinyGo binary (#128): 299 KB brotli for the example
+against 989 KB (`docs/guides/serving.md`). *gzip/brotli serving:*
 ✅ **Done** — documented in `docs/guides/serving.md`; the reference SSR server
 serves a pre-built `main.wasm.br` (`make brotli`: 914 KB, 5.2×, 27% smaller than
 gzip) to browsers that accept brotli and otherwise gzips the wasm (3.8×), and it
 gzips JS/CSS and SSR HTML; GitHub Pages gzips via its CDN. *Remaining:*
-evaluate TinyGo (the reflect-free core helps) against the *post-compression*
-download, and explore route-level code splitting/lazy loading. **L**
+explore route-level code splitting/lazy loading. **L**
 
 **3.2 Boot latency.** 🟡 **Measurement landed.** `make boot` records a
 median TTI phase split (download+compile / go boot+render / hydrate) in headless

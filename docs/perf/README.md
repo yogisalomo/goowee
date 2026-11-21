@@ -72,6 +72,9 @@ make size-report   # sizes, sections and code bytes per package
 make size-check    # the same, enforcing size-budget.json (CI runs this)
 ```
 
+`make size-check-tinygo` does the same for TinyGo builds of the minimal app
+and the example; CI runs it in the TinyGo job.
+
 Both build three programs: `test/e2e/hello`, the smallest goowee app; the
 same app with `-tags goowee_nodev` (dev tools compiled out, #127); and
 `examples/counter`, the tutorial site. `scripts/wasm-size.mjs` reports each

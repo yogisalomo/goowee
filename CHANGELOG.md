@@ -12,6 +12,13 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- TinyGo is a supported, CI-tested build target (#128). With TinyGo 0.44 and
+  `-opt z -no-debug -stack-size=1MB`, the example is 299 KB brotli against
+  989 KB with Go 1.25, and the minimal app 194 KB against 797 KB. CI builds the
+  example with TinyGo and runs the smoke and devtools E2E against it
+  (`test/e2e/tinygo.sh`), and `make size-check-tinygo` holds its size. The
+  serving guide says when to choose which toolchain, and why the 1 MB stack is
+  required.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from
@@ -57,6 +64,10 @@ time. The public surface freezes under semver at v1.
   page didn't (#124). A route's content is now keyed by the pattern that
   matched it, in `Route` and `SubRoute`, so a different route remounts and the
   same pattern with new params keeps it.
+- Without `runtime.Callers` (TinyGo), the change log reported a write's site
+  as ":0" and dependency warnings were cut to one for the whole program. The
+  change log now says "unknown", and warnings without a site are kept once
+  per signal.
 - On a server-rendered page, what the user did before the WASM booted was lost
   (#131). Clicks went nowhere, a form submitted natively (reloading the page),
   and text typed into a bound input stayed out of its signal, to be

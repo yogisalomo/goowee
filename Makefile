@@ -1,4 +1,4 @@
-.PHONY: size-build size-report size-check canvasbench wasm brotli ssr-server test bench perf-record perf-compare ssr-scaling size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
+.PHONY: size-build-tinygo size-check-tinygo size-build size-report size-check canvasbench wasm brotli ssr-server test bench perf-record perf-compare ssr-scaling size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -63,6 +63,21 @@ size-check: size-build
 	node scripts/wasm-size.mjs --check docs/perf/size-budget.json \
 	  test/e2e/hello=$(SIZE_DIR)/hello.wasm "test/e2e/hello -tags goowee_nodev=$(SIZE_DIR)/hello-nodev.wasm" \
 	  examples/counter=$(SIZE_DIR)/counter.wasm
+
+# The same for TinyGo builds (#128): -opt z for size, -no-debug to drop DWARF,
+# and -stack-size=1MB, without which deep component trees overflow TinyGo's
+# 64 KB goroutine stacks (docs/guides/serving.md).
+TINYGO ?= tinygo
+TINYGO_FLAGS = -target wasm -opt z -no-debug -stack-size=1MB
+size-build-tinygo:
+	@mkdir -p $(SIZE_DIR)
+	$(TINYGO) build $(TINYGO_FLAGS) -o $(SIZE_DIR)/hello-tinygo.wasm ./test/e2e/hello
+	$(TINYGO) build $(TINYGO_FLAGS) -o $(SIZE_DIR)/counter-tinygo.wasm ./examples/counter
+
+size-check-tinygo: size-build-tinygo
+	node scripts/wasm-size.mjs --check docs/perf/size-budget.json \
+	  "test/e2e/hello (tinygo)=$(SIZE_DIR)/hello-tinygo.wasm" \
+	  "examples/counter (tinygo)=$(SIZE_DIR)/counter-tinygo.wasm"
 
 size: wasm
 	@bytes=$$(wc -c < $(WASM_OUT) | tr -d ' '); \
