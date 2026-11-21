@@ -102,6 +102,17 @@ Bind a signal instead.
 
 ---
 
+**Check the rules statically.** `gooweevet` is a `go vet` analyzer for rules
+1, 3 and 4: a `sig.Get()` passed to a static helper in a component body, a
+`Computed`/`UseEffect`/`Watch`/`UseScope` reading a signal its deps don't
+list, and a signal written from a goroutine without `core.Schedule`. Run it
+after changing app code, and fix what it reports:
+
+```sh
+go install github.com/yogisalomo/goowee/tools/gooweevet@latest
+go vet -vettool=$(which gooweevet) ./...
+```
+
 ## API cheat sheet
 
 Import the DSL with a dot import; keep `core`, `hooks`, `router` qualified:

@@ -41,6 +41,13 @@ time. The public surface freezes under semver at v1.
   request's context and `HandlerOptions.DataTimeout`), renders the page with
   the data, and embeds it as JSON; the client starts with it and doesn't
   fetch again. The tutorial's `/async` page uses it.
+- `gooweevet`, a `go vet` analyzer for goowee's reactivity rules (#147), in
+  its own module so the framework keeps no dependencies:
+  `go vet -vettool=$(which gooweevet) ./...`. It reports a `sig.Get()` passed
+  to a static helper in a component body (`Text(count.Get())`), a `Computed`,
+  `UseEffect`, `Watch` or `UseScope` reading a signal its deps don't list, and
+  a signal `Set` or `UseState` setter called in a goroutine or
+  `time.AfterFunc` outside `core.Schedule`. CI runs it on the examples.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from

@@ -28,6 +28,13 @@ jobs:
       - name: Build (native)
         run: go build ./...
 
+      # The analyzer's own tests, then goowee's rules on the examples and the
+      # tutorial, which must have zero findings (#147).
+      - name: gooweevet
+        run: |
+          (cd tools/gooweevet && go vet ./... && go test ./...)
+          make gooweevet
+
       - name: Build SSR server
         run: go build -o /tmp/ssr-server ./cmd/ssr-server
 

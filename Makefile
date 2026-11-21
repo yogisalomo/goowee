@@ -1,4 +1,4 @@
-.PHONY: size-build-tinygo size-check-tinygo size-build size-report size-check canvasbench wasm brotli ssr-server test bench perf-record perf-compare ssr-scaling size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
+.PHONY: gooweevet size-build-tinygo size-check-tinygo size-build size-report size-check canvasbench wasm brotli ssr-server test bench perf-record perf-compare ssr-scaling size e2e pages-e2e boot serve serve-ssr clean cpwasm cpjs pages docker
 
 WASM_OUT = examples/counter/main.wasm
 WASM_BUDGET = 6291456
@@ -28,6 +28,13 @@ cpjs:
 
 test:
 	go test ./...
+
+# goowee's reactivity rules, checked statically (#147): build the analyzer
+# from its own module (tools/gooweevet, so the framework keeps no
+# dependencies) and run it on the examples and the tutorial.
+gooweevet:
+	cd tools/gooweevet && go build -o ../../bin/gooweevet .
+	go vet -vettool=bin/gooweevet ./examples/...
 
 bench:
 	go test -run '^$$' -bench . ./core/ ./internal/dom/
