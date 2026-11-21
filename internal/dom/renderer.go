@@ -734,8 +734,10 @@ func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 	var roots, detached []int
 	appendRoots(n, &roots)
 	appendDetachedRoots(n, &detached)
+	names := make(map[int]string)
+	transitionNames(n, names)
 	for _, id := range roots {
-		if name := transitionName(n, id); name != "" {
+		if name := names[id]; name != "" {
 			// Go-side state is already disposed above. The runtime keeps the
 			// DOM node around for its leave animation, with handlers inert.
 			*muts = append(*muts, core.Mutation{Type: core.MutRemoveNodeAfter, NodeID: id, Key: name})
@@ -750,45 +752,42 @@ func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 	}
 }
 
-// transitionName reports the transition attached to the DOM root with id, if
-// any. It walks through wrappers (fragments, components, scopes, boundaries)
-// so a Transition on the root element of a Show/Switch row is found.
-func transitionName(n core.Node, id int) string {
+// transitionNames collects the transition attached to every element in n, in
+// one walk. Going through wrappers (fragments, components, scopes, boundaries)
+// finds a Transition on the root element of a Show/Switch row. Looking each
+// removal up in the map keeps closing a For with 10k rows linear instead of
+// walking all 10k rows for every one of its roots.
+func transitionNames(n core.Node, out map[int]string) {
 	switch v := n.(type) {
 	case *core.ElementNode:
 		if v == nil {
-			return ""
+			return
 		}
-		if v.ID == id {
-			return v.Transition
+		if v.Transition != "" {
+			out[v.ID] = v.Transition
 		}
 		for _, c := range v.Children {
-			if name := transitionName(c, id); name != "" {
-				return name
-			}
+			transitionNames(c, out)
 		}
 	case *core.FragmentNode:
 		if v != nil {
 			for _, c := range v.Children {
-				if name := transitionName(c, id); name != "" {
-					return name
-				}
+				transitionNames(c, out)
 			}
 		}
 	case *core.ComponentNode:
 		if v != nil {
-			return transitionName(v.Prev, id)
+			transitionNames(v.Prev, out)
 		}
 	case *core.ScopeNode:
 		if v != nil {
-			return transitionName(v.Prev, id)
+			transitionNames(v.Prev, out)
 		}
 	case *core.ErrorBoundaryNode:
 		if v != nil {
-			return transitionName(v.Prev, id)
+			transitionNames(v.Prev, out)
 		}
 	}
-	return ""
 }
 
 // appendDetachedRoots adds the roots of portal and metadata content found
