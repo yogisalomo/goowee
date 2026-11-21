@@ -79,7 +79,7 @@ func recordChange(sig core.SignalAccessor, from, to any) {
 // writeSite finds the code behind a write: the first caller outside goowee
 // (the handler or store method that set the signal), or, for a write goowee
 // made on its own (a two-way binding, a router link), the first frame outside
-// core.
+// core. It is "unknown" when the toolchain gives no frames (TinyGo).
 func writeSite() (at, fn string) {
 	var pcs [32]uintptr
 	n := runtime.Callers(3, pcs[:]) // from core's Set: skip Callers, writeSite, recordChange
@@ -87,6 +87,14 @@ func writeSite() (at, fn string) {
 	var fallback runtime.Frame
 	for {
 		f, more := frames.Next()
+		if f.Function == "" {
+			// No symbol for this frame: TinyGo doesn't support
+			// runtime.Callers, so a TinyGo build has no write sites.
+			if !more {
+				break
+			}
+			continue
+		}
 		switch pkg := packageOf(f.Function); {
 		case !framework(pkg):
 			return site(f)

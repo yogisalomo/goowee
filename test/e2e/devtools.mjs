@@ -121,7 +121,13 @@ async function main() {
   const lastChange = (name) => evalJS(`(goowee.changes() || []).filter((c) => c.name === ${JSON.stringify(name)}).pop() || null`);
   const inc = await lastChange("hero.count");
   check(inc && inc.from === "0" && inc.to === "1", "change log has hero.count 0 → 1: " + JSON.stringify(inc));
-  check(/^app\/site\.go:\d+$/.test(inc?.at || "") && /^app\..*\bheroDemo\./.test(inc?.func || ""), "the write is traced to the click handler in site.go: " + JSON.stringify(inc));
+  if (process.env.TOOLCHAIN === "tinygo") {
+    // TinyGo has no runtime.Callers: the change log says so rather than
+    // making up a location.
+    check(inc?.at === "unknown" && inc?.func === "", "a TinyGo build reports an unknown write site: " + JSON.stringify(inc));
+  } else {
+    check(/^app\/site\.go:\d+$/.test(inc?.at || "") && /^app\..*\bheroDemo\./.test(inc?.func || ""), "the write is traced to the click handler in site.go: " + JSON.stringify(inc));
+  }
 
   // --- Routing smoke with dev mode ---
   await clickText("a", "Tutorial");

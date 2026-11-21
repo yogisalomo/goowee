@@ -30,6 +30,22 @@
         "net",
         "crypto/tls"
       ]
+    },
+    "test/e2e/hello (tinygo)": {
+      "brotli": 193754,
+      "deny": [
+        "net/http",
+        "net",
+        "crypto/tls"
+      ]
+    },
+    "examples/counter (tinygo)": {
+      "brotli": 298815,
+      "deny": [
+        "net/http",
+        "net",
+        "crypto/tls"
+      ]
     }
   }
 }

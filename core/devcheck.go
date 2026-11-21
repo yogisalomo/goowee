@@ -21,7 +21,13 @@ var (
 
 	warnedReadsMu sync.Mutex
 	warnedReads   = map[uintptr]bool{}
+	warnedNoSite  = map[warnedKey]bool{}
 )
+
+type warnedKey struct {
+	sig  SignalAccessor
+	kind string
+}
 
 type trackedRead struct {
 	sig SignalAccessor
@@ -100,8 +106,17 @@ func reportUndeclared(kind string, deps []SignalAccessor, reads []trackedRead) {
 			continue
 		}
 		warnedReadsMu.Lock()
-		seen := warnedReads[rd.pc]
-		warnedReads[rd.pc] = true
+		var seen bool
+		if rd.pc != 0 {
+			seen = warnedReads[rd.pc]
+			warnedReads[rd.pc] = true
+		} else {
+			// No call site (TinyGo has no runtime.Callers): warn once per
+			// signal and reader kind instead of once for the whole program.
+			k := warnedKey{rd.sig, kind}
+			seen = warnedNoSite[k]
+			warnedNoSite[k] = true
+		}
 		warnedReadsMu.Unlock()
 		if seen {
 			continue

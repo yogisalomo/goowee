@@ -82,9 +82,8 @@ look for `content-encoding: gzip`.
 
 Compression shrinks the download; it does not shrink the *compiled* module or the
 Go runtime boot (~40 ms) — those are already small relative to download. Once the
-binary is served compressed, the next lever is the raw binary size itself (3.1:
-TinyGo, code splitting), evaluated against the *post-compression* number — the
-incremental win from TinyGo is smaller once you're already at ~1 MB on the wire.
+binary is served compressed, the next lever is the raw binary size itself:
+build with TinyGo (next section), or split the code by route.
 
 ## What not to import: `net/http`
 
@@ -120,6 +119,45 @@ For a POST, set `Method`, and `JSON` (or `Body`) and `Header`, on the
 loop and which can reconnect with backoff; see the
 [API reference](../api/reference.md#net--fetch-and-websocket).
 
-Check the effect of any new dependency with `make size` (CI gates the example
-at 6 MiB).
+Check the effect of any new dependency with `make size-report`; CI holds each
+program to its brotli size in `docs/perf/size-budget.json`.
+
+## Building with TinyGo
+
+TinyGo compiles goowee apps too, and its binaries are 3 to 4 times smaller
+because it doesn't carry the standard Go runtime. CI builds the example with
+TinyGo on every pull request and runs the smoke and devtools E2E against it.
+
+```sh
+tinygo build -target wasm -opt z -no-debug -stack-size=1MB -o web/main.wasm ./cmd/app
+cp "$(tinygo env TINYGOROOT)/targets/wasm_exec.js" web/
+```
+
+| brotli -q 11 | Go 1.25 | TinyGo 0.44 |
+|---|---:|---:|
+| minimal app (`test/e2e/hello`) | 797 KB | 194 KB |
+| tutorial site (`examples/counter`) | 989 KB | 299 KB |
+
+- **Use TinyGo 0.44 or later.** goowee needs `recover` on wasm alongside
+  goroutines (error boundaries and contained handler panics do), which TinyGo
+  has had since 0.43.
+- **`-stack-size=1MB` is required.** TinyGo's default goroutine stack is 64 KB,
+  and goowee renders recursively: about 20 nested component, element and scope
+  levels overflow it, and TinyGo notices only after memory is corrupted. 1 MB
+  renders 200 levels.
+- **Serve TinyGo's own `wasm_exec.js`,** not the one from your Go
+  installation. The two aren't interchangeable.
+- **Speed.** Measured as wasm under Node, rendering is on par with the
+  standard toolchain (a 100-row re-render: 392 µs against 401 µs). Signal
+  fan-out is about 1.8× slower (1,000 subscribers: 6.8 µs against 3.8 µs).
+- **What's missing.** TinyGo has no `runtime.Callers`. The dev-mode change log
+  shows a write's location as "unknown", and dependency warnings carry no
+  file and line. Parts of `reflect` and some `encoding/json` uses are
+  unsupported in your own code. `int` is 32 bits on TinyGo's wasm target.
+
+**Which to choose:** TinyGo when the download matters most (mobile, first
+visits, many small apps); the standard toolchain when you depend on packages
+TinyGo can't compile, or want the full dev-mode locations while developing.
+Many projects develop on Go and ship TinyGo builds; run your E2E on the build
+you ship.
 

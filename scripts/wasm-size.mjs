@@ -74,7 +74,8 @@ export function parse(buf) {
   return { sections, bodies, imported, names };
 }
 
-// pkgOf is the Go package a function belongs to. The Go linker writes names
+// pkgOf is the Go package a function belongs to. TinyGo writes names as Go
+// spells them ("(*github.com/yogisalomo/goowee/core.Signal[int]).Set"). The Go linker writes names
 // with "/" replaced by "_" ("github.com_yogisalomo_goowee_core.Batch",
 // "internal_runtime_maps.(*Map).grow"), so the package is the text before the
 // first "." that isn't in a leading domain, with "_" turned back into "/".
@@ -82,8 +83,15 @@ export function parse(buf) {
 // Compiler-generated "type_.eq.T" functions are "type:"; assembly helpers
 // without a package ("memeqbody") are "(asm)".
 export function pkgOf(fn) {
+  // TinyGo keeps "/" and writes methods as "(*pkg.T).M" or "(pkg.T).M".
+  fn = fn.replace(/^\(\*?/, "");
   const generic = fn.indexOf("[");
   const base = generic >= 0 ? fn.slice(0, generic) : fn;
+  if (base.includes("/")) {
+    const slash = base.lastIndexOf("/");
+    const dot = base.indexOf(".", slash + 1);
+    return dot < 0 ? base : base.slice(0, dot);
+  }
   if (base.startsWith("type_.")) return "type:";
   const under = base.indexOf("_"), firstDot = base.indexOf(".");
   if (firstDot < 0) return "(asm)";
@@ -139,12 +147,13 @@ function check(budgetPath, programs) {
     console.log(report(name, m) + "\n");
     if (!rec) { problems.push(`${name}: no record in ${budgetPath}; add {"brotli": ${m.brotli}}`); continue; }
     const limit = Math.floor(rec.brotli * (1 + tolerance));
-    const delta = ((m.brotli - rec.brotli) / rec.brotli * 100).toFixed(1);
+    const pct = (m.brotli - rec.brotli) / rec.brotli * 100;
+    const delta = (Math.abs(pct) < 0.05 ? 0 : pct).toFixed(1);
     if (m.brotli > limit) {
       problems.push(`${name}: brotli ${fmt(m.brotli)} bytes is ${delta}% over the record ${fmt(rec.brotli)} (limit ${fmt(limit)}, +${tolerance * 100}%). ` +
         `If the growth is intended, set "brotli": ${m.brotli} for ${name} in ${budgetPath}.`);
     } else {
-      console.log(`${name}: brotli ${fmt(m.brotli)} vs record ${fmt(rec.brotli)} (${delta >= 0 ? "+" : ""}${delta}%), within +${tolerance * 100}%`);
+      console.log(`${name}: brotli ${fmt(m.brotli)} vs record ${fmt(rec.brotli)} (${Number(delta) >= 0 ? "+" : ""}${delta}%), within +${tolerance * 100}%`);
       if (m.brotli < rec.brotli * (1 - tolerance)) {
         console.log(`  smaller than the record by more than ${tolerance * 100}%: lower "brotli" for ${name} to ${m.brotli} so the budget follows it down`);
       }
