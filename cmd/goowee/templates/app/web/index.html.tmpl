@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Name}}</title>
+<link rel="preload" href="/main.wasm" as="fetch" type="application/wasm" crossorigin>
+<link rel="stylesheet" href="/style.css">
+<script src="/wasm_exec.js"></script>
+<script src="/goowee.js"></script>
+</head>
+<body>
+<div id="root"><p class="splash">Loading…</p></div>
+<script>goowee.boot({wasm: "/main.wasm"});</script>
+</body>
+</html>

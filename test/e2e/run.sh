@@ -98,3 +98,5 @@ node test/e2e/canvas.mjs
 
 echo "==> running ForList e2e (core.List operations in HTML and SVG)"
 node test/e2e/list.mjs
+echo "==> running CLI e2e (goowee new + goowee dev: dev mode, reload, build errors)"
+node test/e2e/cli.mjs

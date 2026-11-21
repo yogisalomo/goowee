@@ -42,6 +42,22 @@ time. The public surface freezes under semver at v1.
   with a low-priority hint. `make boot` measures each mode, and
   `test/e2e/lazyboot.mjs` checks them in Chrome. The serving guide documents
   the hint and the modes.
+- **`goowee new`, `goowee dev` and `goowee build`** (#145), in `cmd/goowee`
+  (standard library only):
+  - `goowee new <dir> [--ssr] [--tinygo]` writes a working project: an `app`
+    package with gooweetest tests, the browser entry point, a page shell with
+    a loading message and a preload hint, `AGENTS.md`, and with `--ssr` a
+    server that renders each page.
+  - `goowee dev` builds, serves with `application/wasm` and gzip, and on
+    every change rebuilds and reloads the page; a build error shows over the
+    page. Dev mode is on. `--proxy /api=http://…` forwards a path to another
+    server; an SSR project's server runs behind it and restarts on change.
+  - `goowee build` writes `dist/`: the WASM stripped and without dev tools
+    (or built with TinyGo), content-hashed asset names that the pages refer
+    to, `.gz` siblings (`.br` with the `brotli` command), and a size report
+    by package.
+  Getting Started now starts with these three commands. CI runs the whole
+  flow, for both kinds of project, in Go and in Chrome (`test/e2e/cli.mjs`).
 - TinyGo is a supported, CI-tested build target (#128). With TinyGo 0.44 and
   `-opt z -no-debug -stack-size=1MB`, the example is 299 KB brotli against
   989 KB with Go 1.25, and the minimal app 194 KB against 797 KB. CI builds the
