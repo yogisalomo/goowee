@@ -1040,3 +1040,60 @@ Concurrent requests keep their data apart (tested with 16 overlapping
 requests). With `goowee/rpc` (#151), a `Load` that calls a server function
 runs its handler in-process during the server render.
 
+
+## ADR-031: Events and frames enter Go through WebAssembly exports; batches are read in place
+
+**Status:** Accepted (2026-11-21). Revisits ADR-029's alternative (b).
+
+**Context.** Every hot crossing went through `syscall/js`: each DOM event
+called the `handleEvent` `js.FuncOf` callback, each frame the frame callback,
+and each batch was copied into a `Uint8Array` with `js.CopyBytesToJS`. A
+`js.FuncOf` callback runs the Go scheduler to hand the call to a goroutine and
+back, about 18 µs per call on an M1; a `//go:wasmexport` function, supported
+on `GOOS=js` since Go 1.24, costs about 20 ns (#133). Exports can be called
+re-entrantly, from JavaScript that Go called (a `focus()` in a batch that
+fires a handler), and `syscall/js`, `recover` and allocation work inside them.
+An export runs on the caller's stack and returns without running the
+scheduler, so a goroutine it starts or wakes waits for the next timer or
+callback.
+
+**Decision.** The bridge exports `goowee_event(id, typeLen, payloadLen)`,
+`goowee_scratch(n)` and `goowee_frame()`. The runtime writes an event's type
+and JSON payload as UTF-8 into a Go-owned scratch buffer and calls
+`goowee_event`, which returns the packed dispatch bits; Go asks for a frame
+with `goowee.requestFrame(hidden)`, and the runtime calls `goowee_frame` from
+`requestAnimationFrame` (or a timer while the page is hidden). After either
+call the runtime resumes the Go scheduler (`go._resume()`) in a microtask,
+once per burst, about 1 µs, so goroutines run before the browser renders or
+handles the next event, as they did inside callbacks. Batches are read in
+place: Go passes the encoder buffer's address and length to
+`goowee.applyBatchAt`, which views the module's exported memory; when a
+handler run during the batch grows the memory and detaches the view, the
+decoder takes a new one before the next update. There are no imports. The
+runtime opts in only when it holds the instance (`goowee.boot` passes it, a
+custom boot can call `goowee.useInstance(go, instance)`) and `wasm_exec.js`
+has `_resume`; otherwise, and for an older `goowee.js`, under TinyGo, or with
+`goowee.boot({calls: "callbacks"})`, every call goes through `syscall/js` as
+before. `goowee.calls` reports which way is in use.
+
+**Alternatives.** (a) Also replace Go→JS calls with `//go:wasmimport`
+(`apply_batch`, `request_frame`): about 200 ns less per frame, but a module
+that imports from `goowee` fails to instantiate under an older `goowee.js` or
+a page that boots it with plain `wasm_exec.js`; exports cost nothing when
+unused. (b) Resume the scheduler from Go by arming a timer in each export:
+public behavior only, but a `setTimeout` per event, and goroutines run a task
+later. `_resume` is `wasm_exec.js`'s own entry point for timers and has kept
+its name since Go 1.11; the runtime checks for it. (c) Numeric event type ids
+instead of type strings: saves a few bytes of UTF-8 per event, at the cost of
+a table both sides keep in step.
+
+**Consequences.** In Chrome on an M1 (`test/e2e/calls.mjs`): a click that
+reaches a Go handler drops from about 38 µs to 26 µs, a frame applying one
+text update from about 95 µs to 55 µs. The JSON transport and both directions
+of version skew keep working. ADR-029's concern about reading Go's memory
+holds only in part: the view is of the module's own exported memory (not
+`wasm_exec.js` internals), and it is renewed after growth. TinyGo keeps the
+callbacks until its scheduler's behavior after an export is verified.
+`test/e2e/calls.mjs` checks the cases that depend on the scheduler resuming: a
+goroutine started in a handler or an effect, a worker woken through a channel,
+and a click inside a batch that grows the memory by 64 MB.
