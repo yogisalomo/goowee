@@ -135,6 +135,9 @@ type document struct {
 	portal map[string]*node // detached containers for unknown portal selectors
 	active *node            // document.activeElement
 	reads  []readReply
+	// unknown counts mutations that named a node id the document doesn't
+	// have (the differ fuzz test requires none).
+	unknown int
 }
 
 type readReply struct {
@@ -215,6 +218,13 @@ func (d *document) apply(muts []core.Mutation) {
 		}
 	}()
 	for _, m := range muts {
+		if m.Type != core.MutCreateElement && m.Type != core.MutHydrate {
+			for _, id := range [...]int{m.NodeID, m.ChildID, m.RefID} {
+				if id > 0 && d.nodes[id] == nil {
+					d.unknown++
+				}
+			}
+		}
 		switch m.Type {
 		case core.MutCreateElement, core.MutHydrate:
 			if m.Type == core.MutHydrate && d.nodes[m.NodeID] != nil {

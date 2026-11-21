@@ -48,6 +48,11 @@ jobs:
       - name: WASM size budget
         run: make size-check
 
+      # The differ against fresh renders (#161): 45 s of fuzzing per PR. A
+      # finding is written to gooweetest/testdata/fuzz and becomes a seed.
+      - name: Fuzz the differ
+        run: go test -run '^$' -fuzz FuzzDiffer -fuzztime 45s ./gooweetest/
+
       - name: Benchmarks (smoke)
         run: go test -run '^$' -bench . -benchtime=10x ./core/ ./internal/dom/
 

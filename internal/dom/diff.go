@@ -210,6 +210,14 @@ func (r *DOMRenderer) diffElement(old, nw *core.ElementNode, muts *[]core.Mutati
 	}
 
 	r.Bindings.Update(old.ID, nw.Binds, muts)
+	// A binding the new render dropped leaves its last value in the DOM:
+	// clear it, unless the new render sets that attribute or property some
+	// other way (#161, found by FuzzDiffer).
+	for _, ob := range old.Binds {
+		if droppedBinding(ob, nw) {
+			*muts = append(*muts, clearBound(old.ID, ob))
+		}
+	}
 
 	for _, hd := range nw.Handlers {
 		if !r.Registry.Has(old.ID, hd.Event) {
@@ -667,4 +675,41 @@ func lastProp(props []core.Prop, name string) int {
 		}
 	}
 	return -1
+}
+
+// droppedBinding reports whether nw no longer sets what binding b set.
+func droppedBinding(b core.Bind, nw *core.ElementNode) bool {
+	for _, nb := range nw.Binds {
+		if nb.Target == b.Target && nb.Name == b.Name {
+			return false
+		}
+	}
+	switch b.Target {
+	case core.BindToAttr:
+		for _, a := range nw.Attrs {
+			if a.Name == b.Name {
+				return false
+			}
+		}
+	case core.BindToProp:
+		for _, p := range nw.Props {
+			if p.Name == b.Name {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// clearBound undoes what binding b left in the DOM: the attribute goes; a
+// property goes back to empty (false for a boolean one).
+func clearBound(id int, b core.Bind) core.Mutation {
+	if b.Target == core.BindToAttr {
+		return core.Mutation{Type: core.MutRemoveAttribute, NodeID: id, Key: b.Name}
+	}
+	var zero any = ""
+	if _, isBool := b.Signal.Value().(bool); isBool {
+		zero = false
+	}
+	return core.Mutation{Type: core.MutSetProperty, NodeID: id, Key: b.Name, Value: zero}
 }

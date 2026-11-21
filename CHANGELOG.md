@@ -48,6 +48,11 @@ time. The public surface freezes under semver at v1.
   `UseEffect`, `Watch` or `UseScope` reading a signal its deps don't list, and
   a signal `Set` or `UseState` setter called in a goroutine or
   `time.AfterFunc` outside `core.Schedule`. CI runs it on the examples.
+- `FuzzDiffer` (`gooweetest`): after any sequence of signal writes and list
+  edits over a generated tree (elements, SVG, text, fragments, `Show`,
+  `Switch`, keyed `For`, components, portals), the document must equal a
+  fresh render of the final state, with registries and mounted components
+  matching. CI fuzzes it for 45 s per PR (#161).
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from
@@ -97,6 +102,18 @@ time. The public surface freezes under semver at v1.
   as ":0" and dependency warnings were cut to one for the whole program. The
   change log now says "unknown", and warnings without a site are kept once
   per signal.
+- Found by the new differ fuzzer (#161):
+  - A re-render that reused an element but dropped one of its bindings left
+    the value that binding set (a bound `class` stayed). The differ now
+    removes the attribute, or resets the property.
+  - Switching `Switch` or `ShowElse` branches kept the old branch's
+    component when the new branch rendered one of the same name, and kept
+    the old branch's `For`, portal or boundary content. Branch content is
+    now keyed by the branch.
+  - A plain component row in a `For` kept its old item when its item
+    changed and the `For` was built afresh (inside a parent row that
+    re-rendered), or when the row had a duplicate key. Such rows are now
+    keyed by their item too, so a changed item remounts them.
 - On a server-rendered page, what the user did before the WASM booted was lost
   (#131). Clicks went nowhere, a form submitted natively (reloading the page),
   and text typed into a bound input stayed out of its signal, to be

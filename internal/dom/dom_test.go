@@ -1924,3 +1924,43 @@ func TestReRenderPanicIsContained(t *testing.T) {
 	}()
 	flushFx(r) // must not panic — contained + logged
 }
+
+// #161 (FuzzDiffer): a re-render that reuses an element but drops a binding
+// clears what the binding set, unless the new render sets it another way.
+func TestDiffClearsDroppedBindings(t *testing.T) {
+	v := core.NewSignal(0)
+	cls, on := core.NewSignal("b0"), core.NewSignal(true)
+	scope := &core.ScopeNode{
+		Deps: []core.SignalAccessor{v},
+		Render: func() core.Node {
+			switch v.Get() {
+			case 0:
+				return h.Span(h.ClassS(cls), h.CheckedS(on))
+			case 1:
+				return h.Span(h.Text("one"))
+			}
+			return h.Span(h.Class("static"))
+		},
+	}
+	r := New()
+	renderFx(r, scope)
+	v.Set(1)
+	got := map[string]core.Mutation{}
+	for _, m := range flushFx(r) {
+		got[m.Key] = m
+	}
+	if m := got["class"]; m.Type != core.MutRemoveAttribute {
+		t.Fatalf("the bound class wasn't removed: %+v", got)
+	}
+	if m := got["checked"]; m.Type != core.MutSetProperty || m.Value != false {
+		t.Fatalf("the bound checked property wasn't reset: %+v", got)
+	}
+	v.Set(0)
+	flushFx(r)
+	v.Set(2) // bound class → static class: set, not removed
+	for _, m := range flushFx(r) {
+		if m.Key == "class" && m.Type == core.MutRemoveAttribute {
+			t.Fatal("a static class replacing a bound one was removed")
+		}
+	}
+}

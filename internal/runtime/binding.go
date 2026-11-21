@@ -119,3 +119,13 @@ func MutationForBind(nodeID int, b core.Bind) core.Mutation {
 		Value: v,
 	}
 }
+
+// Len is how many bindings are live, across all nodes (tests check that
+// removed nodes leave none behind).
+func (r *BindingRegistry) Len() int {
+	n := 0
+	for _, bs := range r.bindings {
+		n += len(bs)
+	}
+	return n
+}
