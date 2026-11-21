@@ -236,8 +236,25 @@ Options (static, apply to every event): `PreventDefault()`,
 ```go
 BindValue(sig *core.Signal[string])          // input ↔ signal (keystroke)
 BindValueLazy(sig *core.Signal[string])      // input ↔ signal (on change/blur)
+BindNumber(sig *core.Signal[T])              // numeric input ↔ number signal
 BindChecked(sig *core.Signal[bool])          // checkbox ↔ signal
+BindRadio(sig *core.Signal[string], value string) // radio group ↔ signal
 BindSelect(sig *core.Signal[string])         // <select> ↔ signal
+BindSelectMulti(sig *core.Signal[[]string])  // <select multiple> ↔ signal
+BindFiles(sig *core.Signal[[]core.File])     // file input ↔ picked files
+```
+
+### Reactive attributes and styles
+
+```go
+AttrS(name string, sig core.SignalAccessor)  // any attribute; false removes bool attrs
+ClassS(sig core.SignalAccessor)              // whole class attribute
+ClassIf(name string, sig *core.Signal[bool]) // one class, composes with Class
+Classes(map[string]*core.Signal[bool])       // several independent classes
+StyleProp(name string, sig core.SignalAccessor) // one CSS property
+StylePx(name string, sig core.SignalAccessor)   // one CSS property, numeric + "px"
+HiddenS(sig *core.Signal[bool])              // hidden attribute
+AriaExpandedS / AriaPressedS / AriaSelectedS / AriaCheckedS … // "true"/"false"
 ```
 
 ### Control flow

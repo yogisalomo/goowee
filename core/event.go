@@ -81,6 +81,28 @@ func (e EventData) Value() string     { return e.str("value") }
 func (e EventData) Checked() bool     { return e.flag("checked") }
 func (e EventData) InputType() string { return e.str("inputType") }
 
+// ValueAsNumber is an input's valueAsNumber (a number input, range slider or
+// similar). An empty or non-numeric field reports 0, as Go's numeric bindings
+// expect. Other event types report 0.
+func (e EventData) ValueAsNumber() float64 { return e.num("valueAsNumber") }
+
+// SelectedValues lists the selected option values of a <select>. For a single
+// select it has at most one item; for a multiple select, all selected options.
+// Other event types return nil.
+func (e EventData) SelectedValues() []string {
+	raw, ok := e.Data["selected"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // Clipboard and drag and drop: the event's DataTransfer (clipboardData for
 // paste, cut and copy; dataTransfer for drag events). Files (see File)
 // carries the files a paste or drop brings.

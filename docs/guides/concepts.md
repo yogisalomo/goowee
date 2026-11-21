@@ -682,11 +682,20 @@ animates up to 50,000 dots this way, and its
 ```go
 Input(BindValue(name))          // text input ↔ signal (keystroke)
 Input(BindValueLazy(name))      // text input ↔ signal (commit on change/blur)
+Input(Type("number"), BindNumber(age))  // numeric input ↔ int signal
 Input(Type("checkbox"), BindChecked(agreed))  // checkbox ↔ bool signal
+Input(Type("radio"), BindRadio(choice, "a"))  // one radio of a group
 Select(BindSelect(selected),   // <select> ↔ signal
     Option(Value("a"), Text("A")),
     Option(Value("b"), Text("B")),
 )
+Select(BindSelectMulti(tags),  // <select multiple> ↔ []string signal
+    Option(Value("a"), Text("A")),
+    Option(Value("b"), Text("B")),
+)
+Input(Type("file"), BindFiles(files))  // picked files ↔ []core.File signal
+Div(Class("base"), ClassIf("active", active))  // toggle one class
+Div(StyleProp("color", color), StylePx("left", left))  // one style property each
 ```
 
 ---

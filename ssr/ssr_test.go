@@ -12,6 +12,41 @@ import (
 	"testing"
 )
 
+func TestSSRBindingHelpers(t *testing.T) {
+	num := core.NewSignal(7)
+	active := core.NewSignal(true)
+	left := core.NewSignal(10.0)
+	hidden := core.NewSignal(false)
+	open := core.NewSignal(true)
+	multi := core.NewSignal([]string{"b"})
+
+	node := h.Div(
+		h.Class("base"), h.ClassIf("active", active),
+		h.StyleProp("color", core.NewSignal("red")), h.StylePx("left", left),
+		h.Input(h.Type("number"), h.BindNumber(num)),
+		h.Select(h.BindSelectMulti(multi),
+			h.Option(h.Value("a"), h.Text("A")),
+			h.Option(h.Value("b"), h.Text("B"))),
+		h.Button(h.HiddenS(hidden), h.AriaExpandedS(open), h.Text("menu")),
+	)
+	body, _ := New().Render(node)
+	for _, want := range []string{
+		`class="base active"`,
+		`style="color:red;left:10px"`,
+		`value="7"`,
+		`multiple`,
+		`value="b" selected`,
+		`aria-expanded="true"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("SSR output missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `hidden`) {
+		t.Errorf("hidden=false should not render the attribute:\n%s", body)
+	}
+}
+
 func TestSSRRender(t *testing.T) {
 	n := &core.ElementNode{
 		Tag:   "div",

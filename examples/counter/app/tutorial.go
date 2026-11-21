@@ -53,23 +53,32 @@ return Div(
 )`
 
 const formCode = `name, setName := hooks.UseState("")
+age, setAge := hooks.UseState(0)
+hasName := hooks.UseComputed([]core.SignalAccessor{name},
+    func() bool { return name.Get() != "" })
 entries, setEntries := hooks.UseState([]entry{})
 
-return Form(
-    OnSubmit(func(vals map[string]string) {          // vals = named field values
-        setEntries(append(entries.Get(), entry{name: vals["name"]}))
-        setName("")                                   // clear the bound input
-    }),
-    Input(Type("text"), Name("name"), RefTo(nameRef), BindValue(name)), // two-way binding
-    Input(Type("file"), OnChangeE(func(e core.EventData) {  // e.Files(): name, size, type
-        f := e.Files()[0]
-        go func() {                                       // bytes are read off-loop
-            data, err := f.Bytes()
-            core.Schedule(func() { setPicked(f.Name, data, err) })
-        }()
-    })),
-    Button(Text("Submit")),
-    For(entries, func(e entry) int { return e.id },     // keyed list
+return Div(
+    P(Class("preview"), ClassIf("has-name", hasName),   // one class from a bool signal
+        Textf("Preview: %s (%d)", name, age)),
+    Form(
+        OnSubmit(func(vals map[string]string) {      // vals = named field values
+            setEntries(append(entries.Get(), entry{name: vals["name"], age: age.Get()}))
+            setName("")                               // clear the bound input
+            setAge(0)
+        }),
+        Input(Type("text"), Name("name"), RefTo(nameRef), BindValue(name)), // two-way binding
+        Input(Type("number"), BindNumber(age)),      // browser parses to a number
+        Input(Type("file"), OnChangeE(func(e core.EventData) { // e.Files(): name, size, type
+            f := e.Files()[0]
+            go func() {                               // bytes are read off-loop
+                data, err := f.Bytes()
+                core.Schedule(func() { setPicked(f.Name, data, err) })
+            }()
+        })),
+        Button(Text("Submit")),
+    ),
+    For(entries, func(e entry) int { return e.id },   // keyed list
         func(e entry) core.Node { return Li(Text(e.name)) }),
 )
 // Elsewhere: nameRef.Focus() to focus the field, or read a value back —

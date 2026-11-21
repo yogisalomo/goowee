@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 
@@ -62,6 +63,76 @@ func (n *node) removeAttr(name string) {
 			n.attrs = append(n.attrs[:i], n.attrs[i+1:]...)
 			return
 		}
+	}
+}
+
+func (n *node) toggleClass(name string, on bool) {
+	value, _ := n.attr("class")
+	tokens := strings.Fields(value)
+	kept := make([]string, 0, len(tokens)+1)
+	found := false
+	for _, token := range tokens {
+		if token == name {
+			found = true
+			if !on {
+				continue
+			}
+		}
+		kept = append(kept, token)
+	}
+	if on && !found {
+		kept = append(kept, name)
+	}
+	if len(kept) == 0 {
+		n.removeAttr("class")
+		return
+	}
+	n.setAttr("class", strings.Join(kept, " "))
+}
+
+func (n *node) setStyleProp(name, value string) {
+	style, _ := n.attr("style")
+	parts := strings.Split(style, ";")
+	out := make([]string, 0, len(parts)+1)
+	done := false
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, _, _ := strings.Cut(part, ":")
+		key = strings.TrimSpace(key)
+		if key == name {
+			if !done {
+				out = append(out, name+":"+value)
+				done = true
+			}
+			continue
+		}
+		out = append(out, part)
+	}
+	if !done {
+		out = append(out, name+":"+value)
+	}
+	n.setAttr("style", strings.Join(out, ";"))
+}
+
+func (n *node) selectOptions(values []string) {
+	want := make(map[string]bool, len(values))
+	for _, v := range values {
+		want[v] = true
+	}
+	for _, child := range n.children {
+		if child.tag != "option" {
+			continue
+		}
+		value := ""
+		if p, ok := child.props["value"]; ok {
+			value = fmt.Sprint(p)
+		} else if a, ok := child.attr("value"); ok {
+			value = a
+		}
+		child.props["selected"] = want[value]
 	}
 }
 
@@ -268,6 +339,26 @@ func (d *document) apply(muts []core.Mutation) {
 				d.setValue(n, m.Val())
 			default:
 				n.props[m.Key] = m.Val()
+			}
+		case core.MutToggleClass:
+			if n := d.nodes[m.NodeID]; n != nil {
+				on, _ := m.Value.(bool)
+				n.toggleClass(m.Key, on)
+			}
+		case core.MutSetStyle:
+			if n := d.nodes[m.NodeID]; n != nil {
+				value := fmt.Sprint(m.Value)
+				if unit := m.NS; unit != "" {
+					if _, numeric := m.Value.(float64); numeric {
+						value = strconv.FormatFloat(m.Value.(float64), 'f', -1, 64) + unit
+					}
+				}
+				n.setStyleProp(m.Key, value)
+			}
+		case core.MutSetSelected:
+			if n := d.nodes[m.NodeID]; n != nil {
+				values, _ := m.Value.([]string)
+				n.selectOptions(values)
 			}
 		case core.MutAppendChild:
 			p, c := d.byID(m.NodeID), d.nodes[m.ChildID]

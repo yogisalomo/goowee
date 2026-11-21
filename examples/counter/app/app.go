@@ -134,6 +134,7 @@ func counterPage(r *router.Router) core.Node {
 type entry struct {
 	id          int
 	name, email string
+	age         int
 	agreed      bool
 }
 
@@ -142,6 +143,7 @@ func formPage(r *router.Router) core.Node {
 		name, setName := hooks.UseState("")
 		email, setEmail := hooks.UseState("")
 		agreed, setAgreed := hooks.UseState(false)
+		age, setAge := hooks.UseState(0)
 		entries, setEntries := hooks.UseState([]entry{})
 		nameRef := Ref() // imperative focus (h.Ref -> ref.Focus), measuring (ref.Get)
 		nameWidth, setNameWidth := hooks.UseState(0)
@@ -169,6 +171,8 @@ func formPage(r *router.Router) core.Node {
 			}()
 		}
 
+		hasName := hooks.UseComputed([]core.SignalAccessor{name}, func() bool { return name.Get() != "" })
+
 		demo := Div(
 			Button(Type("button"), OnClick(func() { nameRef.Focus() }), Text("Focus name")),
 			Button(Type("button"), OnClick(func() {
@@ -185,15 +189,18 @@ func formPage(r *router.Router) core.Node {
 						id:     len(entries.Get()) + 1, // append-only, so unique + stable
 						name:   vals["name"],
 						email:  vals["email"],
+						age:    age.Get(),
 						agreed: vals["agreed"] == "on",
 					}
 					setEntries(append(entries.Get(), en))
 					setName("")
 					setEmail("")
+					setAge(0)
 					setAgreed(false)
 				}),
 				label("Name", Input(Type("text"), Name("name"), RefTo(nameRef), BindValue(name))),
 				label("Email", Input(Type("email"), Name("email"), BindValue(email))),
+				label("Age", Input(Type("number"), Name("age"), BindNumber(age))),
 				Label(
 					Input(Type("checkbox"), Name("agreed"), BindChecked(agreed)),
 					Text(" Subscribe to newsletter"),
@@ -202,7 +209,7 @@ func formPage(r *router.Router) core.Node {
 				P(Class("attachment"), TextS(attachment)),
 				Button(Text("Submit")),
 			),
-			P(Class("preview"), Textf("Preview, Name: %s, Email: %s", name, email)),
+			P(Class("preview"), ClassIf("has-name", hasName), Textf("Preview, Name: %s, Email: %s, Age: %d", name, email, age)),
 			H3(Text("Submissions")),
 			Ul(Class("submission-list"),
 				For(entries, func(e entry) int { return e.id }, func(e entry) core.Node {
@@ -213,16 +220,19 @@ func formPage(r *router.Router) core.Node {
 					return Li(
 						Span(Class("sub-name"), Text(e.name)),
 						Span(Class("sub-email"), Text(e.email)),
+						Span(Class("sub-age"), Textf("age: %d", e.age)),
 						Span(Class("sub-agreed"), Text("subscribed: "+agreed)),
 					)
 				}),
 			),
 		)
 		return lessonLayout(r, "Forms & inputs",
-			"`BindValue` keeps an input and a signal in sync both ways. `OnSubmit` hands you the named field values, and a ref lets you focus a field imperatively.",
+			"`BindValue` and `BindNumber` keep inputs and signals in sync both ways. `ClassIf` toggles a single class from a bool signal, `OnSubmit` hands you the named field values, and a ref lets you focus a field imperatively.",
 			demo, "form.go", formCode,
 			howItWorks(
 				"`BindValue(name)` fills the input from the signal and updates the signal on every keystroke, two-way.",
+				"`BindNumber(age)` uses the browser's `valueAsNumber`, so the signal holds an `int` rather than a string.",
+				"`ClassIf(\"has-name\", hasName)` toggles one class from a bool signal without recomputing the whole class list.",
 				"`OnSubmit(func(vals map[string]string) {…})` receives values keyed by each input's `Name`; the browser's default submit is prevented for you.",
 				"`ref := Ref()`, attached with `RefTo(ref)`; `ref.Focus()` in a handler focuses the node.",
 				"`ref.Get(\"offsetWidth\", func(v any) {…})` reads a value back from the node on the next frame; the callback runs on the render loop.",

@@ -53,6 +53,15 @@ time. The public surface freezes under semver at v1.
   `Switch`, keyed `For`, components, portals), the document must equal a
   fresh render of the final state, with registries and mounted components
   matching. CI fuzzes it for 45 s per PR (#161).
+- More form bindings and targeted DOM updates (#149): `BindNumber`, `BindRadio`,
+  `BindSelectMulti` and `BindFiles` cover numeric inputs, radio groups,
+  multi-selects and file pickers. `ClassIf`/`Classes` toggle individual classes
+  and `StyleProp`/`StylePx` set individual CSS properties, so a signal change no
+  longer has to rewrite a whole `class` or `style` string and clobber another
+  binding's work. `AttrS` (also `HiddenS` and the `Aria*S` helpers) writes a
+  single attribute; boolean signals remove the attribute when false, and ARIA
+  state helpers render `"true"`/`"false"`. SSR renders the initial values of
+  all of these, and gooweetest applies the same mutations as the browser.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from

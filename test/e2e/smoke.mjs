@@ -171,6 +171,11 @@ async function main() {
   await clickText("button", "Measure name");
   await waitFor(`/Name input is [1-9]\\d*px wide/.test(document.body.innerText)`, "ref.Get returned the input's offsetWidth");
 
+  // --- BindNumber + ClassIf: a numeric input and one class update independently ---
+  await evalJS(`(()=>{const set=(sel,val)=>{const el=document.querySelector(sel);el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}));};set('input[name="name"]','Ada');set('input[name="age"]','42');})()`);
+  await waitFor(`/Preview, Name: Ada, Email: , Age: 42/.test(document.querySelector('.preview').textContent)`, "BindNumber updated the age signal");
+  check(await evalJS(`document.querySelector('.preview').classList.contains('has-name')`), "ClassIf didn't add has-name when the name became non-empty");
+
   // --- File input (e.Files + File.Bytes): the picked file's bytes reach Go ---
   const filePath = join(userDir, "note.txt");
   writeFileSync(filePath, "hello from e2e");
