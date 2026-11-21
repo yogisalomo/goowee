@@ -13,16 +13,21 @@ import (
 
 // waitLoaded drains the scheduler (applying the goroutine's posted result) and
 // polls until the resource stops loading, or fails on timeout.
+// The deadline is generous: under -race on a busy CI runner, starting the
+// fetch goroutine and posting its result has taken over 0.5 s.
 func waitLoaded(t *testing.T, s *core.Scheduler, loading *core.Signal[bool]) {
 	t.Helper()
-	for i := 0; i < 500; i++ {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
 		s.Flush()
 		if !loading.Get() {
 			return
 		}
+		if time.Now().After(deadline) {
+			t.Fatal("resource still loading after 5s")
+		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatal("resource still loading after timeout")
 }
 
 func TestUseResourceSuccess(t *testing.T) {
