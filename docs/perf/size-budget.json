@@ -3,7 +3,7 @@
   "tolerance": 0.03,
   "programs": {
     "test/e2e/hello": {
-      "brotli": 811637,
+      "brotli": 682006,
       "deny": [
         "net/http",
         "net",
@@ -19,7 +19,7 @@
       }
     },
     "test/e2e/hello -tags goowee_nodev": {
-      "brotli": 792408,
+      "brotli": 659727,
       "deny": [
         "net/http",
         "net",
@@ -36,7 +36,7 @@
       }
     },
     "examples/counter": {
-      "brotli": 1025802,
+      "brotli": 1019065,
       "deny": [
         "net/http",
         "net",
@@ -44,7 +44,7 @@
       ]
     },
     "test/e2e/hello (tinygo)": {
-      "brotli": 198906,
+      "brotli": 127883,
       "deny": [
         "net/http",
         "net",
@@ -58,7 +58,7 @@
       }
     },
     "examples/counter (tinygo)": {
-      "brotli": 309451,
+      "brotli": 316656,
       "deny": [
         "net/http",
         "net",
