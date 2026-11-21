@@ -1202,7 +1202,7 @@ function stopVirtualRows(id) {
 // listens on window scroll; forward one coalesced scroll event to those lists
 // so the Go handler reads the same window.scrollY the browser just applied.
 let windowScrollQueued = false;
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("scroll", function () {
         if (windowScrollQueued) return;
         windowScrollQueued = true;
