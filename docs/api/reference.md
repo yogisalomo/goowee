@@ -35,9 +35,14 @@ s.Named("cart")                          // a label in ?goowee-dev's inspector a
 // handlers, Schedule callbacks, ref reads and effects are batched already.
 core.Batch(func())
 
-// Derived signal that recomputes when deps change.
-total := core.Computed([]core.SignalAccessor{items}, func() int {
-    return sum(items.Get())
+// Derived signal that recomputes when its input changes. Prefer these: the
+// dependency and its read are one expression, so they cannot drift apart.
+total := core.Derive(items, func(xs []Item) int { return sum(xs) })
+full  := core.Derive2(first, last, func(f, l string) string { return f + " " + l })
+
+// For three or more deps, keep Computed and build the list with Deps.
+total := core.Computed(core.Deps(items, tax, discount), func() int {
+    return sum(items.Get(), tax.Get(), discount.Get())
 })                                       // *core.Signal[int]
 ```
 
@@ -284,6 +289,7 @@ AriaExpandedS / AriaPressedS / AriaSelectedS / AriaCheckedS … // "true"/"false
 // Conditional rendering.
 Show(cond interface{}, then func() core.Node)
 ShowElse(cond interface{}, then func() core.Node, else_ func() core.Node)
+ShowWhen(sig *core.Signal[T], cond func(T) bool, then func() core.Node)  // derives the bool condition
 
 // Multi-way switch.
 Switch(sig *core.Signal[T], cases map[T]func() core.Node, default func() core.Node)
@@ -385,6 +391,7 @@ total := hooks.UseComputed([]core.SignalAccessor{deps}, func() int)
 
 // Effects
 hooks.OnMount(func() func())                  // run once after mount (DOM applied), return cleanup
+hooks.Watch1(sig, func(T))                    // react to one signal, passed by value
 hooks.Watch([]core.SignalAccessor{deps}, func())  // react to signal changes
 hooks.UseEffect([]core.SignalAccessor{deps}, func() func())  // mount + deps + cleanup
 

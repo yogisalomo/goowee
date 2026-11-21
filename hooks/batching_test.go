@@ -28,6 +28,19 @@ func TestWatchRunsOncePerBatch(t *testing.T) {
 	}
 }
 
+// Watch1 hands fn the dependency's current value, once per batch.
+func TestWatch1PassesValue(t *testing.T) {
+	runtime.PushComponent()
+	defer runtime.PopComponent()
+	q := core.NewSignal("a")
+	var seen []string
+	Watch1(q, func(v string) { seen = append(seen, v) })
+	core.Batch(func() { q.Set("b"); q.Set("c") })
+	if len(seen) != 1 || seen[0] != "c" {
+		t.Fatalf("Watch1 saw %v, want [c]", seen)
+	}
+}
+
 // UseEffect re-runs once per batch: one cleanup, one run.
 func TestUseEffectRunsOncePerBatch(t *testing.T) {
 	sched := core.NewScheduler()

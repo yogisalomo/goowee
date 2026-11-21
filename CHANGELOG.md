@@ -77,6 +77,15 @@ time. The public surface freezes under semver at v1.
   change meaning. SSR renders the initial values of all of these, and
   gooweetest applies the same mutations as the browser. `EventData` gains
   `ValueAsNumber`, `ValueAsNumberOK` and `SelectedValues`.
+- Typed derive helpers (#146): `core.Derive(sig, fn)` and `core.Derive2(a, b,
+  fn)` build a computed signal from values, so a dependency can't be omitted
+  from a hand-written deps slice. `core.Deps(a, b, c)` is the readable spelling
+  for `Computed`'s many-dependency case. `h.ShowWhen(sig, cond, then)` and
+  `hooks.Watch1(sig, fn)` bring the same shape to conditions and one-signal
+  watches. They are thin wrappers over the existing primitives; laziness,
+  versions and disposal are unchanged, and ADR-002's explicit dependencies still
+  stand. The tutorial lessons and agent rules now use them where they shorten
+  code.
 
 ### Fixed
 
