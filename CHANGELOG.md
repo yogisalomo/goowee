@@ -12,6 +12,18 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+- **`goowee.boot({when})`** (#130): a server-rendered page can boot `"idle"`
+  (after load, when the browser is idle), `"visible"` (when an element
+  scrolls into view) or `"interaction"` (at the first pointerdown, keydown or
+  focusin) instead of at once. What the user does before the boot is queued
+  and replayed (#131), including the interaction that starts it. A
+  client-only page always boots at once; `?goowee-boot=` overrides the mode
+  for trying one; `goowee.bootWhen` reports it, and `bootTimings` gains the
+  trigger time and the load event. The shells have a preload hint for
+  `main.wasm`, and the tutorial site's server-rendered pages boot on idle
+  with a low-priority hint. `make boot` measures each mode, and
+  `test/e2e/lazyboot.mjs` checks them in Chrome. The serving guide documents
+  the hint and the modes.
 - TinyGo is a supported, CI-tested build target (#128). With TinyGo 0.44 and
   `-opt z -no-debug -stack-size=1MB`, the example is 299 KB brotli against
   989 KB with Go 1.25, and the minimal app 194 KB against 797 KB. CI builds the

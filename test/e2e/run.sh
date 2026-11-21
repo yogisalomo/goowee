@@ -81,6 +81,9 @@ node test/e2e/router.mjs
 echo "==> running early-interaction e2e (typing and clicks before the WASM boots)"
 node test/e2e/early.mjs
 
+echo "==> running lazy-boot e2e (goowee.boot({when}): interaction, idle, visible)"
+node test/e2e/lazyboot.mjs
+
 echo "==> running islands e2e (two goowee islands in a server-rendered page)"
 node test/e2e/islands.mjs
 echo "==> running notes e2e (examples/notes: goowee/rpc end to end, with SSR)"

@@ -211,8 +211,81 @@ function releaseEarly() {
 
 if (typeof document !== "undefined") startEarly();
 
+// opts.when says when a server-rendered page starts the download (#130): the
+// page is readable before the WASM arrives, and a page that is mostly read
+// can keep the download from competing with its CSS, fonts and images.
+//   "load"         at once (the default)
+//   "idle"         after the load event, when the browser is idle
+//                  (requestIdleCallback, at most opts.idleTimeout ms, 2000 by
+//                  default, after load)
+//   "visible"      when opts.target (an element or a selector; #root by
+//                  default) scrolls into view
+//   "interaction"  at the first pointerdown, keydown or focusin anywhere
+// Until then, and while the module downloads, clicks, keys and submits on the
+// server markup are queued and replayed once the app is live (#131), so the
+// interaction that starts the boot isn't lost. A client-only page (nothing
+// server-rendered to show meanwhile) always boots at once. goowee.bootWhen
+// reports the mode in effect.
 goowee.boot = function boot(opts) {
     opts = opts || {};
+    let when = opts.when || "load";
+    // ?goowee-boot=idle (or load, visible, interaction) overrides it, to try
+    // or measure a mode on a live page (make boot does).
+    const forced = /[?&]goowee-boot=(load|idle|visible|interaction)(?:&|$)/.exec(location.search);
+    if (forced) when = forced[1];
+    if (when !== "load" && !goowee.serverRendered()) when = "load";
+    goowee.bootWhen = when;
+    if (when === "load") return startBoot(opts);
+    const started = new Promise(function (resolve) { bootTrigger(when, opts, resolve); })
+        .then(function () { return startBoot(opts); });
+    started.catch(function () {}); // reported by startBoot, as for "load"
+    return started;
+};
+
+// bootTrigger calls go once the moment opts.when names has come.
+function bootTrigger(when, opts, go) {
+    let done = false;
+    const fire = function () {
+        if (done) return;
+        done = true;
+        mark("goowee:boot-trigger");
+        go();
+    };
+    switch (when) {
+        case "idle": {
+            const idle = function () {
+                if (typeof requestIdleCallback === "function") requestIdleCallback(fire, {timeout: opts.idleTimeout || 2000});
+                else setTimeout(fire, 1);
+            };
+            if (document.readyState === "complete") idle();
+            else window.addEventListener("load", idle, {once: true});
+            return;
+        }
+        case "visible": {
+            let el = opts.target || "#root";
+            if (typeof el === "string") el = document.querySelector(el);
+            if (!el || typeof IntersectionObserver !== "function") { fire(); return; }
+            const io = new IntersectionObserver(function (entries) {
+                if (entries.some(function (e) { return e.isIntersecting; })) { io.disconnect(); fire(); }
+            });
+            io.observe(el);
+            return;
+        }
+        case "interaction": {
+            const types = ["pointerdown", "keydown", "focusin"];
+            const on = function () {
+                for (const t of types) document.removeEventListener(t, on, true);
+                fire();
+            };
+            for (const t of types) document.addEventListener(t, on, {capture: true, passive: true});
+            return;
+        }
+    }
+    console.warn('goowee: goowee.boot: unknown when "' + when + '"; booting now');
+    fire();
+}
+
+function startBoot(opts) {
     if (opts.transport) goowee.transport = opts.transport;
     // calls: "callbacks" keeps every call into Go on syscall/js callbacks,
     // as before 0.4 (for comparing, or a problem with the exports).
@@ -289,6 +362,7 @@ goowee.bootTimings = function bootTimings() {
         hydrateStart: at("goowee:hydrate-start"),
         hydrateEnd: at("goowee:hydrate-end"),
         interactive: at("goowee:interactive"),
+        trigger: at("goowee:boot-trigger"), // a lazy boot's moment (#130)
     };
     const res = performance.getEntriesByType("resource")
         .find(function (r) { return r.name.split("?")[0].endsWith("main.wasm"); });
@@ -307,6 +381,8 @@ goowee.bootTimings = function bootTimings() {
             hydrate: sub(marks.hydrateEnd, marks.hydrateStart),
             fcp: paint ? paint.startTime : null, // from navigation start (timeOrigin)
             tti: marks.interactive, // from navigation start (timeOrigin)
+            // The page's load event, which a download started at once delays.
+            load: (performance.getEntriesByType("navigation")[0] || {}).loadEventEnd || null,
         },
         wasm: res ? {
             transferSize: res.transferSize,

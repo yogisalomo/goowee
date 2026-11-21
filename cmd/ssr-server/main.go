@@ -185,6 +185,7 @@ func shell(w io.Writer, head, body string) {
 <html>
 <head>
 %s
+    <link rel="preload" href="main.wasm" as="fetch" type="application/wasm" crossorigin fetchpriority="low">
     <link rel="stylesheet" href="site.css">
     <script src="wasm_exec.js"></script>
     <script src="goowee.js"></script>
@@ -192,7 +193,7 @@ func shell(w io.Writer, head, body string) {
 </head>
 <body>
     <div id="root">%s</div>
-    <script>goowee.boot();</script>
+    <script>goowee.boot({when: "idle"});</script>
 </body>
 </html>`, head, body)
 }

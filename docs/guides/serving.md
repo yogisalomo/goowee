@@ -73,6 +73,58 @@ goowee.useInstance(go, instance);
 go.run(instance);
 ```
 
+**Start the download early: the preload hint.** Without a hint the WASM
+download starts only after `wasm_exec.js` and `goowee.js` have loaded and the
+shell's `goowee.boot()` runs. A hint in `<head>` starts it with the HTML
+parse:
+
+```html
+<link rel="preload" href="main.wasm" as="fetch" type="application/wasm" crossorigin>
+```
+
+`goowee.boot()` fetches with the credentials mode `crossorigin` gives, so the
+browser reuses the preloaded response. The shells `goowee new` writes, and
+`examples/counter`'s, have it.
+
+**When a server-rendered page boots: `goowee.boot({when})`.** A
+server-rendered page is readable before the WASM arrives, so it can choose
+when to boot:
+
+| `when` | Boots | For |
+|---|---|---|
+| `"load"` (default) | at once | apps, pages you interact with at once |
+| `"idle"` | after the load event, when the browser is idle (`idleTimeout`, 2000 ms by default) | pages that are read first; the tutorial site uses it |
+| `"visible"` | when `target` (an element or selector, `#root` by default) scrolls into view | a widget further down the page |
+| `"interaction"` | at the first pointerdown, keydown or focusin | pages mostly read (docs, a blog), where most visitors never need the app |
+
+Clicks, keys and submits on the server markup before the boot are queued and
+replayed once the app is live (#131), so the interaction that starts an
+`"interaction"` boot is handled, once. A client-only page has nothing to show
+before the boot and always boots at once. `?goowee-boot=idle` (or another
+mode) in the URL overrides `when`, to try a mode on a live page.
+
+With a lazy mode, use a low-priority hint (`fetchpriority="low"`) to warm
+the cache without competing with the page's CSS, fonts and images, or no
+hint at all to download nothing until the boot. With `"interaction"` and no
+hint, a visitor who only reads never downloads the WASM
+(`test/e2e/lazyboot.mjs` checks that nothing is requested before the first
+click).
+
+Measured with `THROTTLE=fast3g make boot` on the tutorial site's home page
+(one stylesheet, a low-priority hint, 1.4 MB of WASM, medians of 3 cold
+loads; times from navigation start):
+
+| mode | FCP | load event | boot starts | TTI |
+|---|---|---|---|---|
+| load | 1496 ms | 1490 ms | at once | 9353 ms |
+| idle | 1484 ms | 1475 ms | 1477 ms | 9354 ms |
+| interaction (a click 1 s after load) | 1488 ms | 1479 ms | 1576 ms | 9366 ms |
+
+With the hint the download runs from the start in every mode, so on this
+page, with nothing else to load, the modes cost nothing in time to
+interactive and change only when the boot's work runs. They pay off on pages
+whose own images and fonts would otherwise share the bandwidth with the WASM.
+
 Measure the effect yourself with the boot harness under a throttled network:
 
 ```sh
