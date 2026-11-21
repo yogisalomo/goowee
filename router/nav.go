@@ -17,7 +17,32 @@ const (
 	navPush navKind = iota
 	navReplace
 	navPop
+	// navFragment is a same-page fragment change: only the fragment target is
+	// scrolled to, with no top fallback when the target does not exist.
+	navFragment
 )
+
+// navScope says how much of the browser navigation effect a URL change needs.
+// A query-only update (a search box calling NavigateReplace on each keystroke)
+// should not scroll, move focus or announce a new route; a fragment-only jump
+// scrolls to its target; only a path change runs the full route behaviour.
+type navScope uint8
+
+const (
+	navScopeNone navScope = iota
+	navScopeFragment
+	navScopeRoute
+)
+
+func changedNavScope(prevPath, prevFragment, path, fragment string) navScope {
+	if prevPath != path {
+		return navScopeRoute
+	}
+	if prevFragment != fragment {
+		return navScopeFragment
+	}
+	return navScopeNone
+}
 
 // linkPath is the one derived signal every NavLink watches. Building one
 // Computed per link would give each link its own subscription; this way all

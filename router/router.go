@@ -29,10 +29,12 @@ type Router struct {
 
 	// pushStateFn and replaceStateFn, when set by BindHistory, wrap navFn and
 	// replaceFn with scroll saving and the post-frame browser behaviour. They
-	// are separate so query-parameter updates can use the raw callbacks and
-	// stay on the same page.
-	pushStateFn    func(string)
-	replaceStateFn func(string)
+	// receive the URL parts from before the change so the browser effect can
+	// tell a route change from a query-only or fragment-only update. They are
+	// separate so query-parameter updates can use the raw callbacks and stay
+	// on the same page.
+	pushStateFn    func(url, prevPath, prevFragment string)
+	replaceStateFn func(url, prevPath, prevFragment string)
 	navOptions     ScrollOptions
 	linkPathSig    *core.Signal[string] // one shared computed for every NavLink
 
@@ -95,9 +97,10 @@ func (r *Router) Navigate(target string) {
 	if !r.canLeave(target) {
 		return
 	}
+	prevPath, prevFragment := r.Path.Peek(), r.Fragment.Peek()
 	url := r.setURL(target)
 	if r.pushStateFn != nil {
-		r.pushStateFn(url)
+		r.pushStateFn(url, prevPath, prevFragment)
 	} else if r.navFn != nil {
 		r.navFn(url)
 	}
@@ -111,9 +114,10 @@ func (r *Router) NavigateReplace(target string) {
 	if !r.canLeave(target) {
 		return
 	}
+	prevPath, prevFragment := r.Path.Peek(), r.Fragment.Peek()
 	url := r.setURL(target)
 	if r.replaceStateFn != nil {
-		r.replaceStateFn(url)
+		r.replaceStateFn(url, prevPath, prevFragment)
 	} else if r.replaceFn != nil {
 		r.replaceFn(url)
 	}
