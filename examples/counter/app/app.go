@@ -177,7 +177,7 @@ func formPage(r *router.Router) core.Node {
 					setNameWidth(int(w))
 				})
 			}), Text("Measure name")),
-			Show(hooks.UseComputed([]core.SignalAccessor{nameWidth}, func() bool { return nameWidth.Get() > 0 }),
+			ShowWhen(nameWidth, func(w int) bool { return w > 0 },
 				func() core.Node { return P(Class("measure"), Textf("Name input is %dpx wide", nameWidth)) }),
 			Form(
 				OnSubmit(func(vals map[string]string) {
@@ -269,8 +269,7 @@ func todosPage(r *router.Router) core.Node {
 		// (len+1 would collide once anything is deleted).
 		nextID, setNextID := hooks.UseState(len(initial) + 1)
 
-		doneCount := core.Computed([]core.SignalAccessor{todos}, func() string {
-			items := todos.Get()
+		doneCount := core.Derive(todos, func(items []todo) string {
 			done := 0
 			for _, t := range items {
 				if t.completed {
@@ -420,8 +419,7 @@ func stopwatchPage(r *router.Router) core.Node {
 		elapsed, setElapsed := hooks.UseState(0)
 		running, setRunning := hooks.UseState(false)
 
-		display := core.Computed([]core.SignalAccessor{elapsed}, func() string {
-			e := elapsed.Get()
+		display := core.Derive(elapsed, func(e int) string {
 			tenths := e % 10
 			whole := e / 10
 			secs := whole % 60
@@ -429,8 +427,8 @@ func stopwatchPage(r *router.Router) core.Node {
 			return fmt.Sprintf("%02d:%02d.%d", mins, secs, tenths)
 		})
 
-		runLabel := core.Computed([]core.SignalAccessor{running}, func() string {
-			if running.Get() {
+		runLabel := core.Derive(running, func(on bool) string {
+			if on {
 				return "Pause"
 			}
 			return "Start"
@@ -492,20 +490,19 @@ func dashboardPage(r *router.Router) core.Node {
 
 		selected, setSelected := hooks.UseState(-1)
 
-		totalStr := core.Computed([]core.SignalAccessor{data}, func() string {
+		totalStr := core.Derive(data, func(rows []dashboardRow) string {
 			sum := 0
-			for _, r := range data.Get() {
+			for _, r := range rows {
 				sum += r.Value
 			}
 			return fmt.Sprintf("Total: %d", sum)
 		})
 
-		selectedText := core.Computed([]core.SignalAccessor{selected, data}, func() string {
-			idx := selected.Get()
-			if idx < 0 || idx >= len(data.Get()) {
+		selectedText := core.Derive2(selected, data, func(idx int, rows []dashboardRow) string {
+			if idx < 0 || idx >= len(rows) {
 				return "No row selected."
 			}
-			row := data.Get()[idx]
+			row := rows[idx]
 			return fmt.Sprintf("Selected: %s = %d%s", row.Label, row.Value, row.Unit)
 		})
 
@@ -548,11 +545,11 @@ func dashboardPage(r *router.Router) core.Node {
 			}), Text("Randomize Values")),
 		)
 		return lessonLayout(r, "Computed values & selection",
-			"Two `Computed` values derive from signals: a running total, and a description of the selected row. Each recomputes only when its inputs change. Click a row or randomize to see it.",
+			"Two derived values come from signals: a running total, and a description of the selected row. Each recomputes only when its inputs change. Click a row or randomize to see it.",
 			demo, "dashboard.go", dashboardCode,
 			howItWorks(
-				"`core.Computed(deps, fn)` is a read-only signal derived from others; it recomputes only when a listed dep changes.",
-				"`selectedText` depends on both `selected` and `data`, so it updates when either changes.",
+				"`core.Derive(dep, fn)` is a read-only signal derived from one dependency; `Derive2` takes two. Each recomputes only when its input changes.",
+				"`selectedText` uses `Derive2(selected, data, …)`, so it updates when either changes. Use `Computed(core.Deps(a, b, c), …)` for more.",
 				"Clicking a row calls `setSelected(i)`; Randomize replaces `data` immutably so dependents recompute.",
 				"The bars are drawn on a `<canvas>` from `OnMount` via `bridge.Element(ref)` — how you hand an element to a JavaScript library (a chart, a map, an editor).",
 			),

@@ -12,6 +12,13 @@ func Show(cond *core.Signal[bool], then func() core.Node) core.Node {
 	return ShowElse(cond, then, nil)
 }
 
+// ShowWhen renders then() while cond(sig.Get()) is true. It derives the bool
+// signal Show needs, so a condition on another signal doesn't need a
+// hand-written Computed at every call site.
+func ShowWhen[T any](sig *core.Signal[T], cond func(T) bool, then func() core.Node) core.Node {
+	return Show(core.Computed(core.Deps(sig), func() bool { return cond(sig.Get()) }), then)
+}
+
 // ShowElse renders then() while cond is true, otherwise() when false.
 func ShowElse(cond *core.Signal[bool], then, otherwise func() core.Node) core.Node {
 	return hooks.UseScope(func() core.Node {
