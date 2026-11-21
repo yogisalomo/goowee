@@ -133,6 +133,7 @@ func mountInto(el js.Value, node core.Node, island bool) *Root {
 	if isRoot {
 		setInspectorRoot(node)
 	}
+	afterMount()
 	return &Root{r: r, parent: parent}
 }
 

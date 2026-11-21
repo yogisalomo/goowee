@@ -302,8 +302,13 @@ func (r *DOMRenderer) diffBoundary(old, nb *core.ErrorBoundaryNode, parentID, en
 	owner := runtime.PushOwner()
 
 	var childMuts []core.Mutation
+	var stack string
 	rec := func() (rec any) {
-		defer func() { rec = recover() }()
+		defer func() {
+			if rec = recover(); rec != nil {
+				stack = panicStack()
+			}
+		}()
 		fresh = r.diffNode(old.Prev, nb.Child, parentID, endRef, &childMuts)
 		return
 	}()
@@ -312,10 +317,7 @@ func (r *DOMRenderer) diffBoundary(old, nb *core.ErrorBoundaryNode, parentID, en
 		runtime.RestoreFrameStack(frameDepth)
 		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
 		r.abandon(mark, owner)
-		core.Log(core.LogRecoverErrorBoundary, "panic during boundary update; rendering fallback", map[string]any{
-			"phase": "update",
-			"panic": rec,
-		})
+		core.Log(core.LogRecoverErrorBoundary, "panic during boundary update; rendering fallback", boundaryFields("update", rec, stack))
 		r.emitRemoveTree(old.Prev, muts)
 		fb := core.FlatTree(nb.Fallback(rec))
 		nb.Prev = fb

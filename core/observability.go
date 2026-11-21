@@ -1,6 +1,7 @@
 package core
 
 import (
+	goruntime "runtime"
 	"strings"
 	"sync"
 )
@@ -77,9 +78,7 @@ func formatFields(message string, fields map[string]any) string {
 func Recover(kind LogKind, message string, fields map[string]any, fn func()) (rec any) {
 	defer func() {
 		if rec = recover(); rec != nil {
-			f := copyFields(fields)
-			f["panic"] = rec
-			Log(kind, message, f)
+			Log(kind, message, PanicFields(rec, fields))
 		}
 	}()
 	fn()
@@ -95,4 +94,19 @@ func copyFields(fields map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// PanicFields is fields plus "panic": rec and, in dev mode, "stack": the
+// panicking goroutine's stack, for the dev overlay (#148). Call it from the
+// deferred function that recovered.
+func PanicFields(rec any, fields map[string]any) map[string]any {
+	f := copyFields(fields)
+	f["panic"] = rec
+	if DevChecks() {
+		buf := make([]byte, 16<<10)
+		if n := goruntime.Stack(buf, false); n > 0 { // TinyGo has no stacks
+			f["stack"] = string(buf[:n])
+		}
+	}
+	return f
 }

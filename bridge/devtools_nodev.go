@@ -17,3 +17,7 @@ func initDevTools() {
 }
 
 func setInspectorRoot(core.Node) {}
+
+func recordDevLog(core.LogEntry) {}
+
+func afterMount() {}

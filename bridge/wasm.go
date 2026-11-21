@@ -85,6 +85,7 @@ func initLogSink() {
 			payload[k] = v
 		}
 		js.Global().Get("goowee").Call("log", string(appendLogJSON(nil, payload)))
+		recordDevLog(e)
 	})
 }
 
