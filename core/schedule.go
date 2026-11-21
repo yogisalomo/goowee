@@ -34,6 +34,16 @@ func scheduler() *Scheduler {
 	return activeScheduler
 }
 
+// ScrollWindow scrolls the document to (x, y) after the current batch of DOM
+// updates. It is the window-scrolling counterpart of ref.Call("scrollTo", …)
+// and is used by h.VirtualList's ScrollToIndex/ScrollToKey handle. No-op in
+// SSR and tests without a running client.
+func ScrollWindow(x, y float64) {
+	if s := scheduler(); s != nil {
+		s.Enqueue(Mutation{Type: MutCall, NodeID: 0, Key: "scrollTo", Value: []any{x, y}})
+	}
+}
+
 // NextFrame runs fn once at the start of the next frame, on the render loop;
 // call it again from fn to keep animating. Frames follow the display's
 // refresh rate, and stop while the page is hidden (a background tab doesn't

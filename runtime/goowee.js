@@ -1004,6 +1004,13 @@ function finishBatch(b) {
         setTimeout(finishEarly, 0);
     }
     for (const mut of b.calls) {
+        // Node 0 is the document: core.ScrollWindow uses it for window
+        // scrolling (h.VirtualList's handle).
+        if (mut.nodeId === 0 && mut.key === "scrollTo") {
+            try { window.scrollTo.apply(window, Array.isArray(mut.value) ? mut.value : []); }
+            catch (err) { console.error("goowee: ScrollWindow", err); }
+            continue;
+        }
         const el = nodeMap[mut.nodeId];
         if (!el || typeof el[mut.key] !== "function") continue;
         // A throwing method (setSelectionRange on an email input, say) must
@@ -1095,6 +1102,84 @@ function forgetCanvas(el) {
     if (!liveCanvases.delete(el)) return;
     if (canvasObserver) canvasObserver.unobserve(el);
     canvasState.delete(el); // a canvas drawn again later starts afresh
+}
+
+// h.VirtualList: one ResizeObserver watches every mounted .vlist-row inside a
+// [data-goowee-virtual-list] container. The real size is sent back to Go as a
+// batched goowee:rowmeasure CustomEvent ({rows: [[index, width, height], …]})
+// on the list element. A MutationObserver attaches to rows as they appear, so
+// this works for rows mounted by the first frame as well as later window
+// changes. Older runtimes simply never send the event; Go falls back to the
+// configured fixed item height.
+let rowObserver = null;
+let rowScan = null;
+function virtualRowResizer() {
+    if (!rowObserver && typeof ResizeObserver === "function") {
+        rowObserver = new ResizeObserver(function (entries) {
+            const pending = new Map();
+            for (const entry of entries) {
+                const el = entry.target;
+                if (!el.isConnected) continue;
+                const list = el.closest && el.closest("[data-goowee-virtual-list]");
+                if (!list) continue;
+                const index = Number(el.getAttribute("data-row-index"));
+                if (!Number.isFinite(index)) continue;
+                const box = el.getBoundingClientRect();
+                let rows = pending.get(list);
+                if (!rows) { rows = []; pending.set(list, rows); }
+                rows.push([index, box.width, box.height]);
+            }
+            for (const [list, rows] of pending) {
+                list.dispatchEvent(new CustomEvent("goowee:rowmeasure", {
+                    detail: {rows: rows}, bubbles: true
+                }));
+            }
+        });
+    }
+    return rowObserver;
+}
+function watchVirtualRows(root) {
+    const observer = virtualRowResizer();
+    if (!observer) return;
+    const lists = [];
+    if (root.nodeType === 1 && root.matches && root.matches("[data-goowee-virtual-list]")) lists.push(root);
+    if (root.querySelectorAll) lists.push(...root.querySelectorAll("[data-goowee-virtual-list]"));
+    for (const list of lists) {
+        for (const row of list.querySelectorAll(".vlist-row")) {
+            if (row._goRowWatched) continue;
+            row._goRowWatched = true;
+            observer.observe(row);
+        }
+    }
+}
+if (typeof MutationObserver === "function") {
+    rowScan = new MutationObserver(function (records) {
+        for (const rec of records) {
+            for (const node of rec.addedNodes) {
+                if (node.nodeType === 1) watchVirtualRows(node);
+            }
+        }
+    });
+    rowScan.observe(document, {childList: true, subtree: true});
+}
+
+// A VirtualList with VirtualListWindow(0) (or a window taller than itself)
+// listens on window scroll; forward one coalesced scroll event to those lists
+// so the Go handler reads the same window.scrollY the browser just applied.
+let windowScrollQueued = false;
+if (typeof window !== "undefined") {
+    window.addEventListener("scroll", function () {
+        if (windowScrollQueued) return;
+        windowScrollQueued = true;
+        requestAnimationFrame(function () {
+            windowScrollQueued = false;
+            for (const list of document.querySelectorAll("[data-goowee-scroll='window']")) {
+                list.dispatchEvent(new CustomEvent("goowee:windowscroll", {
+                    detail: {scrollTop: window.scrollY, scrollLeft: window.scrollX}, bubbles: true
+                }));
+            }
+        });
+    }, {passive: true});
 }
 
 // The device pixel ratio changes with browser zoom and when the window moves
