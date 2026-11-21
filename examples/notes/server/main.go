@@ -51,6 +51,17 @@ func (s *store) add(n api.Note) api.Note {
 	return n
 }
 
+func (s *store) hasTitle(title string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, n := range s.notes {
+		if strings.EqualFold(strings.TrimSpace(n.Title), strings.TrimSpace(title)) {
+			return true
+		}
+	}
+	return false
+}
+
 // Routes registers the API on mux.
 func (s *store) Routes(mux *http.ServeMux) {
 	rpc.Handle(mux, api.ListNotes, func(ctx context.Context, req api.ListReq) ([]api.Note, error) {
@@ -75,8 +86,11 @@ func (s *store) Routes(mux *http.ServeMux) {
 		return n, nil
 	})
 	rpc.Handle(mux, api.AddNote, func(ctx context.Context, req api.AddReq) (api.Note, error) {
-		if strings.TrimSpace(req.Title) == "" {
-			return api.Note{}, rpc.Invalid("the note needs a title", map[string]string{"title": "Give the note a title."})
+		if errs := req.Validate(); len(errs) > 0 { // the same check the form runs
+			return api.Note{}, rpc.Invalid("check the note", errs)
+		}
+		if s.hasTitle(req.Title) { // a check only the server can make
+			return api.Note{}, rpc.Invalid("check the note", map[string]string{"title": "A note with this title already exists."})
 		}
 		return s.add(api.Note{Title: req.Title, Body: req.Body}), nil
 	})

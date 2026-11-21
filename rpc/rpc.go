@@ -124,6 +124,10 @@ type Error struct {
 	Status int `json:"-"`
 }
 
+// FieldErrors returns the per-field messages, for goowee/form, which shows
+// each on its field.
+func (e *Error) FieldErrors() map[string]string { return e.Fields }
+
 func (e *Error) Error() string {
 	if e.Message == "" {
 		return "rpc: " + e.Code
