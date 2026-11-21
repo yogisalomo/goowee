@@ -111,10 +111,10 @@ func MutationForBind(nodeID int, b core.Bind) core.Mutation {
 	// Generic attribute and property bindings use the typed value path (#136):
 	// no formatting or boxing on the hot update path. Targeted bindings need
 	// their own mutation type and value shape, so they use the boxed path.
-	if b.Target == core.BindToAttr || b.Target == core.BindToProp {
+	if b.Target == core.BindToAttr || b.Target == core.BindToAttrText || b.Target == core.BindToProp {
 		if tv, ok := b.Signal.(core.TypedValuer); ok {
 			m := core.Mutation{Type: core.MutSetProperty, NodeID: nodeID, Key: b.Name}
-			if b.Target == core.BindToAttr {
+			if b.Target == core.BindToAttr || b.Target == core.BindToAttrText {
 				m.Type = core.MutSetAttribute
 			}
 			if m.Kind, m.Str, m.Bits = tv.TypedValue(); m.Kind != core.ValAny {
