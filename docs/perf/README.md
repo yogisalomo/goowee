@@ -6,7 +6,7 @@ benchmark suite (`./core/`, `./internal/dom/`, `./ssr/`, `-count 6`) plus a
 and brotli `-q 11` (in bytes).
 
 ```sh
-make perf-record VERSION=v0.3.0   # at a release: writes docs/perf/v0.3.0.txt
+make perf-record VERSION=v0.4.0   # at a release: writes docs/perf/v0.4.0.txt
 make perf-compare                 # the working tree vs the latest release
 make perf-compare BASE=v0.2.1     # … or vs a given one
 ```
@@ -68,6 +68,24 @@ code in the notify loop, which runs 1,000 subscribers per `Set`: about
 0.16 ns per subscriber, a layout effect rather than added work. The example's
 wasm grew 9.1% (5,223,488 raw, 988,195 brotli), mostly from `goowee/canvas`
 and the graph page that the tutorial site now includes.
+
+**v0.4.0 against v0.3.0.** The v0.3.0 record was noisy (confidence
+intervals up to ±220%), so its timings overstate this release's gains;
+allocations and sizes are exact. `LayoutTickFrame` allocates 12 times
+instead of 15,050 and 75% fewer bytes (#136), and takes 392 µs (an
+interleaved run before the record agreed, 390 to 410 µs). `ForAppendOne5k`
+-54%, `DiffTree` -39%, `ScopeReRenderList` -15%, `SignalSetFanout` -30% and
+`Coalesce` -19% are faster in the record. Render benchmarks use more bytes
+for the same allocations (`DeepTreeRender` +28%, `DiffTree` +20%) because
+`core.Mutation` carries a typed value (`Kind`, `Str`, `Bits`) beside
+`Value`. `EncodeLayoutTick` (the JSON encoder, now the fallback) is +23%;
+the binary encoder the bridge uses, `BatchEncodeLayoutTick`, is new at
+527 µs and allocates nothing. New benchmarks: the binary encoders and the
+three phases of mounting 1,000 rows (`Mount1000*`, ADR-032). The example's
+wasm grew 9.8% (5,741,497 raw, 1,063,514 brotli): the forms, `ForList`, rpc
+and the dev overlay it now includes. The minimal app shrank: 779 KB to 660 KB
+brotli with `goowee_nodev` (797 KB to 740 KB with dev tools, which now
+include the overlay); `size-budget.json` tracks both.
 
 ## Size budget
 

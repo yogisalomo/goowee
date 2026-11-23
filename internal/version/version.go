@@ -3,4 +3,4 @@
 package version
 
 // Module is the version of the runtime embedded in this build.
-const Module = "v0.3.0"
+const Module = "v0.4.0"

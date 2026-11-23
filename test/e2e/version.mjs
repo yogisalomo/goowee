@@ -60,6 +60,8 @@ ws.onmessage = (ev) => { const m = JSON.parse(ev.data);
   if (m.method === "Runtime.exceptionThrown") errors.push("exception: " + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text)); };
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const ev = async (expr) => (await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result.result.value;
+// The version the binary reports is internal/version.Module, bumped at each release.
+const moduleVersion = readFileSync("internal/version/version.go", "utf8").match(/const Module = "([^"]+)"/)[1];
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
 try {
@@ -70,7 +72,7 @@ try {
   if (message) {
     check(message.includes("protocol 1"), `error doesn't name the app protocol: ${message}`);
     check(message.includes("protocol 0"), `error doesn't name the page protocol: ${message}`);
-    check(message.includes("goowee v0.3.0"), `error doesn't name the app version: ${message}`);
+    check(message.includes(`goowee ${moduleVersion}`), `error doesn't name the app version (${moduleVersion}): ${message}`);
     check(message.includes("go run github.com/yogisalomo/goowee/cmd/goowee assets ./web"), `error lacks the fix command: ${message}`);
   }
   check((await ev(`window.bootErrs.length`)) === 1, "expected exactly one goowee:boot-error event");
