@@ -12,12 +12,12 @@ WebAssembly is highly compressible. For the example binary:
 
 | encoding | bytes on the wire | vs. raw |
 |----------|------------------:|--------:|
-| identity (uncompressed) | ~5 223 KB | 1.0× |
-| **gzip** (`-9`)          | ~1 363 KB | **3.8×** |
-| **brotli** (`-q 11`)     |   ~988 KB | **5.3×** |
+| identity (uncompressed) | ~5 741 KB | 1.0× |
+| **gzip** (`-9`)          | ~1 481 KB | **3.9×** |
+| **brotli** (`-q 11`)     | ~1 064 KB | **5.4×** |
 
-(Go 1.25, goowee 0.3.0; tracked per release in `docs/perf/`.) At a bandwidth-limited **500 KB/s** the download alone
-goes from **~10.4 s → ~2.7 s** with gzip, and **~2.0 s** with brotli. Serve `application/wasm` with `Content-Encoding: gzip` (or `br`) and a
+(Go 1.25, goowee 0.4.0; tracked per release in `docs/perf/`.) At a bandwidth-limited **500 KB/s** the download alone
+goes from **~11.5 s → ~3.0 s** with gzip, and **~2.1 s** with brotli. Serve `application/wasm` with `Content-Encoding: gzip` (or `br`) and a
 `Vary: Accept-Encoding` header, and the browser decompresses transparently before
 `instantiateStreaming` compiles it. This is a zero-code-risk win — do it before
 reaching for TinyGo.

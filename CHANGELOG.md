@@ -11,6 +11,45 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-24
+
+A minor release, and the biggest one so far. It adds a command line tool
+(`goowee new`, `goowee dev` and `goowee build`), typed server functions,
+forms with validation shared by the browser and the server, data loaded on
+the server, islands and several roots per binary, static export, a keyed
+list that updates one row per change, lazy booting of server-rendered pages,
+a dev overlay, a `go vet` analyzer, and TinyGo as a supported target. Under
+the hood, DOM updates cross to JavaScript in a binary format, events call
+into Go through WebAssembly exports, bound updates no longer allocate, and
+the client code no longer links `fmt` or `encoding/json`. A production build
+of the smallest app is 660 KB brotli, down from 779 KB in 0.3.0, and about
+160 KB with TinyGo.
+
+Upgrading from 0.3.0:
+- **Serve the matching runtime.** The binary and `goowee.js` now exchange a
+  protocol version at boot, and a binary from this release won't mount
+  against an older `goowee.js`: the page reports both versions instead.
+  `ssr.Handler` serves the matching one; for static hosting copy it with
+  `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web`.
+- **Read a browser event's payload with the accessors.** `EventData.Data` is
+  set only on `EventData` built with `NewEventData`. Use `Key`, `Value`,
+  `Number`, `String`, `Bool`, `Field` or `Fields`. Calling `PreventDefault`
+  after the handler returned no longer affects the event.
+- **Formatting a bound slice, map or struct needs `fmt` opted in.** goowee's
+  client code no longer links `fmt` or `encoding/json`. In the browser, call
+  `core.UseFmt(fmt.Sprintf)` if a bound value is a slice, map or struct
+  (`Textf` does it for you), and `core.UseJSON(json.Marshal)` if a property
+  value or `ref.Call` argument is a struct or typed slice. Without them goowee
+  logs a warning. Host builds have both.
+- **`router.NewURL` and `ssr.RoutedPage` are host-only.** In the browser use
+  `router.New`.
+- **Read mutation values with `Val`.** A bound attribute or property update
+  carries its value in `Kind`, `Str` and `Bits`; code that read
+  `core.Mutation.Value` should call `Val()`.
+- **Routes remount when the matched pattern changes**, even if both routes
+  render a component of the same name, and `/about/` is the same page as
+  `/about`.
+
 ### Added
 - `test/e2e/mount.mjs` measures mounting a fresh list three ways (per-node
   batch, HTML claimed like hydration, cloned row templates), and
@@ -112,7 +151,6 @@ time. The public surface freezes under semver at v1.
   `Switch`, keyed `For`, components, portals), the document must equal a
   fresh render of the final state, with registries and mounted components
   matching. CI fuzzes it for 45 s per PR (#161).
-- `goowee/web` serves the browser assets that must match a build: `web.RuntimeJS()`, `web.Version` and `web.Handler()` (#144). `ssr.Handler` now serves `/goowee.js` and `/wasm_exec.js` through it, with ETags, so a server-rendered app cannot load a stale runtime. `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web` copies both files for static hosting, taking goowee's version from the app's `go.mod`; the guides use it instead of globbing the module cache. The binary and runtime now exchange a protocol version at boot: a mismatch stops before mounting and reports both versions and the command that fixes it.
 - `goowee/web` exposes the browser assets that must match a build: `web.RuntimeJS()`, `web.Version`, `web.Handler()` and `web.WasmExecJS()` (#144). `ssr.Handler` serves any path ending in `goowee.js` through it, with an ETag and `Cache-Control: no-cache`, so a server-rendered app cannot load a stale runtime. `wasm_exec.js` stays with the app's static files: the deployed server may have no Go toolchain. `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web` copies both files for static hosting, taking goowee's version from the app's `go.mod`; the guides use it instead of globbing the module cache. The binary and runtime now exchange a protocol version at boot: a mismatch stops before mounting and reports both versions and the command that fixes it.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
@@ -202,12 +240,6 @@ time. The public surface freezes under semver at v1.
   `Textf` makes a new one each render) sends its value only if it differs.
   A no-op re-render of 100 rows with a bound class and text went from 200
   mutations and 1,834 allocations to none and about 520 (building the rows).
-
-### Changed
-- Upgrade note for #144: serve this release's `goowee.js` (for example with
-  `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web`). A runtime from
-  before the protocol handshake has no version marker, so a new binary will not
-  mount against it — the page reports the mismatch instead.
 
 ### Fixed
 - `ssr.RoutedPage` is host-only, like `router.NewURL` it calls (#126), so
@@ -950,7 +982,8 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/yogisalomo/goowee/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/yogisalomo/goowee/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/yogisalomo/goowee/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/yogisalomo/goowee/compare/v0.2.5...v0.2.6
