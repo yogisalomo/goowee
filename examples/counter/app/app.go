@@ -137,6 +137,7 @@ func counterPage(r *router.Router) core.Node {
 type entry struct {
 	id          int
 	name, email string
+	age         int
 	agreed      bool
 }
 
@@ -163,6 +164,7 @@ func (s signup) Validate() form.Errors {
 func formPage(r *router.Router) core.Node {
 	return core.Component("FormPage", func() core.Node {
 		f := form.Use(signup{})
+		age, setAge := hooks.UseState(0)
 		entries, setEntries := hooks.UseState([]entry{})
 		nameRef := Ref() // imperative focus (h.Ref -> ref.Focus), measuring (ref.Get)
 		nameWidth, setNameWidth := hooks.UseState(0)
@@ -190,6 +192,8 @@ func formPage(r *router.Router) core.Node {
 			}()
 		}
 
+		hasName := hooks.UseComputed([]core.SignalAccessor{f.Value}, func() bool { return f.Value.Get().Name != "" })
+
 		demo := Div(
 			Button(Type("button"), OnClick(func() { nameRef.Focus() }), Text("Focus name")),
 			Button(Type("button"), OnClick(func() {
@@ -209,15 +213,18 @@ func formPage(r *router.Router) core.Node {
 						id:     len(entries.Get()) + 1, // append-only, so unique + stable
 						name:   v.Name,
 						email:  v.Email,
+						age:    age.Get(),
 						agreed: v.Agreed,
 					}
 					setEntries(append(entries.Get(), en))
 					f.Reset(signup{})
+					setAge(0)
 				}),
 				label("Name", Input(Type("text"), RefTo(nameRef), form.Text(f, "name", func(s *signup) *string { return &s.Name }))),
 				P(Class("field-error"), TextS(f.Error("name"))),
 				label("Email", Input(Type("email"), form.Text(f, "email", func(s *signup) *string { return &s.Email }))),
 				P(Class("field-error"), TextS(f.Error("email"))),
+				label("Age", Input(Type("number"), Name("age"), BindNumber(age))),
 				Label(
 					Input(form.Bool(f, "agreed", func(s *signup) *bool { return &s.Agreed })),
 					Text(" Subscribe to newsletter"),
@@ -226,9 +233,9 @@ func formPage(r *router.Router) core.Node {
 				P(Class("attachment"), TextS(attachment)),
 				Button(Type("submit"), DisabledS(f.Submitting), Text("Submit")),
 			),
-			P(Class("preview"), TextS(core.Computed([]core.SignalAccessor{f.Value}, func() string {
+			P(Class("preview"), ClassIf("has-name", hasName), TextS(core.Computed([]core.SignalAccessor{f.Value, age}, func() string {
 				v := f.Value.Get()
-				return fmt.Sprintf("Preview, Name: %s, Email: %s", v.Name, v.Email)
+				return fmt.Sprintf("Preview, Name: %s, Email: %s, Age: %d", v.Name, v.Email, age.Get())
 			}))),
 			H3(Text("Submissions")),
 			Ul(Class("submission-list"),
@@ -240,19 +247,22 @@ func formPage(r *router.Router) core.Node {
 					return Li(
 						Span(Class("sub-name"), Text(e.name)),
 						Span(Class("sub-email"), Text(e.email)),
+						Span(Class("sub-age"), Textf("age: %d", e.age)),
 						Span(Class("sub-agreed"), Text("subscribed: "+agreed)),
 					)
 				}),
 			),
 		)
 		return lessonLayout(r, "Forms & inputs",
-			"goowee/form keeps a form's fields in one typed value, checked by a plain Go `Validate` method that a server can run too. A ref lets you focus a field imperatively.",
+			"goowee/form keeps a form's fields in one typed value, checked by a plain Go `Validate` method that a server can run too. `BindNumber` keeps a number input and an `int` signal in sync, `ClassIf` toggles one class from a bool signal, and a ref lets you focus a field imperatively.",
 			demo, "form.go", formCode,
 			howItWorks(
 				"`f := form.Use(signup{})` holds the value, its errors, and which fields were left or submitted.",
 				"`form.Text(f, \"name\", func(s *signup) *string { return &s.Name })` binds an input to a field both ways, and sets its `name` and `aria-invalid`.",
 				"`signup.Validate()` runs as you type once a field was left, and on submit; `f.Error(\"name\")` is that field's message while it should show.",
 				"`f.OnSubmit(send, then)` runs `send` in a goroutine with `f.Submitting` set, shows a server's field errors on their fields, and runs `then` after a success.",
+				"`BindNumber(age)` uses the browser's `valueAsNumber`, so the signal holds an `int` rather than a string, and a half-typed number leaves it alone.",
+				"`ClassIf(\"has-name\", hasName)` toggles one class from a bool signal without recomputing the whole class list.",
 				"`ref := Ref()`, attached with `RefTo(ref)`; `ref.Focus()` in a handler focuses the node.",
 				"`ref.Get(\"offsetWidth\", func(v any) {…})` reads a value back from the node on the next frame; the callback runs on the render loop.",
 				"`OnChangeE` on a file input gives `e.Files()`: name, size, type. `f.Bytes()` reads the contents in a goroutine, and `core.Schedule` applies the result.",

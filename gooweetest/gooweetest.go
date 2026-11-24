@@ -24,12 +24,14 @@ package gooweetest
 
 import (
 	"encoding/json"
-	"github.com/yogisalomo/goowee/canvas"
+	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/yogisalomo/goowee/canvas"
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/dom"
 	"github.com/yogisalomo/goowee/storage"
@@ -346,6 +348,54 @@ func (s *Screen) Change(el *Element, value string) {
 	s.t.Helper()
 	el.n.props["value"] = value
 	s.Dispatch(el, "change", map[string]any{"value": value})
+}
+
+// InputNumber sets a number input's value and fires input with valueAsNumber,
+// as a browser does for a typed number or a range slider.
+func (s *Screen) InputNumber(el *Element, value float64) {
+	s.t.Helper()
+	s.InputNumberRaw(el, strconv.FormatFloat(value, 'f', -1, 64), value)
+}
+
+// InputNumberRaw sets a number input's text and fires input with the given
+// valueAsNumber payload. Pass nil for an empty or partial entry ("" , "-",
+// "1e"), whose browser valueAsNumber is NaN and whose JSON payload is null.
+func (s *Screen) InputNumberRaw(el *Element, text string, valueAsNumber any) {
+	s.t.Helper()
+	el.n.props["value"] = text
+	s.Dispatch(el, "input", map[string]any{"value": text, "valueAsNumber": valueAsNumber})
+}
+
+// SelectMultiple selects the given option values in a <select multiple> and
+// fires change, as picking several options does.
+func (s *Screen) SelectMultiple(selectEl *Element, values ...string) {
+	s.t.Helper()
+	want := make(map[string]bool, len(values))
+	for _, v := range values {
+		want[v] = true
+	}
+	for _, option := range selectEl.n.children {
+		if option.tag != "option" {
+			continue
+		}
+		value, ok := option.props["value"]
+		if !ok {
+			value, _ = option.attr("value")
+		}
+		option.props["selected"] = want[fmt.Sprint(value)]
+	}
+	if len(values) > 0 {
+		selectEl.n.props["value"] = values[0]
+	}
+	selected := make([]any, len(values))
+	for i, v := range values {
+		selected[i] = v
+	}
+	value, _ := selectEl.n.props["value"]
+	if value == nil {
+		value, _ = selectEl.n.attr("value")
+	}
+	s.Dispatch(selectEl, "change", map[string]any{"value": value, "selected": selected})
 }
 
 // Check sets a checkbox/radio's checked state and fires input and change.

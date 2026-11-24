@@ -1,6 +1,10 @@
 package core
 
-import "github.com/yogisalomo/goowee/internal/jsontext"
+import (
+	"math"
+
+	"github.com/yogisalomo/goowee/internal/jsontext"
+)
 
 // EventData is what a handler receives: the event type, the node id of the
 // element whose handler is running, and the event's payload. The typed
@@ -171,6 +175,55 @@ func mapNum(m map[string]any, k string) float64 {
 func (e EventData) Value() string     { return e.str("value") }
 func (e EventData) Checked() bool     { return e.flag("checked") }
 func (e EventData) InputType() string { return e.str("inputType") }
+
+// ValueAsNumber is an input's valueAsNumber (a number input, range slider or
+// similar). An empty or non-numeric field, and other event types, report 0.
+// Use ValueAsNumberOK to distinguish that from a real zero.
+func (e EventData) ValueAsNumber() float64 {
+	n, _ := e.ValueAsNumberOK()
+	return n
+}
+
+// ValueAsNumberOK reports an input's valueAsNumber and whether the field held
+// a valid number. In the browser an empty or partial number input ("" , "-",
+// "1e") has valueAsNumber NaN; JSON turns that into null, so the field is
+// indistinguishable from a missing payload without this check. Bindings use
+// ok == false to keep the last valid signal value and leave the user's text
+// alone while they are still typing.
+func (e EventData) ValueAsNumberOK() (float64, bool) {
+	v, _ := e.Field("valueAsNumber")
+	switch n := v.(type) {
+	case float64:
+		return n, !math.IsNaN(n)
+	case float32:
+		f := float64(n)
+		return f, !math.IsNaN(f)
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+// SelectedValues lists the selected option values of a <select>. For a single
+// select it has at most one item; for a multiple select, all selected options.
+// Other event types return nil.
+func (e EventData) SelectedValues() []string {
+	raw := e.list("selected")
+	if raw == nil {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 // Clipboard and drag and drop: the event's DataTransfer (clipboardData for
 // paste, cut and copy; dataTransfer for drag events). Files (see File)

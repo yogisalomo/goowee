@@ -41,7 +41,7 @@ func (r *Renderer) renderWith(n core.Node, provided *core.ContextValue) (body, h
 			r.Walker.SetContext(walker.Provided(provided))
 		}
 		var buf strings.Builder
-		v := &ssrVisitor{r: r, buf: &buf}
+		v := &ssrVisitor{r: r, buf: &buf, selected: make(map[int][]string)}
 		r.Walker.Walk(n, v)
 		body = buf.String()
 		head = r.headBuf.String()
@@ -51,9 +51,11 @@ func (r *Renderer) renderWith(n core.Node, provided *core.ContextValue) (body, h
 
 // ssrVisitor implements walker.Visitor for the SSR renderer.
 type ssrVisitor struct {
-	r      *Renderer
-	buf    *strings.Builder
-	silent bool // when true, VisitElement/VisitText don't write to buffer
+	r        *Renderer
+	buf      *strings.Builder
+	silent   bool             // when true, VisitElement/VisitText don't write to buffer
+	selectID int              // the <select> whose <option> children we're walking
+	selected map[int][]string // select node id -> initially selected option values
 }
 
 var _ walker.Visitor = (*ssrVisitor)(nil)
@@ -103,6 +105,12 @@ func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(c
 	if el == nil {
 		return
 	}
+	prevSelect := v.selectID
+	if el.Tag == "select" {
+		v.selectID = id
+	}
+	defer func() { v.selectID = prevSelect }()
+
 	if v.silent {
 		for _, child := range el.Children {
 			walkChild(child)
@@ -114,17 +122,41 @@ func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(c
 	v.buf.WriteString(el.Tag)
 	fmt.Fprintf(v.buf, ` data-node-id="%d"`, id)
 
-	for _, a := range el.Attrs {
-		v.writeAttr(a.Name, a.Value)
+	writes, classes, styles := v.elementAttrs(id, el)
+	seenClass, seenStyle := false, false
+	for _, w := range writes {
+		switch w.name {
+		case "class":
+			if seenClass {
+				continue
+			}
+			seenClass = true
+			v.writeAttr("class", strings.Join(classes, " "))
+		case "style":
+			if seenStyle {
+				continue
+			}
+			seenStyle = true
+			v.writeAttr("style", strings.Join(styles, ";"))
+		default:
+			if w.boolAttr {
+				v.writeBoolAttr(w.name)
+			} else {
+				v.writeAttr(w.name, w.value)
+			}
+		}
 	}
-	for _, p := range el.Props {
-		v.writeProp(p.Name, p.Value)
+	if !seenClass && len(classes) > 0 {
+		v.writeAttr("class", strings.Join(classes, " "))
 	}
-	for _, b := range el.Binds {
-		if b.Target == core.BindToAttr {
-			v.writeAttr(b.Name, fmt.Sprint(b.Signal.Value()))
-		} else {
-			v.writeProp(b.Name, b.Signal.Value())
+	if !seenStyle && len(styles) > 0 {
+		v.writeAttr("style", strings.Join(styles, ";"))
+	}
+	if el.Tag == "option" {
+		if values, ok := v.selected[v.selectID]; ok {
+			if value, ok := optionValue(el); ok && contains(values, value) {
+				v.writeBoolAttr("selected")
+			}
 		}
 	}
 
@@ -150,6 +182,122 @@ func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(c
 	v.buf.WriteString("</")
 	v.buf.WriteString(el.Tag)
 	v.buf.WriteString(">")
+}
+
+type ssrAttr struct {
+	name, value string
+	boolAttr    bool
+}
+
+// elementAttrs collects attributes and properties in source order, merging
+// class and style tokens so static values, ClassIf and StyleProp produce one
+// attribute each. The first class/style slot keeps its original position.
+func (v *ssrVisitor) elementAttrs(id int, el *core.ElementNode) (writes []ssrAttr, classes, styles []string) {
+	hasClass, hasStyle := false, false
+	add := func(name, value string) {
+		switch name {
+		case "class":
+			classes = append(classes, value)
+			if !hasClass {
+				hasClass = true
+				writes = append(writes, ssrAttr{name: name})
+			}
+		case "style":
+			styles = append(styles, value)
+			if !hasStyle {
+				hasStyle = true
+				writes = append(writes, ssrAttr{name: name})
+			}
+		default:
+			writes = append(writes, ssrAttr{name: name, value: value})
+		}
+	}
+	for _, a := range el.Attrs {
+		add(a.Name, a.Value)
+	}
+	for _, p := range el.Props {
+		switch p.Name {
+		case "class", "style":
+			add(p.Name, fmt.Sprint(p.Value))
+		case "value", "checked", "disabled", "multiple", "selected", "readOnly", "required", "autofocus", "textContent":
+			if attrName, ok := propToAttr[p.Name]; ok {
+				if attrName == "" {
+					attrName = p.Name
+				}
+				if on, ok := p.Value.(bool); ok {
+					if on {
+						writes = append(writes, ssrAttr{name: attrName, boolAttr: true})
+					}
+				} else {
+					writes = append(writes, ssrAttr{name: attrName, value: fmt.Sprint(p.Value)})
+				}
+			}
+		default:
+			writes = append(writes, ssrAttr{name: p.Name, value: fmt.Sprint(p.Value)})
+		}
+	}
+	for _, b := range el.Binds {
+		switch b.Target {
+		case core.BindToAttr, core.BindToAttrText:
+			value := b.Signal.Value()
+			if on, ok := value.(bool); ok {
+				if on {
+					add(b.Name, "true")
+				} else if b.Target == core.BindToAttrText {
+					add(b.Name, "false") // old BindAttr behavior: ARIA state needs the text
+				} // AttrS: false removes the attribute — write nothing
+			} else {
+				add(b.Name, fmt.Sprint(value))
+			}
+		case core.BindToClass:
+			if on, _ := b.Signal.Value().(bool); on {
+				add("class", b.Name)
+			}
+		case core.BindToStyle:
+			add("style", b.Name+":"+runtime.StyleText(b.Signal.Value(), b.Unit))
+		case core.BindToSelectMulti:
+			values, _ := b.Signal.Value().([]string)
+			v.selected[id] = values
+		default:
+			value := b.Signal.Value()
+			if attrName, ok := propToAttr[b.Name]; ok {
+				if attrName == "" {
+					attrName = b.Name
+				}
+				if on, ok := value.(bool); ok {
+					if on {
+						writes = append(writes, ssrAttr{name: attrName, boolAttr: true})
+					}
+				} else {
+					writes = append(writes, ssrAttr{name: attrName, value: runtime.SafeURL(b.Name, fmt.Sprint(value))})
+				}
+			}
+		}
+	}
+	return writes, classes, styles
+}
+
+func optionValue(el *core.ElementNode) (string, bool) {
+	for _, p := range el.Props {
+		if p.Name == "value" {
+			return fmt.Sprint(p.Value), true
+		}
+	}
+	for _, a := range el.Attrs {
+		if a.Name == "value" {
+			return a.Value, true
+		}
+	}
+	return "", false
+}
+
+func contains(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 func textContentOf(el *core.ElementNode) (string, bool) {

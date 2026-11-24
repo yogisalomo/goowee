@@ -219,10 +219,11 @@ type bindItem struct {
 	target core.BindTarget
 	name   string
 	sig    core.SignalAccessor
+	unit   string
 }
 
 func (b bindItem) Apply(el *core.ElementNode) {
-	el.Binds = append(el.Binds, core.Bind{Target: b.target, Name: b.name, Signal: b.sig})
+	el.Binds = append(el.Binds, core.Bind{Target: b.target, Name: b.name, Signal: b.sig, Unit: b.unit})
 }
 
 type handlerItem struct{ h core.Handler }

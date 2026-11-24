@@ -789,6 +789,13 @@ function buildPayload(type, e) {
                 return Object.assign({value: t.value, checked: t.checked}, extra);
             if (t.type === "file" && t.files)
                 return {value: t.value, files: stashFiles(t, t.files)};
+            // JSON turns NaN (empty/invalid number input) into null; Go reads
+            // that as 0, which is what a numeric signal should hold.
+            if (t.nodeName === "SELECT")
+                return Object.assign({value: t.value,
+                    selected: Array.prototype.map.call(t.selectedOptions, function (o) { return o.value; })}, extra);
+            if (typeof t.valueAsNumber === "number")
+                return Object.assign({value: t.value, valueAsNumber: t.valueAsNumber}, extra);
             return Object.assign({value: t.value}, extra);
         }
         case "submit": {
@@ -1563,6 +1570,28 @@ function applyMutation(mut, b) {
                 else if (el._goEvents) el._goEvents.delete(mut.key);
             }
             break;
+        case 14: // ToggleClass — classList.toggle(key, value), other classes stay
+            el = nodeMap[mut.nodeId];
+            if (el && el.classList) try { el.classList.toggle(mut.key, !!mut.value); } catch (err) { console.error("goowee: toggleClass", mut.key, err); }
+            break;
+        case 15: { // SetStyle — one CSS property; ns carries a unit for numbers
+            el = nodeMap[mut.nodeId];
+            if (el && el.style) {
+                let value = mut.value;
+                if (mut.ns && typeof value === "number") value = String(value) + mut.ns;
+                try { el.style.setProperty(mut.key, value == null ? "" : String(value)); }
+                catch (err) { console.error("goowee: setProperty", mut.key, err); }
+            }
+            break;
+        }
+        case 16: { // SetSelected — select the <option>s whose values are listed
+            el = nodeMap[mut.nodeId];
+            if (el && el.options) {
+                const want = new Set(mut.value || []);
+                for (const opt of el.options) opt.selected = want.has(opt.value);
+            }
+            break;
+        }
         case 7: { // Hydrate — claim a server-rendered node by id
             const pre = preexistingNodes[mut.nodeId];
             const wantText = mut.value === "#text";

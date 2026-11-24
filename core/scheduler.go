@@ -399,7 +399,11 @@ func coalesce(muts []Mutation) []Mutation {
 // lastWins reports whether a later mutation of this type to the same (node,
 // key) makes earlier ones redundant.
 func lastWins(t MutationType) bool {
-	return t == MutSetProperty || t == MutSetAttribute || t == MutDraw
+	switch t {
+	case MutSetProperty, MutSetAttribute, MutDraw, MutToggleClass, MutSetStyle, MutSetSelected:
+		return true
+	}
+	return false
 }
 
 func (s *Scheduler) Len() int {
@@ -417,7 +421,7 @@ type Mutation struct {
 	Value   any          `json:"value,omitempty"`
 	ChildID int          `json:"childId,omitempty"`
 	RefID   int          `json:"refId,omitempty"`
-	NS      string       `json:"ns,omitempty"` // XML namespace for CreateElement (SVG)
+	NS      string       `json:"ns,omitempty"` // XML namespace for CreateElement (SVG); also the unit for MutSetStyle
 
 	// A bound update carries its value typed rather than boxed in Value, so
 	// it reaches the encoders without an allocation (#136): Kind says which,
@@ -538,8 +542,10 @@ const (
 	MutCall         // call a method (Key) with arguments (Value, a []any), after the batch's writes
 	MutDraw         // replay a goowee/canvas command buffer (Value, a []uint32) on a <canvas>, after the batch
 	MutListen       // the node has (Value true) or no longer has (false) a Go handler for event Key
-	// MutRemoveNodeAfter is 17, leaving 14-16 for #149's targeted attribute,
-	// style and selected mutations. Explicit so either PR can merge first.
+	MutToggleClass  // classList.toggle(Key, Value bool), leaving other classes alone
+	MutSetStyle     // style.setProperty(Key, Value); NS carries a unit for numbers
+	MutSetSelected  // select the <option>s whose values are in Value (a []string)
+	// MutRemoveNodeAfter is explicit so its wire number stays 17.
 	MutRemoveNodeAfter MutationType = 17 // remove a node after its leave transition (Key = transition name)
 )
 
@@ -577,6 +583,12 @@ func (mt MutationType) String() string {
 		return "Draw"
 	case MutListen:
 		return "Listen"
+	case MutToggleClass:
+		return "ToggleClass"
+	case MutSetStyle:
+		return "SetStyle"
+	case MutSetSelected:
+		return "SetSelected"
 	case MutRemoveNodeAfter:
 		return "RemoveNodeAfter"
 	default:

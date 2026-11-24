@@ -63,6 +63,7 @@ func (s signup) Validate() form.Errors {          // plain Go; a server can run 
 }
 
 f := form.Use(signup{})                            // value, errors, touched, submitting
+age, _ := hooks.UseState(0)
 return Form(
     f.OnSubmit(func(ctx context.Context, v signup) error {
         return nil                                 // e.g. api.Signup.Call(ctx, v)
@@ -70,6 +71,7 @@ return Form(
     Input(Type("email"), form.Text(f, "email", func(s *signup) *string { return &s.Email })),
     P(TextS(f.Error("email"))),                    // shows once the field was left
     Input(form.Bool(f, "agreed", func(s *signup) *bool { return &s.Agreed })),
+    Input(Type("number"), BindNumber(age)),        // an int signal; half-typed text is left alone
     Input(Type("file"), OnChangeE(func(e core.EventData) {  // e.Files(): name, size, type
         f := e.Files()[0]
         go func() {                                       // bytes are read off-loop

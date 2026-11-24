@@ -42,6 +42,20 @@ time. The public surface freezes under semver at v1.
   and `VirtualListOnHandle` (with `ScrollToIndex`, `ScrollToKey`, `Refresh`)
   cover the remaining large-list cases. Only a changed `[first,last]` range
   re-renders the window.
+- More form bindings and targeted DOM updates (#149): `BindNumber`, `BindRadio`,
+  `BindSelectMulti` and `BindFiles` cover numeric inputs, radio groups,
+  multi-selects and file pickers. `BindNumber` leaves an empty or partial
+  number (`""`, `"-"`, `"1e"`) as the user typed it and keeps the signal at
+  its last valid value. `ClassIf`/`Classes` toggle individual classes
+  and `StyleProp`/`StylePx` set individual CSS properties, so a signal change no
+  longer has to rewrite a whole `class` or `style` string and clobber another
+  binding's work. `AttrS` (also `HiddenS` and the `Aria*S` helpers) writes a
+  single attribute; boolean signals remove the attribute when false, and ARIA
+  state helpers render `"true"`/`"false"`. The older `BindAttr` keeps writing
+  `"true"`/`"false"` for bool signals, so existing ARIA state bindings don't
+  change meaning. SSR renders the initial values of all of these, and
+  gooweetest applies the same mutations as the browser. `EventData` gains
+  `ValueAsNumber`, `ValueAsNumberOK` and `SelectedValues`.
 
 ## [0.4.0] — 2026-11-24
 
