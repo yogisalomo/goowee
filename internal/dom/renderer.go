@@ -828,11 +828,62 @@ func (r *DOMRenderer) emitRemoveTree(n core.Node, muts *[]core.Mutation) {
 		r.Bindings.Unbind(id)
 		r.Registry.Remove(id)
 	}
-	var roots []int
+	var roots, detached []int
 	appendRoots(n, &roots)
-	appendDetachedRoots(n, &roots)
+	appendDetachedRoots(n, &detached)
+	names := make(map[int]string)
+	transitionNames(n, names)
 	for _, id := range roots {
+		if name := names[id]; name != "" {
+			// Go-side state is already disposed above. The runtime keeps the
+			// DOM node around for its leave animation, with handlers inert.
+			*muts = append(*muts, core.Mutation{Type: core.MutRemoveNodeAfter, NodeID: id, Key: name})
+			continue
+		}
 		*muts = append(*muts, core.Mutation{Type: core.MutRemoveNode, NodeID: id})
+	}
+	// Portal and head content lives outside the animated subtree: remove it
+	// with the batch, not after a transition that won't be visible there.
+	for _, id := range detached {
+		*muts = append(*muts, core.Mutation{Type: core.MutRemoveNode, NodeID: id})
+	}
+}
+
+// transitionNames collects the transition attached to every element in n, in
+// one walk. Going through wrappers (fragments, components, scopes, boundaries)
+// finds a Transition on the root element of a Show/Switch row. Looking each
+// removal up in the map keeps closing a For with 10k rows linear instead of
+// walking all 10k rows for every one of its roots.
+func transitionNames(n core.Node, out map[int]string) {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		if v == nil {
+			return
+		}
+		if v.Transition != "" {
+			out[v.ID] = v.Transition
+		}
+		for _, c := range v.Children {
+			transitionNames(c, out)
+		}
+	case *core.FragmentNode:
+		if v != nil {
+			for _, c := range v.Children {
+				transitionNames(c, out)
+			}
+		}
+	case *core.ComponentNode:
+		if v != nil {
+			transitionNames(v.Prev, out)
+		}
+	case *core.ScopeNode:
+		if v != nil {
+			transitionNames(v.Prev, out)
+		}
+	case *core.ErrorBoundaryNode:
+		if v != nil {
+			transitionNames(v.Prev, out)
+		}
 	}
 }
 

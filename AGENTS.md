@@ -159,6 +159,8 @@ import (
 - Props: `Value`, `Checked`, `Disabled`, `Required`, … and reactive `ValueS`, `DisabledS`, …
 - Control flow: `Show(cond, then)`, `ShowElse(cond, then, else)`,
   `Switch(sig, map[T]func()core.Node, default)`, `For(sig, keyFn, render)`.
+  Put `Transition("name")` on a row's root element to animate insert/remove
+  (runtime adds `<name>-enter`/`<name>-leave`; reduced motion skips it).
 - Async rendering: `ShowResource(res, loadingFn, errFn, dataFn)` — handles loading/error/data states.
 - SVG: `Svg(...)` roots a namespaced subtree; shapes `Path`, `Circle`, `Rect`, `G`,
   `Line`, `Polyline`, `Polygon`, `Ellipse`; arbitrary attrs via `Attr("viewBox", …)`.

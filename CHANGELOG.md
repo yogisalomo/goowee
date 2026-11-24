@@ -11,6 +11,16 @@ time. The public surface freezes under semver at v1.
 
 ## [Unreleased]
 
+### Added
+
+- `h.Transition(name)` animates nodes inserted or removed by `Show`, `Switch`,
+  `For` or a route (#156). The runtime adds `<name>-enter` on insert and holds
+  a removed node with `<name>-leave` until `transitionend`/`animationend` (or a
+  configurable timeout), then removes and forgets it. Go disposes the subtree's
+  reactive state immediately and a leaving node is inert. Reduced-motion users
+  skip the animation; `gooweetest` removes at once and records the request in
+  `Screen.Transitions()`. The tutorial's todo rows now animate add and remove.
+
 ## [0.4.0] — 2026-11-24
 
 A minor release, and the biggest one so far. It adds a command line tool

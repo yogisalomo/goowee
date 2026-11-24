@@ -128,16 +128,26 @@ func (n *node) setTextContent(s string) {
 // document applies the renderer's mutation stream the way runtime/goowee.js
 // does, so tests exercise the real render/diff/event pipeline.
 type document struct {
-	root   *node // the mount point (<div id="root">)
-	head   *node
-	body   *node
-	nodes  map[int]*node
-	portal map[string]*node // detached containers for unknown portal selectors
-	active *node            // document.activeElement
-	reads  []readReply
+	root        *node // the mount point (<div id="root">)
+	head        *node
+	body        *node
+	nodes       map[int]*node
+	portal      map[string]*node // detached containers for unknown portal selectors
+	active      *node            // document.activeElement
+	reads       []readReply
+	transitions []TransitionRecord // leave animations requested by the renderer
 	// unknown counts mutations that named a node id the document doesn't
 	// have (the differ fuzz test requires none).
 	unknown int
+}
+
+// TransitionRecord records a leave transition requested by the renderer. gooweetest
+// has no animation clock, so it removes the node immediately; the request is
+// kept here for assertions.
+type TransitionRecord struct {
+	Name   string
+	NodeID int
+	Tag    string
 }
 
 type readReply struct {
@@ -241,8 +251,11 @@ func (d *document) apply(muts []core.Mutation) {
 				n.kind, n.tag = elementNode, strings.ToLower(tag)
 			}
 			d.nodes[m.NodeID] = n
-		case core.MutRemoveNode:
+		case core.MutRemoveNode, core.MutRemoveNodeAfter:
 			if n := d.nodes[m.NodeID]; n != nil {
+				if m.Type == core.MutRemoveNodeAfter {
+					d.transitions = append(d.transitions, TransitionRecord{Name: m.Key, NodeID: m.NodeID, Tag: n.tag})
+				}
 				n.detach()
 				d.forget(n)
 			}

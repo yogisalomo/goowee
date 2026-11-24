@@ -93,6 +93,9 @@ node test/e2e/calls.mjs
 echo "==> running runtime-version e2e (a stale goowee.js is rejected)"
 node test/e2e/version.mjs
 
+echo "==> running transitions e2e (enter/leave classes, inert, no node leak)"
+node test/e2e/transitions.mjs
+
 echo "==> running canvas e2e (goowee/canvas buffers on real canvases)"
 node test/e2e/canvas.mjs
 
