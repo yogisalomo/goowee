@@ -57,6 +57,14 @@ time. The public surface freezes under semver at v1.
   gooweetest applies the same mutations as the browser. `EventData` gains
   `ValueAsNumber`, `ValueAsNumberOK` and `SelectedValues`.
 
+### Fixed
+
+- In dev mode, the inspector formatted every signal for its panel, and a
+  value it couldn't format without `fmt` (such as `canvas.Fill`'s size)
+  logged the "call core.UseFmt" warning and lit the overlay badge, though
+  the app never binds that value. The inspector now shows the type's name
+  and doesn't warn; binding such a value still warns.
+
 ## [0.4.0] — 2026-11-24
 
 A minor release, and the biggest one so far. It adds a command line tool

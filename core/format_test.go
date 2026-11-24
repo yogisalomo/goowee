@@ -53,3 +53,32 @@ func TestFormatValueNilReceiverPanic(t *testing.T) {
 		t.Errorf("got %q, fmt gives %q", got, want)
 	}
 }
+
+// The inspector formats every signal, bound or not, so a value it can't
+// format without fmt must not log the "call core.UseFmt" warning.
+func TestFormatValueFieldsDoesNotWarn(t *testing.T) {
+	type area struct{ W, H float64 }
+	formatMu.Lock()
+	savedFn, savedWarned := formatFn, warned
+	formatFn, warned = nil, nil
+	formatMu.Unlock()
+	var logged []string
+	SetLogSink(func(e LogEntry) { logged = append(logged, e.Message) })
+	defer func() {
+		SetLogSink(nil)
+		formatMu.Lock()
+		formatFn, warned = savedFn, savedWarned
+		formatMu.Unlock()
+	}()
+
+	if got := FormatValueFields(area{1, 2}); got != "core.area" {
+		t.Errorf("FormatValueFields without fmt = %q, want the type name core.area", got)
+	}
+	if len(logged) != 0 {
+		t.Errorf("FormatValueFields logged %q; the inspector must not warn", logged)
+	}
+	FormatValue(area{1, 2})
+	if len(logged) != 1 {
+		t.Errorf("FormatValue logged %d entries, want the one UseFmt warning", len(logged))
+	}
+}
