@@ -12,13 +12,16 @@ import (
 // map, a struct) goes through fmt when it is linked: host builds always have
 // it, and in the browser h.Textf or UseFmt installs it. Without it, such a
 // value is written as its type and a warning is logged once per type.
-func FormatValue(v any) string { return formatValue(v, "%v") }
+func FormatValue(v any) string { return formatValue(v, "%v", true) }
 
 // FormatValueFields is FormatValue with a struct's field names, as %+v
-// writes it (for the inspector), when fmt is linked.
-func FormatValueFields(v any) string { return formatValue(v, "%+v") }
+// writes it (for the inspector), when fmt is linked. Without fmt it returns
+// the type's name and does not warn: the inspector shows every signal,
+// including ones the app never binds (canvas.Fill's size, say), so a value it
+// can't format is not something the app needs to fix.
+func FormatValueFields(v any) string { return formatValue(v, "%+v", false) }
 
-func formatValue(v any, verb string) string {
+func formatValue(v any, verb string, warn bool) string {
 	switch x := v.(type) {
 	case nil:
 		return "<nil>"
@@ -56,7 +59,9 @@ func formatValue(v any, verb string) string {
 		return sprintf(verb, v)
 	}
 	name := rv.Type().String()
-	warnFormatOnce(name)
+	if warn {
+		warnFormatOnce(name)
+	}
 	return name
 }
 
