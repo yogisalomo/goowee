@@ -36,11 +36,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  # Build and deploy are separate jobs, as in GitHub's Pages template: when
+  # they shared one job, deploy-pages sometimes found no "github-pages"
+  # artifact right after the upload ("Found 0 artifact(s)") during a burst of
+  # merges.
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -52,5 +53,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v4

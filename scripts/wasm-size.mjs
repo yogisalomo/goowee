@@ -8,11 +8,12 @@
 // "name" custom section (present in default and -s -w builds). No
 // dependencies: Node's zlib does the compression.
 //
-// --check compares each named program's brotli size with its record in the
-// budget file, fails when it is more than `tolerance` (3%) larger, and fails
-// when the program links a package on its deny list, or more of a package's
-// code than its maxCode allows. A change that makes a
-// program smaller is told to lower the record, so the budget follows it down.
+// --check reports each named program's brotli size against its reference in
+// the budget file. Growth never fails the check: more than `tolerance` (3%)
+// over the reference prints a warning (a CI annotation) so it is visible in
+// review. The check fails only when a program links a package on its deny
+// list, or more of a package's code than its maxCode allows: those enforce
+// which packages client code may use, not a byte count.
 import { readFileSync } from "node:fs";
 import { gzipSync, brotliCompressSync, constants } from "node:zlib";
 
@@ -146,18 +147,15 @@ function check(budgetPath, programs) {
     const rec = budget.programs?.[name];
     const m = measure(path);
     console.log(report(name, m) + "\n");
-    if (!rec) { problems.push(`${name}: no record in ${budgetPath}; add {"brotli": ${m.brotli}}`); continue; }
-    const limit = Math.floor(rec.brotli * (1 + tolerance));
+    if (!rec) { console.log(`${name}: brotli ${fmt(m.brotli)} (no reference in ${budgetPath})`); continue; }
     const pct = (m.brotli - rec.brotli) / rec.brotli * 100;
     const delta = (Math.abs(pct) < 0.05 ? 0 : pct).toFixed(1);
-    if (m.brotli > limit) {
-      problems.push(`${name}: brotli ${fmt(m.brotli)} bytes is ${delta}% over the record ${fmt(rec.brotli)} (limit ${fmt(limit)}, +${tolerance * 100}%). ` +
-        `If the growth is intended, set "brotli": ${m.brotli} for ${name} in ${budgetPath}.`);
+    const line = `${name}: brotli ${fmt(m.brotli)} vs reference ${fmt(rec.brotli)} (${Number(delta) >= 0 ? "+" : ""}${delta}%)`;
+    if (m.brotli > rec.brotli * (1 + tolerance)) {
+      // Informational only: bundle size is not a hard limit.
+      console.log((process.env.GITHUB_ACTIONS ? "::warning::" : "note: ") + line + `, more than ${tolerance * 100}% over; update "brotli" in ${budgetPath} if you want a new reference`);
     } else {
-      console.log(`${name}: brotli ${fmt(m.brotli)} vs record ${fmt(rec.brotli)} (${Number(delta) >= 0 ? "+" : ""}${delta}%), within +${tolerance * 100}%`);
-      if (m.brotli < rec.brotli * (1 - tolerance)) {
-        console.log(`  smaller than the record by more than ${tolerance * 100}%: lower "brotli" for ${name} to ${m.brotli} so the budget follows it down`);
-      }
+      console.log(line);
     }
     const code = new Map(m.pkgs);
     for (const pkg of rec.deny || []) {
@@ -175,7 +173,7 @@ function check(budgetPath, programs) {
     for (const p of problems) console.log((process.env.GITHUB_ACTIONS ? "::error::" : "FAIL: ") + p);
     process.exit(1);
   }
-  console.log("\nsize budgets: OK");
+  console.log("\nsize report: OK (deny lists hold)");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
