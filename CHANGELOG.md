@@ -31,6 +31,17 @@ time. The public surface freezes under semver at v1.
   computed, and `r.BeforeLeave` registers a component-scoped navigation guard
   that is also asked on `beforeunload`. `core.AfterFrame` runs a callback once
   a frame's DOM mutations are applied.
+- `h.VirtualList` can key rows by item instead of index (#157): pass a key
+  function (`func(T) K`) as the second argument and an estimated item height via
+  `VirtualListItemHeight`. Mounted rows are cached and reused by key, so state,
+  focus and component instances survive inserts above the viewport; the legacy
+  `int` row-height form still works. `VirtualListMeasure()` uses the runtime's
+  `ResizeObserver` to use real row sizes with a Fenwick prefix-sum tree;
+  `VirtualListHorizontal`, `VirtualListWindowScroll`, `VirtualListOverscan`,
+  `VirtualListStickToBottom`, `VirtualListOnEndReached`, `VirtualListKeyFunc`
+  and `VirtualListOnHandle` (with `ScrollToIndex`, `ScrollToKey`, `Refresh`)
+  cover the remaining large-list cases. Only a changed `[first,last]` range
+  re-renders the window.
 
 ## [0.4.0] — 2026-11-24
 
