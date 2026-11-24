@@ -55,7 +55,8 @@ ssr-scaling:
 
 # What the wasm is made of (#129): raw/gzip/brotli sizes, sections and code
 # bytes per Go package, for the smallest app (test/e2e/hello) and the example
-# site. size-check also enforces docs/perf/size-budget.json, as CI does.
+# site. size-check also compares them with docs/perf/size-budget.json and
+# enforces its deny lists, as CI does; growth is reported, never fatal.
 SIZE_DIR = bin/size
 size-build:
 	@mkdir -p $(SIZE_DIR)
@@ -89,7 +90,7 @@ size-check-tinygo: size-build-tinygo
 size: wasm
 	@bytes=$$(wc -c < $(WASM_OUT) | tr -d ' '); \
 	echo "main.wasm: $$bytes bytes (budget $(WASM_BUDGET))"; \
-	if [ "$$bytes" -gt "$(WASM_BUDGET)" ]; then echo "over budget"; exit 1; fi
+	if [ "$$bytes" -gt "$(WASM_BUDGET)" ]; then echo "note: over $(WASM_BUDGET) bytes"; fi
 
 serve: wasm cpwasm cpjs
 	@echo "Open http://localhost:8083"

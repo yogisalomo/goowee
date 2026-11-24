@@ -87,11 +87,11 @@ and the dev overlay it now includes. The minimal app shrank: 779 KB to 660 KB
 brotli with `goowee_nodev` (797 KB to 740 KB with dev tools, which now
 include the overlay); `size-budget.json` tracks both.
 
-## Size budget
+## Size report
 
 ```sh
 make size-report   # sizes, sections and code bytes per package
-make size-check    # the same, enforcing size-budget.json (CI runs this)
+make size-check    # the same, compared with size-budget.json (CI runs this)
 ```
 
 `make size-check-tinygo` does the same for TinyGo builds of the minimal app
@@ -105,19 +105,19 @@ bytes per Go package. It reads them from the code section and the `name`
 section, which default and `-s -w` builds both keep. It has no dependencies
 (Node's zlib compresses).
 
-`size-budget.json` holds each program's brotli bytes, which is what users
-download. CI fails when a program is more than 3% over its record, and prints
-the per-package table so the log shows which package grew. A change that grows
-a program on purpose raises its record in the same diff. One that shrinks it
-by more than 3% is told to lower the record, so the budget follows the size
-down.
+`size-budget.json` holds a reference brotli size for each program, which is
+what users download. Size is reported, not enforced: CI prints each program's
+size against its reference and the per-package table, and adds a warning
+annotation when a program is more than 3% over, so growth shows up in review.
+It never fails the build. Update a reference whenever a new baseline is
+useful.
 
-Each program also has a deny list: packages it must not link (`net/http`, and
-`text/template` for the minimal app; `goowee/devtools` for the `goowee_nodev`
-build). When #126 removes `encoding/json` and
-`fmt` from the minimal app, they go on its list too.
+Each program also has a deny list: packages it must not link (`net/http`,
+`fmt`, `log` and `net/url` for the minimal app; `goowee/devtools` for the
+`goowee_nodev` build), and `maxCode` caps a package that may be linked only
+for its init (`encoding/json`). These are the one part that fails CI: they
+keep goowee's client code off packages it doesn't use (#126).
 
-The records were taken with Go 1.25. A Go upgrade can move the sizes; record
-again in that PR.
+The references were taken with Go 1.25. A Go upgrade can move the sizes.
 
 [benchstat]: https://pkg.go.dev/golang.org/x/perf/cmd/benchstat

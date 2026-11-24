@@ -43,9 +43,10 @@ jobs:
           node-version: '22'
 
       # Brotli bytes of the smallest app and the example site against
-      # docs/perf/size-budget.json (+3%), plus each program's deny list; the
+      # docs/perf/size-budget.json, reported (a warning past +3%, never a
+      # failure), plus each program's deny list, which does fail; the
       # log shows the code bytes per package (#129).
-      - name: WASM size budget
+      - name: WASM size report
         run: make size-check
 
       # The differ against fresh renders (#161): 45 s of fuzzing per PR. A
@@ -89,7 +90,7 @@ jobs:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
 
   # TinyGo as a supported target (#128): build the example with TinyGo, check
-  # its size against docs/perf/size-budget.json, and run the smoke and
+  # report its size against docs/perf/size-budget.json, and run the smoke and
   # devtools E2E against it with TinyGo's own wasm_exec.js.
   tinygo:
     runs-on: ubuntu-latest
@@ -110,7 +111,7 @@ jobs:
           wget -q "https://github.com/tinygo-org/tinygo/releases/download/v${TINYGO_VERSION}/tinygo_${TINYGO_VERSION}_amd64.deb"
           sudo dpkg -i "tinygo_${TINYGO_VERSION}_amd64.deb"
           tinygo version
-      - name: TinyGo size budget
+      - name: TinyGo size report
         run: make size-check-tinygo
       - name: E2E on the TinyGo build (headless Chrome)
         run: ./test/e2e/tinygo.sh

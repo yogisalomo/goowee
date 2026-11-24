@@ -206,8 +206,8 @@ For a POST, set `Method`, and `JSON` (or `Body`) and `Header`, on the
 loop and which can reconnect with backoff; see the
 [API reference](../api/reference.md#net--fetch-and-websocket).
 
-Check the effect of any new dependency with `make size-report`; CI holds each
-program to its brotli size in `docs/perf/size-budget.json`.
+Check the effect of any new dependency with `make size-report`; CI reports each
+program's brotli size against `docs/perf/size-budget.json`.
 
 ## Building with TinyGo
 
