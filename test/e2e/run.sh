@@ -93,6 +93,9 @@ node test/e2e/calls.mjs
 echo "==> running runtime-version e2e (a stale goowee.js is rejected)"
 node test/e2e/version.mjs
 
+echo "==> running transitions e2e (enter/leave classes, inert, no node leak)"
+node test/e2e/transitions.mjs
+
 echo "==> running canvas e2e (goowee/canvas buffers on real canvases)"
 node test/e2e/canvas.mjs
 
@@ -100,3 +103,5 @@ echo "==> running ForList e2e (core.List operations in HTML and SVG)"
 node test/e2e/list.mjs
 echo "==> running CLI e2e (goowee new + goowee dev: dev mode, reload, build errors)"
 node test/e2e/cli.mjs
+echo "==> running virtual list e2e (100k rows, keyed state, scroll budget)"
+node test/e2e/virtual-list.mjs

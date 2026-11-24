@@ -178,10 +178,50 @@ created with).
 For very long lists, use `VirtualList` which only renders the visible window:
 
 ```go
-VirtualList(items, 48 /* row height in px */, func(i int, item Item) core.Node {
+// Key by item (recommended): rows are cached by key and keep their state,
+// focus and component instances when items are inserted above the viewport.
+VirtualList(items, func(it Item) int64 { return it.ID },
+    func(i int, item Item) core.Node { return Li(Text(item.Name)) },
+    VirtualListItemHeight(48), VirtualListHeight(300), VirtualListOverscan(5))
+
+// Legacy form: an int height keys rows by index.
+VirtualList(items, 48, func(i int, item Item) core.Node {
     return Li(Text(item.Name))
 }, VirtualListHeight(300))
 ```
+
+Variable-height rows can use `VirtualListMeasure()`: the runtime observes the
+mounted rows and reports their real sizes in one batched event, and a Fenwick
+tree keeps the spacers and scroll position honest. `VirtualListHorizontal()`,
+`VirtualListWindowScroll()`, `VirtualListStickToBottom()` and
+`VirtualListOnEndReached(fn)` cover carousels, page-length lists, chat logs and
+infinite loading. Capture the handle with `VirtualListOnHandle` to call
+`ScrollToIndex`, `ScrollToKey` or `Refresh` from a handler.
+
+### Enter and leave transitions
+
+Put `Transition(name)` on the root element of content that `Show`, `Switch`,
+`For` (or a route) inserts or removes. The runtime adds `<name>-enter` on
+insert and removes it on the next frame; on removal it disposes the Go-side
+state at once, marks the DOM node inert, adds `<name>-leave`, and removes the
+node only after `transitionend`/`animationend` (or a 1s timeout, configurable
+via `goowee.transitionTimeout`). Define the two classes in CSS:
+
+```go
+Show(open, func() core.Node {
+    return Div(Transition("fade"), Class("panel"), Text("panel"))
+})
+```
+
+```css
+.panel { transition: opacity 140ms ease; }
+.panel.fade-enter { opacity: 0; transition: none; }
+.panel.fade-leave { opacity: 0; }
+```
+
+Under `prefers-reduced-motion: reduce` nodes are removed immediately, with no
+animation classes. In `gooweetest` there is no animation clock: nodes are
+removed at once and `Screen.Transitions()` records the requested name and tag.
 
 ---
 
@@ -499,6 +539,49 @@ r.Back()
 r.Link("/about", "About", Class("nav")) // an <a> that navigates without a page reload;
                                         // cmd/ctrl/middle-click still opens a new tab
 ```
+
+`BindHistory` gives navigation browser-like behaviour. After the route's frame
+is in the DOM, a push scrolls to the top, a URL with `#fragment` scrolls to that
+element, and back/forward restore the position saved in the history entry
+(`history.scrollRestoration` is set to `"manual"`). Focus moves to the first
+`[data-route-focus]`, `h1` or `main`, and an `aria-live` region announces the
+document title. Query-parameter updates never scroll or move focus.
+
+Opt out or scope the behaviour with `ScrollOptions`:
+
+```go
+r.SetNavigationOptions(router.ScrollOptions{
+    Container:        "#app-scroll", // a scrolling element instead of the window
+    FocusDisabled:    true,
+    AnnounceDisabled: true,
+})
+// ScrollOptions{Disabled: true} skips all of it.
+```
+
+`NavLink` is a `Link` that tracks the active route. It binds `class="active"`
+and `aria-current="page"` from one shared computed, with segment-prefix
+matching (`/docs` is active on `/docs/install`, but not `/docstring`):
+
+```go
+Nav(r.NavLink("/", "Home"), r.NavLink("/docs", "Docs"))
+```
+
+It owns the `class` and `aria-current` attributes; pass other attributes and
+children in the trailing items.
+
+A component can veto leaving itself. `BeforeLeave` is scoped like a hook: the
+guard is removed when the component unmounts, so it disappears once the route
+is allowed to change away.
+
+```go
+func editor(r *router.Router, dirty *core.Signal[bool]) core.Node {
+    r.BeforeLeave(func(to string) bool { return !dirty.Peek() })
+    return Form(/* ... */)
+}
+```
+
+`beforeunload` asks the same guards when the tab closes. A browser back button
+on a same-document navigation cannot be vetoed once `popstate` has fired.
 
 ### Sub-routes, guards, lazy loading
 

@@ -36,7 +36,7 @@
       }
     },
     "examples/counter": {
-      "brotli": 1066186,
+      "brotli": 1111369,
       "deny": [
         "net/http",
         "net",
@@ -58,7 +58,7 @@
       }
     },
     "examples/counter (tinygo)": {
-      "brotli": 336405,
+      "brotli": 354026,
       "deny": [
         "net/http",
         "net",

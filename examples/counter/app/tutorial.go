@@ -90,6 +90,7 @@ const todosCode = `todos, setTodos := hooks.UseState(initial)   // 100 rows
 // list stays fast. Each row is keyed by index for stable reuse.
 VirtualList(todos, 48 /* row height px */, func(i int, t todo) core.Node {
     return Li(
+        Transition("todo"), // animates insert/remove via .todo-enter/.todo-leave
         Input(Type("checkbox"), Checked(t.completed), OnChange(toggle(t))),
         Span(Text(t.text)),
         Button(OnClick(remove(t)), Text("✕")),

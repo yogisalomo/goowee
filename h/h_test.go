@@ -41,6 +41,28 @@ func TestClassConcatenation(t *testing.T) {
 	}
 }
 
+func TestTransition(t *testing.T) {
+	el := El("div", Transition("fade"))
+	if el.Transition != "fade" {
+		t.Fatalf("Transition field = %q", el.Transition)
+	}
+	if got := attrValue(el, "data-goowee-transition"); got != "fade" {
+		t.Fatalf("data-goowee-transition = %q", got)
+	}
+	if got := El("div", Transition("")).Transition; got != "" {
+		t.Fatalf("empty Transition = %q", got)
+	}
+}
+
+func attrValue(el *core.ElementNode, name string) string {
+	for _, a := range el.Attrs {
+		if a.Name == name {
+			return a.Value
+		}
+	}
+	return ""
+}
+
 func TestIfElseMapGroup(t *testing.T) {
 	el := El("div",
 		If(true, Class("yes")),

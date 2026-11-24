@@ -292,6 +292,50 @@ func (e EventData) DeltaMode() int  { return int(e.num("deltaMode")) }
 func (e EventData) ScrollTop() float64  { return e.num("scrollTop") }
 func (e EventData) ScrollLeft() float64 { return e.num("scrollLeft") }
 
+// Measurement is one row size reported by the runtime's ResizeObserver in a
+// goowee:rowmeasure event. Index is the row's position in the list at the time
+// it was measured.
+type Measurement struct {
+	Index  int
+	Width  float64
+	Height float64
+}
+
+// Measurements returns the batched row sizes a goowee:rowmeasure event carries.
+func (e EventData) Measurements() []Measurement {
+	// A browser event carries its payload as JSON text (#200); Field reads the
+	// one member we need in place, while hand-built test events use Data.
+	rows, _ := e.Field("rows")
+	raw, _ := rows.([]any)
+	out := make([]Measurement, 0, len(raw))
+	for _, item := range raw {
+		vals, ok := item.([]any)
+		if !ok || len(vals) < 3 {
+			continue
+		}
+		out = append(out, Measurement{
+			Index:  int(toFloat(vals[0])),
+			Width:  toFloat(vals[1]),
+			Height: toFloat(vals[2]),
+		})
+	}
+	return out
+}
+
+func toFloat(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	}
+	return 0
+}
+
 // Touch is one point of contact in a touch event.
 type Touch struct {
 	ID               int

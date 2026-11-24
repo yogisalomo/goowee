@@ -271,8 +271,25 @@ Switch(sig *core.Signal[T], cases map[T]func() core.Node, default func() core.No
 // Keyed list rendering.
 For[T, K comparable](sig *core.Signal[[]T], keyFn func(T) K, render func(T) core.Node)
 
-// Virtualized (windowed) list for large datasets.
-VirtualList[T any](sig *core.Signal[[]T], rowHeight int, render func(int, T) core.Node, opts ...VirtualListOption)
+// Virtualized (windowed) list for large datasets. keyOrHeight is an int row
+// height (legacy index keys) or func(T) K (stable item keys).
+VirtualList[T any](sig *core.Signal[[]T], keyOrHeight any, render func(int, T) core.Node, opts ...VirtualListOption)
+
+VirtualListHeight(px int) VirtualListOption      // viewport height (default 400)
+VirtualListWindow(px int) VirtualListOption      // alias
+VirtualListItemHeight(px float64) VirtualListOption // estimate when using key fn
+VirtualListOverscan(n int) VirtualListOption
+VirtualListMeasure() VirtualListOption              // real row sizes via ResizeObserver
+VirtualListHorizontal() VirtualListOption
+VirtualListWindowScroll() VirtualListOption
+VirtualListStickToBottom() VirtualListOption
+VirtualListOnEndReached(fn func()) VirtualListOption
+VirtualListKeyFunc[T, K](func(T) K) VirtualListOption
+VirtualListOnHandle[T](func(*VirtualListHandle[T])) VirtualListOption
+
+handle.ScrollToIndex(i int)
+handle.ScrollToKey(key string)
+handle.Refresh()
 ```
 
 ### Refs and portals

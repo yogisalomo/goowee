@@ -545,6 +545,8 @@ const (
 	MutToggleClass  // classList.toggle(Key, Value bool), leaving other classes alone
 	MutSetStyle     // style.setProperty(Key, Value); NS carries a unit for numbers
 	MutSetSelected  // select the <option>s whose values are in Value (a []string)
+	// MutRemoveNodeAfter is explicit so its wire number stays 17.
+	MutRemoveNodeAfter MutationType = 17 // remove a node after its leave transition (Key = transition name)
 )
 
 // DrawVersion is the goowee/canvas buffer format MutDraw carries. The runtime
@@ -587,6 +589,8 @@ func (mt MutationType) String() string {
 		return "SetStyle"
 	case MutSetSelected:
 		return "SetSelected"
+	case MutRemoveNodeAfter:
+		return "RemoveNodeAfter"
 	default:
 		return "Unknown"
 	}

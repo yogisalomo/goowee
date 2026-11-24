@@ -79,6 +79,37 @@ type keyItem struct{ k any }
 
 func (k keyItem) Apply(el *core.ElementNode) { el.Key = k.k }
 
+// Transition animates an element when it is inserted or removed by Show,
+// Switch, For, a route change or any other reactive diff. The runtime adds the
+// class "<name>-enter" on insertion (and removes it on the next frame) and
+// "<name>-leave" before removing the element, waiting for transitionend or
+// animationend (with a timeout) before it finally removes it. A leaving node
+// is inert: it can't receive events. The user stylesheet defines what the two
+// classes look like, e.g.
+//
+//	.fade-enter, .fade-leave { opacity: 0; transition: opacity 180ms; }
+//
+// Under prefers-reduced-motion the runtime removes nodes at once. gooweetest
+// also removes at once and records the request via Screen.Transitions.
+//
+// Put Transition on the root element of the content that Show/Switch/For
+// inserts or removes — the node whose lifetime is being animated:
+//
+//	Show(visible, func() core.Node {
+//	    return Div(Transition("fade"), Text("panel"))
+//	})
+func Transition(name string) core.Item { return transitionItem{name} }
+
+type transitionItem struct{ name string }
+
+func (t transitionItem) Apply(el *core.ElementNode) {
+	if el == nil || t.name == "" {
+		return
+	}
+	el.Transition = t.name
+	attrItem{name: "data-goowee-transition", value: t.name}.Apply(el)
+}
+
 // Dynamic marks an element's subtree as non-deterministic between server and
 // client (e.g. dates, locale, per-request content). Hydration then re-applies
 // its attributes/properties/text so the client value wins, instead of trusting

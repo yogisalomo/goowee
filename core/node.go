@@ -28,6 +28,11 @@ type ElementNode struct {
 	// <svg>) needs it set. The DOM backend creates namespaced elements with
 	// createElementNS. See h.Svg.
 	Namespace string
+	// Transition names the enter/leave animation applied when this element is
+	// inserted or removed by a reactive control flow node (Show/Switch/For).
+	// The runtime adds "<name>-enter" on insert and "<name>-leave" before
+	// removing the element. See h.Transition.
+	Transition string
 }
 
 // SVGNamespace is the XML namespace URI for SVG elements.

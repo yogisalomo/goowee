@@ -617,6 +617,69 @@ goowee.nodeCount = function nodeCount() {
     return Object.keys(nodeMap).length;
 };
 
+// Transitions (#156). A node with data-goowee-transition animates on insert
+// and on removal. The Go side tells us about removals with RemoveNodeAfter;
+// enter classes are discovered from the attribute when the node is inserted.
+// goowee.transitionTimeout is the fallback when neither transitionend nor
+// animationend fires (e.g. the class has no CSS rule).
+goowee.transitionTimeout = 1000;
+const reducedMotionQuery = typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+function motionReduced() {
+    return !!(reducedMotionQuery && reducedMotionQuery.matches);
+}
+
+// startEnterTree adds "<name>-enter" to every transitionable node in a newly
+// inserted subtree, then removes it on the next frame so CSS transitions begin
+// from that state. Hydrated nodes are marked _goHydrated and stay untouched.
+function startEnterTree(node) {
+    if (!node || node.nodeType !== 1) return;
+    const all = node.hasAttribute("data-goowee-transition")
+        ? [node].concat(Array.prototype.slice.call(node.querySelectorAll("[data-goowee-transition]")))
+        : Array.prototype.slice.call(node.querySelectorAll("[data-goowee-transition]"));
+    for (const el of all) {
+        if (el._goEntered || el._goInert || el._goHydrated || motionReduced()) continue;
+        const name = el.getAttribute("data-goowee-transition");
+        if (!name) continue;
+        el._goEntered = true;
+        el.classList.add(name + "-enter");
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                if (el.isConnected) el.classList.remove(name + "-enter");
+            });
+        });
+    }
+}
+
+// removeAfterTransition keeps a removed node in DOM for its leave animation.
+// Go has already disposed the subtree's reactive state, so the node is made
+// inert before the animation starts and is forgotten once it ends.
+function removeAfterTransition(node, name) {
+    if (!node) return;
+    const finish = function () {
+        if (node.parentNode) node.parentNode.removeChild(node);
+        forget(node);
+        delete nodeMap[node._nodeID];
+    };
+    if (!name || motionReduced()) { finish(); return; }
+    node.setAttribute("inert", "");
+    node._goInert = true;
+    node.classList.add(name + "-leave");
+    let done = false;
+    const end = function (e) {
+        if (e && e.target !== node) return;
+        if (done) return;
+        done = true;
+        node.removeEventListener("transitionend", end);
+        node.removeEventListener("animationend", end);
+        clearTimeout(timer);
+        finish();
+    };
+    node.addEventListener("transitionend", end);
+    node.addEventListener("animationend", end);
+    const timer = setTimeout(end, goowee.transitionTimeout);
+}
+
 function releaseFiles(el) {
     const prev = nodeFiles.get(el);
     if (!prev) return;
@@ -772,6 +835,9 @@ goowee.eventCalls = 0;
 function dispatchToGo(type, e, targetOnly) {
     let payload = null;
     for (let el = e.target; el; el = targetOnly ? null : el.parentNode) {
+        // A node kept in DOM for its leave animation is inert: no event on or
+        // inside it reaches Go, even before browsers that support `inert` do.
+        if (el._goInert) return 0;
         if (el._nodeID === undefined) continue;
         if (goowee.listenSets && !(el._goEvents && el._goEvents.has(type))) continue;
         if (payload === null) payload = JSON.stringify(buildPayload(type, e));
@@ -945,6 +1011,23 @@ function finishBatch(b) {
         setTimeout(finishEarly, 0);
     }
     for (const mut of b.calls) {
+        // Node 0 is the document: core.ScrollWindow uses it for window
+        // scrolling (h.VirtualList's handle).
+        if (mut.nodeId === 0 && mut.key === "scrollTo") {
+            try { window.scrollTo.apply(window, Array.isArray(mut.value) ? mut.value : []); }
+            catch (err) { console.error("goowee: ScrollWindow", err); }
+            continue;
+        }
+        // h.VirtualList opts in to row measurement after mount; apps without
+        // one never create a MutationObserver or ResizeObserver.
+        if (mut.key === "gooweeObserveRows") {
+            watchVirtualRows(nodeMap[mut.nodeId]);
+            continue;
+        }
+        if (mut.key === "gooweeUnobserveRows") {
+            stopVirtualRows(mut.nodeId);
+            continue;
+        }
         const el = nodeMap[mut.nodeId];
         if (!el || typeof el[mut.key] !== "function") continue;
         // A throwing method (setSelectionRange on an email input, say) must
@@ -1036,6 +1119,109 @@ function forgetCanvas(el) {
     if (!liveCanvases.delete(el)) return;
     if (canvasObserver) canvasObserver.unobserve(el);
     canvasState.delete(el); // a canvas drawn again later starts afresh
+}
+
+// h.VirtualList: one ResizeObserver watches every mounted .vlist-row inside a
+// [data-goowee-virtual-list] container. The real size is sent back to Go as a
+// batched goowee:rowmeasure CustomEvent ({rows: [[index, width, height], …]})
+// on the list element. A MutationObserver attaches to rows as they appear, so
+// this works for rows mounted by the first frame as well as later window
+// changes. Older runtimes simply never send the event; Go falls back to the
+// configured fixed item height.
+let rowObserver = null;
+let rowScan = null;
+const watchedVirtualLists = new Map(); // node id -> list element
+function virtualRowResizer() {
+    if (!rowObserver && typeof ResizeObserver === "function") {
+        rowObserver = new ResizeObserver(function (entries) {
+            const pending = new Map();
+            for (const entry of entries) {
+                const el = entry.target;
+                if (!el.isConnected) continue;
+                const list = el.closest && el.closest("[data-goowee-virtual-list]");
+                if (!list) continue;
+                const index = Number(el.getAttribute("data-row-index"));
+                if (!Number.isFinite(index)) continue;
+                const box = el.getBoundingClientRect();
+                let rows = pending.get(list);
+                if (!rows) { rows = []; pending.set(list, rows); }
+                rows.push([index, box.width, box.height]);
+            }
+            for (const [list, rows] of pending) {
+                list.dispatchEvent(new CustomEvent("goowee:rowmeasure", {
+                    detail: {rows: rows}, bubbles: true
+                }));
+            }
+        });
+    }
+    return rowObserver;
+}
+function virtualRowsIn(root, out) {
+    if (root.nodeType !== 1) return out;
+    if (root.classList && root.classList.contains("vlist-row")) out.push(root);
+    if (root.querySelectorAll) out.push(...root.querySelectorAll(".vlist-row"));
+    return out;
+}
+function watchVirtualRows(list) {
+    const observer = virtualRowResizer();
+    if (!observer || !list || list._nodeID === undefined || watchedVirtualLists.has(list._nodeID)) return;
+    watchedVirtualLists.set(list._nodeID, list);
+    // One observer for the opted-in lists only: apps without a VirtualList
+    // never create it, and the scan never watches the whole document.
+    if (!rowScan && typeof MutationObserver === "function") {
+        rowScan = new MutationObserver(function (records) {
+            for (const rec of records) {
+                for (const node of rec.removedNodes) unobserveVirtualRows(node);
+                for (const node of rec.addedNodes) {
+                    for (const row of virtualRowsIn(node, [])) observeVirtualRow(row);
+                }
+            }
+        });
+    }
+    if (rowScan) rowScan.observe(list, {childList: true, subtree: true});
+    for (const row of virtualRowsIn(list, [])) observeVirtualRow(row);
+}
+function observeVirtualRow(row) {
+    const observer = virtualRowResizer();
+    if (!observer || row._goRowWatched) return;
+    row._goRowWatched = true;
+    observer.observe(row);
+}
+function unobserveVirtualRows(root) {
+    if (rowObserver) {
+        for (const row of virtualRowsIn(root, [])) {
+            if (!row._goRowWatched) continue;
+            rowObserver.unobserve(row);
+            row._goRowWatched = false;
+        }
+    }
+    if (root.nodeType === 1 && root.hasAttribute && root.hasAttribute("data-goowee-virtual-list")) {
+        if (rowScan) rowScan.unobserve(root);
+        watchedVirtualLists.delete(root._nodeID);
+    }
+}
+function stopVirtualRows(id) {
+    const list = watchedVirtualLists.get(id);
+    if (list) unobserveVirtualRows(list);
+}
+
+// A VirtualList with VirtualListWindow(0) (or a window taller than itself)
+// listens on window scroll; forward one coalesced scroll event to those lists
+// so the Go handler reads the same window.scrollY the browser just applied.
+let windowScrollQueued = false;
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("scroll", function () {
+        if (windowScrollQueued) return;
+        windowScrollQueued = true;
+        requestAnimationFrame(function () {
+            windowScrollQueued = false;
+            for (const list of document.querySelectorAll("[data-goowee-scroll='window']")) {
+                list.dispatchEvent(new CustomEvent("goowee:windowscroll", {
+                    detail: {scrollTop: window.scrollY, scrollLeft: window.scrollX}, bubbles: true
+                }));
+            }
+        });
+    }, {passive: true});
 }
 
 // The device pixel ratio changes with browser zoom and when the window moves
@@ -1300,6 +1486,9 @@ function applyMutation(mut, b) {
             }
             delete nodeMap[mut.nodeId];
             break;
+        case 17: // RemoveNodeAfter — keep the node for its leave animation
+            removeAfterTransition(nodeMap[mut.nodeId], mut.key);
+            break;
         case 2: // SetAttribute
             el = nodeMap[mut.nodeId];
             // Go validates names; a throw here must not abort the batch.
@@ -1329,6 +1518,7 @@ function applyMutation(mut, b) {
             const child = nodeMap[mut.childId];
             if (parent && child && !child.parentNode) {
                 parent.appendChild(child);
+                startEnterTree(child);
             }
             break;
         }
@@ -1342,6 +1532,7 @@ function applyMutation(mut, b) {
                 : containerOf(mut.nodeId);
             if (parent && child) {
                 b.movedLive = moveNode(parent, child, ref && ref.parentNode === parent ? ref : null) || b.movedLive;
+                startEnterTree(child);
             }
             break;
         }
@@ -1362,6 +1553,7 @@ function applyMutation(mut, b) {
             if (parent && child && child.parentNode !== parent) {
                 b.movedLive = moveNode(parent, child, null) || b.movedLive;
                 if (child.nodeName === "TITLE" && parent === document.head) claimTitle();
+                startEnterTree(child);
             }
             break;
         }
@@ -1431,6 +1623,7 @@ function applyMutation(mut, b) {
                     : document.createElement(mut.value);
             }
             el._nodeID = mut.nodeId;
+            el._goHydrated = true; // don't replay an enter animation on hydration
             nodeMap[mut.nodeId] = el;
             break;
         }

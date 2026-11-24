@@ -164,6 +164,16 @@ func (s *Screen) HTML() string {
 // excluded).
 func (s *Screen) Text() string { return s.doc.root.textContent() }
 
+// Transitions returns the leave transitions requested since the last Render.
+// gooweetest removes nodes immediately (there is no animation clock), but a
+// test can assert which nodes were marked for animation and with which name.
+func (s *Screen) Transitions() []TransitionRecord {
+	if s.doc == nil {
+		return nil
+	}
+	return append([]TransitionRecord(nil), s.doc.transitions...)
+}
+
 // Head is the markup rendered into <head> by h.Metadata.
 func (s *Screen) Head() string {
 	var b strings.Builder
