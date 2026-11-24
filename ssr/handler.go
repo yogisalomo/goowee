@@ -10,7 +10,7 @@ import (
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/data"
-	"github.com/yogisalomo/goowee/router"
+	"github.com/yogisalomo/goowee/web"
 )
 
 // Page is what a Handler renders for one request.
@@ -52,7 +52,10 @@ type HandlerOptions struct {
 
 // Handler serves server-rendered HTML documents. Each request renders
 // independently and concurrently (no shared lock); the response is
-// gzip-compressed when the client accepts it.
+// gzip-compressed when the client accepts it. It also serves goowee.js from
+// web.Handler (any path ending in that name), so the page cannot load a stale
+// runtime. wasm_exec.js stays with the app's static files: the server usually
+// has no Go toolchain at runtime.
 //
 //	http.Handle("/", ssr.Handler(ssr.HandlerOptions{
 //	    Page:     ssr.RoutedPage(app.App),
@@ -63,7 +66,12 @@ func Handler(opts HandlerOptions) http.Handler {
 	if opts.Page == nil || opts.Document == nil {
 		panic("ssr.Handler: Page and Document are required")
 	}
+	assets := web.Handler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if web.AssetName(r.URL.Path) != "" {
+			assets.ServeHTTP(w, r)
+			return
+		}
 		if opts.ClientOnly != nil && opts.ClientOnly(r) && opts.Fallback != nil {
 			opts.Fallback.ServeHTTP(w, r)
 			return
@@ -123,29 +131,6 @@ func render(build func(*http.Request) Page, r *http.Request, dataTimeout time.Du
 // data (hooks.Load) when HandlerOptions.DataTimeout is 0. A fetch that takes
 // longer is left to the client.
 const DefaultDataTimeout = 5 * time.Second
-
-// RoutedPage adapts a router-based app — app(router) returns the root node —
-// into a Page func: the router starts at the request's path and query, and
-// the response is 404 when the router fell through to its not-found route.
-// Under Export with a Base, the router gets that base path, so its links
-// carry it.
-func RoutedPage(app func(*router.Router) core.Node) func(*http.Request) Page {
-	return func(r *http.Request) Page {
-		rtr := router.NewURL(r.URL)
-		if b := BasePath(r); b != "" {
-			rtr.SetBasePath(b)
-		}
-		return Page{
-			Node: app(rtr),
-			Status: func() int {
-				if rtr.NotFound() {
-					return http.StatusNotFound
-				}
-				return http.StatusOK
-			},
-		}
-	}
-}
 
 func writeHTML(w http.ResponseWriter, r *http.Request, status int, body []byte) {
 	h := w.Header()

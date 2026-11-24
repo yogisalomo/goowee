@@ -21,6 +21,28 @@ the WASM bridge forwards the same payload to `goowee.log()`, which routes
 `recover.*` to `console.error`, `signal.cycle`/`warn` to `console.warn`, and
 everything else to `console.log`.
 
+## The dev overlay
+
+In dev mode (`?goowee-dev`, or `localStorage["goowee-dev"] = "1"`) the page
+shows what goowee reports, without the console:
+
+- A **badge** in the bottom-right corner counts errors (✕: contained panics,
+  the signal-cycle guard) and warnings (⚠). Click it to open the panel.
+- A new **error** opens the panel on it. It shows the kind, the message,
+  the panic value, the component (for a re-render), and the Go stack, and
+  stays open until you click Dismiss.
+- **Warnings** list each message with its fields, including the `fix` hint a
+  warning carries.
+- The **inspector** shows the component tree, the signals with their
+  current values and subscriber counts, and the latest 50 changes. It
+  updates twice a second while open, and the changes can be filtered by
+  signal name.
+
+The overlay is a goowee component mounted as a root of its own
+(`#goowee-devtools`). Its own state stays out of the change log. It costs
+about 55 KB brotli in builds with dev tools; a `goowee_nodev` build leaves it
+out with the rest of dev mode (see below).
+
 ## Dev-mode inspector
 
 Enable devtools with either:

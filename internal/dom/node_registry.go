@@ -1,8 +1,6 @@
 package dom
 
 import (
-	"encoding/json"
-
 	"github.com/yogisalomo/goowee/core"
 )
 
@@ -19,6 +17,7 @@ type DOMNode struct {
 type NodeRegistry struct {
 	nodes     map[int]*DOMNode
 	announced map[string]bool
+	ctls      []*core.EventControl // free event controls, reused by Dispatch
 
 	OnNewEventType func(eventType string, capture bool)
 }
@@ -107,19 +106,28 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 		return
 	}
 
-	var data map[string]any
-	_ = json.Unmarshal([]byte(dataJSON), &data)
+	// The payload stays JSON text: each accessor the handler calls reads its
+	// field from it (#135). The decisions go into a control reused across
+	// events; a stack, since a handler can dispatch another event (a focus()
+	// inside a click handler) before it returns.
+	var ctl *core.EventControl
+	if n := len(r.ctls); n > 0 {
+		ctl, r.ctls = r.ctls[n-1], r.ctls[:n-1]
+		ctl.Reset()
+	} else {
+		ctl = new(core.EventControl)
+	}
 
 	handled = true
 	opts = entry.Options
-	ev := core.NewEventData(event, nodeID, data)
+	ev := core.NewEventDataJSON(event, nodeID, dataJSON, ctl)
 	defer func() {
+		r.ctls = append(r.ctls, ctl)
 		if rec := recover(); rec != nil {
-			core.Log(core.LogRecoverEventHandler, "panic in event handler", map[string]any{
+			core.Log(core.LogRecoverEventHandler, "panic in event handler", core.PanicFields(rec, map[string]any{
 				"event":  event,
 				"nodeId": nodeID,
-				"panic":  rec,
-			})
+			}))
 		}
 		// Static options plus whatever the handler decided while running.
 		pd, sp := ev.Decisions()

@@ -1,0 +1,45 @@
+// Package app is the whole UI. It builds on the host too, so it is tested
+// with gooweetest (app_test.go){{if .SSR}} and rendered by the server{{end}}.
+package app
+
+import (
+	"strconv"
+
+	"github.com/yogisalomo/goowee/core"
+	. "github.com/yogisalomo/goowee/h"
+	"github.com/yogisalomo/goowee/hooks"
+	"github.com/yogisalomo/goowee/router"
+)
+
+// App is the root component: a header with links, and the page the URL
+// selects.
+func App(r *router.Router) core.Node {
+	return core.Component("App", func() core.Node {
+		return Div(
+			Header(Nav(r.Link("/", "Home"), Text(" "), r.Link("/about", "About"))),
+			Main(r.Route(map[string]func() core.Node{
+				"/":      Counter,
+				"/about": About,
+			})),
+		)
+	})
+}
+
+// Counter is a button that counts its clicks.
+func Counter() core.Node {
+	return core.Component("Counter", func() core.Node {
+		count, setCount := hooks.UseState(0)
+		label := core.Computed([]core.SignalAccessor{count}, func() string {
+			return "Clicked " + strconv.Itoa(count.Get()) + " times"
+		})
+		return Section(
+			H1(Text("{{.Name}}")),
+			Button(ID("count"), OnClick(func() { setCount(count.Get() + 1) }), TextS(label)),
+		)
+	})
+}
+
+// About is a static page.
+func About() core.Node {
+	return Section(H1(Text("About")), P(Text("Built with goowee.")))
+}

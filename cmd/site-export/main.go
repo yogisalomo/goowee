@@ -73,13 +73,14 @@ func document(base string) func(w io.Writer, head, body string) {
 <head>
     <base href="%s">
 %s
+    <link rel="preload" href="main.wasm" as="fetch" type="application/wasm" crossorigin fetchpriority="low">
     <link rel="stylesheet" href="site.css">
     <script src="wasm_exec.js"></script>
     <script src="goowee.js"></script>
 </head>
 <body>
     <div id="root">%s</div>
-    <script>goowee.boot();</script>
+    <script>goowee.boot({when: "idle"});</script>
 </body>
 </html>
 `, base, head, body)

@@ -1,0 +1,25 @@
+package app
+
+import (
+	"testing"
+
+	"github.com/yogisalomo/goowee/gooweetest"
+	"github.com/yogisalomo/goowee/router"
+)
+
+func TestCounterCounts(t *testing.T) {
+	s := gooweetest.Render(t, App(router.New("/")))
+	button := s.Find("#count")
+	s.Click(button)
+	s.Click(button)
+	if got := button.Text(); got != "Clicked 2 times" {
+		t.Fatalf("button says %q", got)
+	}
+}
+
+func TestAboutPage(t *testing.T) {
+	s := gooweetest.Render(t, App(router.New("/about")))
+	if got := s.Find("h1").Text(); got != "About" {
+		t.Fatalf("heading %q", got)
+	}
+}

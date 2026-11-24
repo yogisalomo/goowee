@@ -83,8 +83,12 @@ const send = (method, params = {}) => {
 // Scenarios: both hit the one SSR server. "/" is server-rendered (hydrate path);
 // "/error" is served via the index.html fallback (fresh client render, no SSR
 // nodes) — a clean A/B of hydrate vs. cold render on identical assets.
+// The SSR scenarios run each goowee.boot({when}) mode (#130), forced with
+// ?goowee-boot=; "interaction" clicks the page a second after it loads.
 const scenarios = [
-  { name: "SSR + hydrate", path: "/" },
+  { name: "SSR + hydrate", path: "/?goowee-boot=load" },
+  { name: "SSR, idle", path: "/?goowee-boot=idle" },
+  { name: "SSR, interact", path: "/?goowee-boot=interaction", interact: 1000 },
   { name: "client render", path: "/error" },
 ];
 
@@ -146,6 +150,10 @@ async function main() {
     const runs = [];
     for (let i = 0; i < ITERS; i++) {
       await navigate(URL + sc.path);
+      if (sc.interact) {
+        await sleep(sc.interact);
+        for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: 5, y: 5, button: "left", clickCount: 1 });
+      }
       if (!await waitInteractive()) {
         logs.push(`scenario "${sc.name}" iter ${i}: never became interactive`);
         continue;
@@ -160,8 +168,8 @@ async function main() {
   const net = netProfile ? `${THROTTLE} (~${(netProfile.download / 1024).toFixed(0)} KB/s down)` : "unthrottled (loopback)";
   console.log(`\ngoowee boot latency — ${URL}  (${ITERS} cold-cache loads/scenario, median)`);
   console.log(`network: ${net}\n`);
-  console.log("scenario         download+compile   go boot+render     hydrate        FCP        TTI        wasm KB");
-  console.log("               " + "-".repeat(93));
+  console.log("scenario         download+compile   go boot+render     hydrate        FCP        TTI        wasm KB      load   trigger");
+  console.log("               " + "-".repeat(113));
   let worstTTI = 0;
   for (const sc of scenarios) {
     const runs = results[sc.name] || [];
@@ -175,10 +183,12 @@ async function main() {
       "   " + ms(median(col(runs, (r) => r.phases.hydrate))) + " ms" +
       "   " + ms(median(col(runs, (r) => r.phases.fcp))) + " ms" +
       "  " + ms(tti) + " ms" +
-      "   " + kb(median(col(runs, (r) => r.wasm?.transferSize)));
+      "   " + kb(median(col(runs, (r) => r.wasm?.transferSize))) +
+      "  " + ms(median(col(runs, (r) => r.phases.load))) + " ms" +
+      "  " + (runs[0].marks.trigger != null ? ms(median(col(runs, (r) => r.marks.trigger))) + " ms" : "       -");
     console.log(line);
   }
-  console.log("               " + "-".repeat(93));
+  console.log("               " + "-".repeat(113));
   console.log(netProfile
     ? `(throttled ${THROTTLE}: download reflects bytes-on-the-wire — the compression win shows here)\n`
     : "(loopback: download is fast — read the phase *split* and wasm KB, not absolute download ms;\n run THROTTLE=4g to make the download phase, and the compression win, visible)\n");

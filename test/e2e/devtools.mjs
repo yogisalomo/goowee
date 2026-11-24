@@ -152,13 +152,36 @@ async function main() {
   const boundaryError = consoleLogs.find((l) => l.type === "error" && mentionsBoundary(l));
   check(!!boundaryError, "recover.error_boundary routed to console.error");
 
+  // --- The dev overlay (#148): the caught panic shows on the page ---
+  await waitFor(`!!document.querySelector('#goowee-dev-panel [data-kind="recover.error_boundary"]')`, "the overlay opened on the boundary's panic");
+  const entry = await evalJS(`document.querySelector('#goowee-dev-panel [data-kind="recover.error_boundary"]').textContent`);
+  check(entry.includes("intentional failure to demo the error boundary"), "the overlay entry shows the panic value: " + entry.slice(0, 200));
+  // TinyGo has no runtime.Stack (test/e2e/tinygo.sh sets TOOLCHAIN=tinygo).
+  if (process.env.TOOLCHAIN !== "tinygo") check(entry.includes("Go stack") && /goroutine|\.go:\d+/.test(entry), "the overlay entry has the Go stack");
+  check(/✕ [1-9]/.test(await evalJS(`document.querySelector('#goowee-dev-badge').textContent`)), "the badge counts the error");
+  await evalJS(`document.querySelector('#goowee-dev-dismiss').click()`);
+  await waitFor(`!document.querySelector('#goowee-dev-panel')`, "Dismiss closes the overlay");
+  // The badge opens it again; the inspector lists components, signals and changes.
+  await evalJS(`document.querySelector('#goowee-dev-badge').click()`);
+  await waitFor(`!!document.querySelector('#goowee-dev-panel')`, "the badge opens the panel");
+  await evalJS(`document.querySelector('.goowee-dev-tab[data-tab="inspector"]').click()`);
+  await waitFor(`document.querySelectorAll('.goowee-dev-component').length > 0 && document.querySelectorAll('.goowee-dev-signal').length > 0`, "the inspector lists components and signals");
+  check(await evalJS(`[...document.querySelectorAll('.goowee-dev-component')].some((e) => e.textContent.trim() === 'App')`), "the component tree has App");
+  // Its own state stays out of the change log: switching tabs logs nothing.
+  const before = await evalJS(`goowee.changes().length`);
+  await evalJS(`document.querySelector('.goowee-dev-tab[data-tab="warnings"]').click()`);
+  await evalJS(`document.querySelector('.goowee-dev-tab[data-tab="inspector"]').click()`);
+  await new Promise((r) => setTimeout(r, 700));
+  check(await evalJS(`goowee.changes().length`) === before, "the overlay's own clicks reached the change log");
+  await evalJS(`document.querySelector('#goowee-dev-dismiss').click()`);
+
   if (consoleLogs.length) console.log("--- captured console ---\n" + consoleLogs.map((l) => `[${l.type}] ${l.text}`).join("\n"));
   if (fail.length) { console.log("DEVTOOLS E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }
-  else console.log("DEVTOOLS E2E PASS: inspector snapshot, named signals, change log, dev mode, structured error-boundary log.");
+  else console.log("DEVTOOLS E2E PASS: inspector snapshot, named signals, change log, dev mode, structured error-boundary log, dev overlay.");
 }
 
 main().catch((e) => {
-  console.error("DEVTOOLS E2E ERROR:", e.message);
+  console.error("DEVTOOLS E2E ERROR:", e.message); for (const l of consoleLogs.slice(-15)) console.error("  console." + l.type + ": " + String(l.text).slice(0, 300));
   if (consoleLogs.length) console.error("--- captured console ---\n" + consoleLogs.map((l) => `[${l.type}] ${l.text}`).join("\n"));
   process.exitCode = 2;
 }).finally(() => {

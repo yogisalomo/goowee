@@ -8,8 +8,8 @@ import (
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/examples/notes/api"
+	"github.com/yogisalomo/goowee/form"
 	. "github.com/yogisalomo/goowee/h"
-	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/router"
 	"github.com/yogisalomo/goowee/rpc"
 )
@@ -72,32 +72,24 @@ func notePage(r *router.Router) core.Node {
 
 func newPage(r *router.Router) core.Node {
 	return core.Component("NewNote", func() core.Node {
-		titleErr, setTitleErr := hooks.UseState("")
-		saving, setSaving := hooks.UseState(false)
+		// The form checks api.AddReq.Validate as the user types; the server
+		// checks it again, and its field errors show here too.
+		f := form.Use(api.AddReq{})
 		return Section(
 			H1(Text("New note")),
 			Form(ID("new-note"),
-				OnSubmit(func(v map[string]string) {
-					setSaving(true)
-					req := api.AddReq{Title: v["title"], Body: v["body"]}
-					go func() {
-						note, err := api.AddNote.Call(context.Background(), req)
-						core.Schedule(func() {
-							setSaving(false)
-							if e, ok := err.(*rpc.Error); ok {
-								setTitleErr(e.Fields["title"])
-								return
-							}
-							if err == nil {
-								r.Navigate("/notes/" + strconv.Itoa(note.ID))
-							}
-						})
-					}()
+				f.OnSubmit(func(ctx context.Context, req api.AddReq) error {
+					note, err := api.AddNote.Call(ctx, req)
+					if err == nil {
+						core.Schedule(func() { r.Navigate("/notes/" + strconv.Itoa(note.ID)) })
+					}
+					return err
 				}),
-				Label(Text("Title "), Input(Name("title"), ID("title"))),
-				P(Class("field-error"), ID("title-error"), TextS(titleErr)),
-				Label(Text("Body "), Textarea(Name("body"), ID("body"))),
-				Button(Type("submit"), DisabledS(saving), Text("Save")),
+				Label(Text("Title "), Input(ID("title"), form.Text(f, "title", func(n *api.AddReq) *string { return &n.Title }))),
+				P(Class("field-error"), ID("title-error"), TextS(f.Error("title"))),
+				Label(Text("Body "), Textarea(ID("body"), form.Text(f, "body", func(n *api.AddReq) *string { return &n.Body }))),
+				P(Class("field-error"), ID("form-error"), TextS(f.Error(""))),
+				Button(Type("submit"), DisabledS(f.Submitting), Text("Save")),
 			),
 		)
 	})

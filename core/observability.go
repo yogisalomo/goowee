@@ -1,8 +1,7 @@
 package core
 
 import (
-	"fmt"
-	"log"
+	goruntime "runtime"
 	"strings"
 	"sync"
 )
@@ -38,7 +37,9 @@ var (
 )
 
 // SetLogSink registers an optional sink (e.g. the WASM bridge forwarding to
-// console). The default host sink always logs via log.Printf as well.
+// console). Host builds always log via log.Printf as well; in the browser the
+// sink is the only output (with none, println), so the log package isn't
+// linked (#126).
 func SetLogSink(fn func(LogEntry)) {
 	logSinkMu.Lock()
 	logSink = fn
@@ -48,10 +49,10 @@ func SetLogSink(fn func(LogEntry)) {
 // Log emits a structured entry to the host logger and any registered sink.
 func Log(kind LogKind, message string, fields map[string]any) {
 	entry := LogEntry{Kind: kind, Message: message, Fields: fields}
-	log.Printf("goowee[%s] %s", kind, formatFields(message, fields))
 	logSinkMu.Lock()
 	sink := logSink
 	logSinkMu.Unlock()
+	hostLog(kind, message, fields, sink != nil)
 	if sink != nil {
 		sink(entry)
 	}
@@ -67,7 +68,7 @@ func formatFields(message string, fields map[string]any) string {
 		b.WriteByte(' ')
 		b.WriteString(k)
 		b.WriteByte('=')
-		fmt.Fprintf(&b, "%v", v)
+		b.WriteString(FormatValue(v))
 	}
 	return b.String()
 }
@@ -77,9 +78,7 @@ func formatFields(message string, fields map[string]any) string {
 func Recover(kind LogKind, message string, fields map[string]any, fn func()) (rec any) {
 	defer func() {
 		if rec = recover(); rec != nil {
-			f := copyFields(fields)
-			f["panic"] = rec
-			Log(kind, message, f)
+			Log(kind, message, PanicFields(rec, fields))
 		}
 	}()
 	fn()
@@ -95,4 +94,19 @@ func copyFields(fields map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// PanicFields is fields plus "panic": rec and, in dev mode, "stack": the
+// panicking goroutine's stack, for the dev overlay (#148). Call it from the
+// deferred function that recovered.
+func PanicFields(rec any, fields map[string]any) map[string]any {
+	f := copyFields(fields)
+	f["panic"] = rec
+	if DevChecks() {
+		buf := make([]byte, 16<<10)
+		if n := goruntime.Stack(buf, false); n > 0 { // TinyGo has no stacks
+			f["stack"] = string(buf[:n])
+		}
+	}
+	return f
 }

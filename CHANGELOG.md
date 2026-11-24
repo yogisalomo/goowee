@@ -12,6 +12,121 @@ time. The public surface freezes under semver at v1.
 ## [Unreleased]
 
 ### Added
+
+- More form bindings and targeted DOM updates (#149): `BindNumber`, `BindRadio`,
+  `BindSelectMulti` and `BindFiles` cover numeric inputs, radio groups,
+  multi-selects and file pickers. `BindNumber` leaves an empty or partial
+  number (`""`, `"-"`, `"1e"`) as the user typed it and keeps the signal at
+  its last valid value. `ClassIf`/`Classes` toggle individual classes
+  and `StyleProp`/`StylePx` set individual CSS properties, so a signal change no
+  longer has to rewrite a whole `class` or `style` string and clobber another
+  binding's work. `AttrS` (also `HiddenS` and the `Aria*S` helpers) writes a
+  single attribute; boolean signals remove the attribute when false, and ARIA
+  state helpers render `"true"`/`"false"`. The older `BindAttr` keeps writing
+  `"true"`/`"false"` for bool signals, so existing ARIA state bindings don't
+  change meaning. SSR renders the initial values of all of these, and
+  gooweetest applies the same mutations as the browser. `EventData` gains
+  `ValueAsNumber`, `ValueAsNumberOK` and `SelectedValues`.
+
+## [0.4.0] — 2026-11-24
+
+A minor release, and the biggest one so far. It adds a command line tool
+(`goowee new`, `goowee dev` and `goowee build`), typed server functions,
+forms with validation shared by the browser and the server, data loaded on
+the server, islands and several roots per binary, static export, a keyed
+list that updates one row per change, lazy booting of server-rendered pages,
+a dev overlay, a `go vet` analyzer, and TinyGo as a supported target. Under
+the hood, DOM updates cross to JavaScript in a binary format, events call
+into Go through WebAssembly exports, bound updates no longer allocate, and
+the client code no longer links `fmt` or `encoding/json`. A production build
+of the smallest app is 660 KB brotli, down from 779 KB in 0.3.0, and about
+160 KB with TinyGo.
+
+Upgrading from 0.3.0:
+- **Serve the matching runtime.** The binary and `goowee.js` now exchange a
+  protocol version at boot, and a binary from this release won't mount
+  against an older `goowee.js`: the page reports both versions instead.
+  `ssr.Handler` serves the matching one; for static hosting copy it with
+  `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web`.
+- **Read a browser event's payload with the accessors.** `EventData.Data` is
+  set only on `EventData` built with `NewEventData`. Use `Key`, `Value`,
+  `Number`, `String`, `Bool`, `Field` or `Fields`. Calling `PreventDefault`
+  after the handler returned no longer affects the event.
+- **Formatting a bound slice, map or struct needs `fmt` opted in.** goowee's
+  client code no longer links `fmt` or `encoding/json`. In the browser, call
+  `core.UseFmt(fmt.Sprintf)` if a bound value is a slice, map or struct
+  (`Textf` does it for you), and `core.UseJSON(json.Marshal)` if a property
+  value or `ref.Call` argument is a struct or typed slice. Without them goowee
+  logs a warning. Host builds have both.
+- **`router.NewURL` and `ssr.RoutedPage` are host-only.** In the browser use
+  `router.New`.
+- **Read mutation values with `Val`.** A bound attribute or property update
+  carries its value in `Kind`, `Str` and `Bits`; code that read
+  `core.Mutation.Value` should call `Val()`.
+- **Routes remount when the matched pattern changes**, even if both routes
+  render a component of the same name, and `/about/` is the same page as
+  `/about`.
+
+### Added
+- `test/e2e/mount.mjs` measures mounting a fresh list three ways (per-node
+  batch, HTML claimed like hydration, cloned row templates), and
+  `BenchmarkMount1000*` its Go side. ADR-032 records why fresh subtrees stay
+  per-node for now (#139).
+- **The dev overlay** (#148): in dev mode, a badge counts errors and
+  warnings, a new error (a contained panic, the cycle guard) opens a panel
+  with its panic value, component and Go stack until dismissed, warnings
+  list their fix hints, and an inspector shows the component tree, the
+  signals and a live, filterable change log. It is written in goowee and
+  mounted as a second root; `goowee_nodev` builds leave it out. Recovered
+  panics now carry `stack` (and a re-render's `component`) in dev mode
+  (`core.PanicFields`), and `devtools` keeps the log (`RecordLog`, `Logs`)
+  and can keep a signal out of the change log (`Silence`).
+- **`goowee/form`** (#150): a form's fields in one typed value, checked by a
+  plain `Validate() form.Errors` method that the server runs too. `form.Use`
+  holds the value, errors, touched fields and submit state; `form.Text`,
+  `form.Int` and `form.Bool` bind inputs to fields (value, `name`,
+  `aria-invalid`, blur-to-touched) without reflection; `f.OnSubmit` validates,
+  runs the submit in a goroutine with `Submitting` set, cancels it on unmount,
+  and shows a server's field errors (`*rpc.Error` now has `FieldErrors`) on
+  their fields. The tutorial's form lesson and `examples/notes`' new-note
+  form use it; the notes server checks the same `Validate`. Guide:
+  `docs/guides/forms.md`.
+- **`core.List` and `h.ForList`** (#140): a keyed list that records each
+  change (`Append`, `Insert`, `Update`, `Remove`, `Move`, `Set`), and a `For`
+  that applies just that change to its rows. An append mounts one row, an
+  update sets one row's item signal, and a removal or move touches one row,
+  with the same mutations and allocations at 10,000 rows as at 1,000 (an
+  append: 5 mutations; an update: 1). `Set` compares rows by key as `For`
+  does. Rows get their item as a signal. `core.ScopeNode.Patch` is the
+  renderer hook it uses to change a scope's content in place.
+- **`goowee.boot({when})`** (#130): a server-rendered page can boot `"idle"`
+  (after load, when the browser is idle), `"visible"` (when an element
+  scrolls into view) or `"interaction"` (at the first pointerdown, keydown or
+  focusin) instead of at once. What the user does before the boot is queued
+  and replayed (#131), including the interaction that starts it. A
+  client-only page always boots at once; `?goowee-boot=` overrides the mode
+  for trying one; `goowee.bootWhen` reports it, and `bootTimings` gains the
+  trigger time and the load event. The shells have a preload hint for
+  `main.wasm`, and the tutorial site's server-rendered pages boot on idle
+  with a low-priority hint. `make boot` measures each mode, and
+  `test/e2e/lazyboot.mjs` checks them in Chrome. The serving guide documents
+  the hint and the modes.
+- **`goowee new`, `goowee dev` and `goowee build`** (#145), in `cmd/goowee`
+  (standard library only):
+  - `goowee new <dir> [--ssr] [--tinygo]` writes a working project: an `app`
+    package with gooweetest tests, the browser entry point, a page shell with
+    a loading message and a preload hint, `AGENTS.md`, and with `--ssr` a
+    server that renders each page.
+  - `goowee dev` builds, serves with `application/wasm` and gzip, and on
+    every change rebuilds and reloads the page; a build error shows over the
+    page. Dev mode is on. `--proxy /api=http://…` forwards a path to another
+    server; an SSR project's server runs behind it and restarts on change.
+  - `goowee build` writes `dist/`: the WASM stripped and without dev tools
+    (or built with TinyGo), content-hashed asset names that the pages refer
+    to, `.gz` siblings (`.br` with the `brotli` command), and a size report
+    by package.
+  Getting Started now starts with these three commands. CI runs the whole
+  flow, for both kinds of project, in Go and in Chrome (`test/e2e/cli.mjs`).
 - TinyGo is a supported, CI-tested build target (#128). With TinyGo 0.44 and
   `-opt z -no-debug -stack-size=1MB`, the example is 299 KB brotli against
   989 KB with Go 1.25, and the minimal app 194 KB against 797 KB. CI builds the
@@ -53,17 +168,7 @@ time. The public surface freezes under semver at v1.
   `Switch`, keyed `For`, components, portals), the document must equal a
   fresh render of the final state, with registries and mounted components
   matching. CI fuzzes it for 45 s per PR (#161).
-- More form bindings and targeted DOM updates (#149): `BindNumber`, `BindRadio`,
-  `BindSelectMulti` and `BindFiles` cover numeric inputs, radio groups,
-  multi-selects and file pickers. `ClassIf`/`Classes` toggle individual classes
-  and `StyleProp`/`StylePx` set individual CSS properties, so a signal change no
-  longer has to rewrite a whole `class` or `style` string and clobber another
-  binding's work. `AttrS` (also `HiddenS` and the `Aria*S` helpers) writes a
-  single attribute; boolean signals remove the attribute when false, and ARIA
-  state helpers render `"true"`/`"false"`. The older `BindAttr` keeps writing
-  `"true"`/`"false"` for bool signals, so existing ARIA state bindings don't
-  change meaning. SSR renders the initial values of all of these, and
-  gooweetest applies the same mutations as the browser.
+- `goowee/web` exposes the browser assets that must match a build: `web.RuntimeJS()`, `web.Version`, `web.Handler()` and `web.WasmExecJS()` (#144). `ssr.Handler` serves any path ending in `goowee.js` through it, with an ETag and `Cache-Control: no-cache`, so a server-rendered app cannot load a stale runtime. `wasm_exec.js` stays with the app's static files: the deployed server may have no Go toolchain. `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web` copies both files for static hosting, taking goowee's version from the app's `go.mod`; the guides use it instead of globbing the module cache. The binary and runtime now exchange a protocol version at boot: a mismatch stops before mounting and reports both versions and the command that fixes it.
 - `ssr.Export` prerenders a site to static files for hosts without a Go server
   (#153). Each page is rendered with the same `Page` and `Document` functions
   as `ssr.Handler` and written as `<path>/index.html`, plus `404.html` from
@@ -84,6 +189,33 @@ time. The public surface freezes under semver at v1.
   on both transports and on an older `goowee.js`.
 
 ### Changed
+- **An event reaches its handler without decoding its payload** (#135). The
+  payload stays the JSON text the runtime sent, and each accessor (`Key`,
+  `ClientX`, `Value`, …) finds its field in it without decoding the rest or
+  allocating. Delivering a `pointermove` to a handler that reads its position
+  allocates nothing in Go besides the payload text itself. `EventData.Data`
+  is now set only on `EventData` built with `NewEventData` (tests, custom
+  dispatchers); read a browser event's payload with the accessors, the new
+  `Number`, `String` and `Bool` for fields without one, `Field`, or `Fields`
+  for the whole map. A handler that keeps its `EventData` can no longer
+  prevent or stop a later event by calling `PreventDefault` after it
+  returned.
+- **goowee's client code no longer links `fmt`, `encoding/json`, `log` or
+  `net/url`** (#126), so an app pays for them only if it uses them. The
+  smallest app (`test/e2e/hello`, now written with `strconv` instead of
+  `fmt`) went from 812 KB to 675 KB brotli, and under TinyGo from 199 KB to
+  116 KB. Event payloads and read replies are read by a small JSON reader
+  (fuzzed against `encoding/json`); `core.Log` in the browser goes to the
+  console sink only; the router escapes queries itself; bound values are
+  formatted by `core.FormatValue`, which matches `%v`. The serving guide has
+  a table of what each helper brings in. CI checks that `hello` links none
+  of `fmt`, `log` and `net/url`, and only `encoding/json`'s package init.
+  - New: `core.FormatValue`, `core.UseFmt` and `core.UseJSON`. A bound slice,
+    map or struct needs `core.UseFmt(fmt.Sprintf)` in the browser (`Textf`
+    calls it), and a struct or typed slice as a property value or
+    `ref.Call` argument needs `core.UseJSON(json.Marshal)`; without them
+    goowee logs a warning. Host builds always have both.
+  - `router.NewURL` is no longer in browser builds; use `router.New`.
 - Events and frames call into Go through WebAssembly exports instead of
   `syscall/js` callbacks, and the runtime reads each frame's batch where it is
   in the module's memory instead of from a copy (#133, ADR-031). In Chrome a
@@ -127,6 +259,9 @@ time. The public surface freezes under semver at v1.
   mutations and 1,834 allocations to none and about 520 (building the rows).
 
 ### Fixed
+- `ssr.RoutedPage` is host-only, like `router.NewURL` it calls (#126), so
+  packages whose tests import `ssr` (internal/dom) build for WASM again and
+  the WASM benchmarks in `docs/perf/README.md` run.
 - Moving between two routes whose functions return a component of the same
   name kept the first route's instance on screen: the URL changed but the
   page didn't (#124). A route's content is now keyed by the pattern that
@@ -148,10 +283,6 @@ time. The public surface freezes under semver at v1.
     changed and the `For` was built afresh (inside a parent row that
     re-rendered), or when the row had a duplicate key. Such rows are now
     keyed by their item too, so a changed item remounts them.
-- `BindNumber` no longer rewrites an empty or partial number input as `"0"`.
-  Clearing a field or typing `"-"` or `"1e"` now leaves the signal at its last
-  valid value and keeps the text the user typed; text that parses to the
-  signal's value isn't rewritten mid-edit.
 - On a server-rendered page, what the user did before the WASM booted was lost
   (#131). Clicks went nowhere, a form submitted natively (reloading the page),
   and text typed into a bound input stayed out of its signal, to be
@@ -868,7 +999,8 @@ surface at the first release rather than a diff.
 
 [0.1.0]: https://github.com/yogisalomo/goowee/releases/tag/v0.1.0
 
-[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/yogisalomo/goowee/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/yogisalomo/goowee/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/yogisalomo/goowee/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/yogisalomo/goowee/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/yogisalomo/goowee/compare/v0.2.5...v0.2.6

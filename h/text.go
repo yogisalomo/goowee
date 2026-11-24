@@ -21,6 +21,9 @@ func TextS(sig core.SignalAccessor) *core.TextNode {
 // raw variadic is never forwarded to fmt, which also keeps `go vet`'s
 // printf check from misreading signal arguments as type mismatches.
 func Textf(format string, args ...any) core.Node {
+	// An app that formats with fmt links it anyway: let bound composite
+	// values (a slice, a struct) format with it too (core.FormatValue).
+	core.UseFmt(fmt.Sprintf)
 	var deps []core.SignalAccessor
 	for _, a := range args {
 		if s, ok := a.(core.SignalAccessor); ok {

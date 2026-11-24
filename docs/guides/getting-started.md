@@ -1,121 +1,90 @@
 # Getting Started
 
-Build a reactive web UI in Go, compiled to WebAssembly, in five minutes.
+Build a reactive web UI in Go, compiled to WebAssembly, in a minute.
 
 ## Prerequisites
 
 - Go 1.25+
 - A text editor
 
-## 1. Scaffold a project
+## Quick start
 
 ```bash
-go mod init myapp
-go get github.com/yogisalomo/goowee@latest
+go install github.com/yogisalomo/goowee/cmd/goowee@latest
+goowee new myapp
+cd myapp
+goowee dev
 ```
 
-Create the minimal layout:
+Open http://localhost:8080. `goowee dev` builds the app to WebAssembly,
+serves it, and on every save rebuilds and reloads the page; a build error
+shows over the page instead of a stale app. Dev mode (the inspector and the
+dependency checks, [devtools.md](../devtools.md)) is on.
+
+What `goowee new` wrote:
 
 ```
 myapp/
-  cmd/
-    app/
-      main.go    WASM entry point
-  app/
-    app.go       component tree
-  web/
-    index.html   page shell
+  app/app.go        the UI: App, a router with two pages, a Counter component
+  app/app_test.go   gooweetest tests: go test ./... runs them without a browser
+  main.go           the browser entry point (//go:build js && wasm)
+  web/index.html    the page shell: a loading message, the scripts, goowee.boot
+  AGENTS.md         layout, commands and rules, for you and for coding agents
 ```
 
-## 2. Write a component
+`goowee new myapp --ssr` adds `server/`, which renders each page on the
+server ([Adding SSR](#adding-ssr)); `goowee dev` then runs it and restarts it
+on every change. `--tinygo` builds with TinyGo, about a third of the size
+([serving.md](serving.md)).
 
-`app/app.go`:
+## A component
+
+`app/app.go`'s `Counter`:
 
 ```go
-package app
-
-import (
-    "github.com/yogisalomo/goowee/core"
-    . "github.com/yogisalomo/goowee/h"
-    "github.com/yogisalomo/goowee/hooks"
-)
-
-func App() core.Node {
-    return core.Component("App", func() core.Node {
-        count, setCount := hooks.UseState(0)
-        return Div(Class("counter"),
-            P(Textf("Count: %d", count)),
-            Button(OnClick(func() { setCount(count.Get() + 1) }), Text("Click me")),
-        )
-    })
+func Counter() core.Node {
+	return core.Component("Counter", func() core.Node {
+		count, setCount := hooks.UseState(0)
+		label := core.Computed([]core.SignalAccessor{count}, func() string {
+			return "Clicked " + strconv.Itoa(count.Get()) + " times"
+		})
+		return Section(
+			H1(Text("myapp")),
+			Button(ID("count"), OnClick(func() { setCount(count.Get() + 1) }), TextS(label)),
+		)
+	})
 }
 ```
 
-A component is a **setup function that runs once on mount** (Solid-style, not
-React). State lives in a **signal** (`count`). `Textf` binds the signal to the
-text node, so clicking the button updates just that number — no re-render, no
-virtual DOM.
+The component function runs once. `count` is a signal; `TextS(label)` binds
+the button's text to it, so a click updates that text node and nothing else.
 
-## 3. Create the WASM entry point
-
-`cmd/app/main.go`:
-
-```go
-//go:build js && wasm
-
-package main
-
-import (
-    "github.com/yogisalomo/goowee/bridge"
-    "github.com/yogisalomo/goowee/router"
-    "myapp/app"
-)
-
-func main() {
-    r := router.New(router.CurrentPath())
-    r.BindHistory()
-    bridge.Run(app.App(r))
-}
-```
-
-## 4. Create the HTML shell
-
-`web/index.html`:
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>myapp</title>
-    <script src="wasm_exec.js"></script>
-    <script src="goowee.js"></script>
-</head>
-<body>
-    <div id="root"><p class="splash">Loading…</p></div>
-    <script>goowee.boot();</script>
-</body>
-</html>
-```
-
-`goowee.boot()` downloads and starts `main.wasm`. Whatever `#root` holds until
-then (here a loading message) is replaced by the app's first frame, so the
-page isn't blank while a large binary downloads. Keep anything else, such as a
-portal's target, outside `#root`. `examples/counter/index.html` is a complete
-shell.
-
-## 5. Build and serve
+## Building for production
 
 ```bash
-GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app
-cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
-cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/
+goowee build
+```
+
+`dist/` gets the WASM (symbols stripped, dev tools left out), `goowee.js` and
+`wasm_exec.js` under content-hashed names that `index.html` refers to,
+`.gz` siblings (and `.br` when the `brotli` command is installed), and a
+report of the WASM's size by package. Serve the hashed files with
+`Cache-Control: immutable` ([serving.md](serving.md)).
+
+## Without the CLI
+
+`goowee` only automates the build:
+
+```bash
+GOOS=js GOARCH=wasm go build -o web/main.wasm .
+go run github.com/yogisalomo/goowee/cmd/goowee assets ./web   # goowee.js and wasm_exec.js
 cd web && python3 -m http.server 8080
 ```
 
-Open `http://localhost:8080`. You should see a counter that increments when
-clicked.
+`assets` copies the `goowee.js` and `wasm_exec.js` that match this build:
+goowee's version comes from your `go.mod`, the loader from the Go toolchain.
+A stale `goowee.js` is rejected at boot with a message naming both versions
+and the command to fix it.
 
 ## Adding routing
 

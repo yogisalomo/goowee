@@ -2,8 +2,10 @@ package app
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
@@ -221,6 +223,7 @@ type harness struct {
 func mount(t *testing.T, n core.Node) *harness {
 	t.Helper()
 	r := dom.New()
+	core.SetActiveScheduler(r.Scheduler) // core.Schedule (a form's submit result) lands here
 	muts, _ := r.Render(n)
 	fd := newFakeDOM()
 	fd.apply(muts)
@@ -342,9 +345,43 @@ func TestFormPageHeadless(t *testing.T) {
 		t.Fatalf("name input value prop = %v, want Ada", got)
 	}
 
-	// Submit adds an entry to the list.
+	// The field-error paragraphs' text (the page's source listing has the
+	// same messages, so the whole page's text won't do).
+	fieldErrors := func() string {
+		var out []string
+		for id, n := range h.dom.nodes {
+			if n.tag == "p" && n.attrs["class"] == "field-error" {
+				out = append(out, h.dom.text(id))
+			}
+		}
+		sort.Strings(out)
+		return strings.Join(out, "|")
+	}
+	// An invalid email shows its error once the field is left.
+	h.input(emailInput, "nope")
+	h.dispatch(emailInput, "blur", map[string]any{})
+	if got := fieldErrors(); !strings.Contains(got, "Enter an email address.") {
+		t.Fatalf("no email error after blur: %q", got)
+	}
+	h.input(emailInput, "ada@x.io")
+	if got := fieldErrors(); strings.Contains(got, "Enter an email address.") {
+		t.Fatalf("the email error stayed after fixing it: %q", got)
+	}
+	agreed := h.dom.find(func(n *fnode) bool { return n.tag == "input" && n.attrs["name"] == "agreed" })
+	h.dispatch(agreed, "change", map[string]any{"checked": true})
+
+	// Submit adds an entry to the list (the submit runs in a goroutine and
+	// reports back through core.Schedule) and resets the form.
 	form := h.dom.find(func(n *fnode) bool { return n.tag == "form" })
-	h.submit(form, map[string]any{"name": "Ada", "email": "ada@x.io", "agreed": "on"})
+	submitted := func(n int) {
+		t.Helper()
+		for i := 0; i < 200 && len(h.dom.findAllText("li", "subscribed:")) < n; i++ {
+			time.Sleep(5 * time.Millisecond)
+			h.flush()
+		}
+	}
+	h.submit(form, nil)
+	submitted(1)
 	lis := h.dom.findAllText("li", "subscribed:")
 	if len(lis) != 1 {
 		t.Fatalf("want 1 submission li, got %d", len(lis))
@@ -358,8 +395,17 @@ func TestFormPageHeadless(t *testing.T) {
 		t.Fatalf("name input not cleared after submit: %v", got)
 	}
 
+	// An empty form doesn't submit: every error shows instead.
+	h.submit(form, nil)
+	if got := fieldErrors(); !strings.Contains(got, "Enter your name.") || !strings.Contains(got, "Enter an email address.") {
+		t.Fatalf("errors after submitting an empty form: %q", got)
+	}
+
 	// A second, distinct submission appends a keyed row (unique keys).
-	h.submit(form, map[string]any{"name": "Bob", "email": "bob@x.io", "agreed": "off"})
+	h.input(nameInput, "Bob")
+	h.input(emailInput, "bob@x.io")
+	h.submit(form, nil)
+	submitted(2)
 	lis = h.dom.findAllText("li", "subscribed:")
 	if len(lis) != 2 {
 		t.Fatalf("want 2 submission lis, got %d", len(lis))

@@ -1,0 +1,105 @@
+# goowee v0.4.0 — go1.25.1, 2026-11-23
+goos: darwin
+goarch: arm64
+pkg: github.com/yogisalomo/goowee/core
+cpu: Apple M1
+BenchmarkSignalSetFanout-8   	  608761	      1964 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  609050	      1978 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  602167	      2000 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  613148	      1965 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  608504	      1961 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSignalSetFanout-8   	  611355	      1966 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCoalesce-8          	    7975	    143080 ns/op	  426146 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8472	    143194 ns/op	  426145 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8416	    145539 ns/op	  426145 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8379	    143793 ns/op	  426146 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8580	    144442 ns/op	  426145 B/op	      10 allocs/op
+BenchmarkCoalesce-8          	    8448	    143647 ns/op	  426145 B/op	      10 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/yogisalomo/goowee/internal/dom
+cpu: Apple M1
+BenchmarkScopeReRenderList-8       	   11600	    103585 ns/op	  169460 B/op	    1236 allocs/op
+BenchmarkScopeReRenderList-8       	   10000	    103562 ns/op	  169461 B/op	    1236 allocs/op
+BenchmarkScopeReRenderList-8       	   10000	    102777 ns/op	  169460 B/op	    1236 allocs/op
+BenchmarkScopeReRenderList-8       	   10000	    103689 ns/op	  169461 B/op	    1236 allocs/op
+BenchmarkScopeReRenderList-8       	   10000	    104618 ns/op	  169461 B/op	    1236 allocs/op
+BenchmarkScopeReRenderList-8       	   10000	    103491 ns/op	  169461 B/op	    1236 allocs/op
+BenchmarkDeepTreeRender-8          	   13790	     83410 ns/op	  265579 B/op	     836 allocs/op
+BenchmarkDeepTreeRender-8          	   14434	     83310 ns/op	  265579 B/op	     836 allocs/op
+BenchmarkDeepTreeRender-8          	   14448	     83242 ns/op	  265579 B/op	     836 allocs/op
+BenchmarkDeepTreeRender-8          	   14528	     83217 ns/op	  265580 B/op	     836 allocs/op
+BenchmarkDeepTreeRender-8          	   14282	     83231 ns/op	  265579 B/op	     836 allocs/op
+BenchmarkDeepTreeRender-8          	   14331	     83451 ns/op	  265579 B/op	     836 allocs/op
+BenchmarkDiffTree-8                	   28498	     42637 ns/op	   98616 B/op	     713 allocs/op
+BenchmarkDiffTree-8                	   28380	     42499 ns/op	   98616 B/op	     713 allocs/op
+BenchmarkDiffTree-8                	   27063	     42453 ns/op	   98616 B/op	     713 allocs/op
+BenchmarkDiffTree-8                	   28237	     42624 ns/op	   98617 B/op	     713 allocs/op
+BenchmarkDiffTree-8                	   28272	     42672 ns/op	   98616 B/op	     713 allocs/op
+BenchmarkDiffTree-8                	   28213	     42589 ns/op	   98617 B/op	     713 allocs/op
+BenchmarkForAppendOne5k-8          	     934	   1363243 ns/op	  894660 B/op	      93 allocs/op
+BenchmarkForAppendOne5k-8          	     956	   1369691 ns/op	  894937 B/op	      93 allocs/op
+BenchmarkForAppendOne5k-8          	     945	   1373472 ns/op	  894799 B/op	      93 allocs/op
+BenchmarkForAppendOne5k-8          	     955	   1383753 ns/op	  894926 B/op	      93 allocs/op
+BenchmarkForAppendOne5k-8          	     952	   1376974 ns/op	  894888 B/op	      93 allocs/op
+BenchmarkForAppendOne5k-8          	     949	   1375966 ns/op	  894852 B/op	      93 allocs/op
+BenchmarkLayoutTickFrame-8         	    2709	    401516 ns/op	  601367 B/op	      12 allocs/op
+BenchmarkLayoutTickFrame-8         	    2992	    388741 ns/op	  601279 B/op	      12 allocs/op
+BenchmarkLayoutTickFrame-8         	    3033	    390194 ns/op	  601268 B/op	      12 allocs/op
+BenchmarkLayoutTickFrame-8         	    2973	    397643 ns/op	  601284 B/op	      12 allocs/op
+BenchmarkLayoutTickFrame-8         	    3002	    393652 ns/op	  601277 B/op	      12 allocs/op
+BenchmarkLayoutTickFrame-8         	    3036	    389038 ns/op	  601267 B/op	      12 allocs/op
+BenchmarkEncodeLayoutTick-8        	    1864	    641147 ns/op	 406.71 MB/s	  286720 B/op	       1 allocs/op
+BenchmarkEncodeLayoutTick-8        	    1875	    652475 ns/op	 399.65 MB/s	  286720 B/op	       1 allocs/op
+BenchmarkEncodeLayoutTick-8        	    1867	    641092 ns/op	 406.75 MB/s	  286720 B/op	       1 allocs/op
+BenchmarkEncodeLayoutTick-8        	    1856	    664485 ns/op	 392.43 MB/s	  286720 B/op	       1 allocs/op
+BenchmarkEncodeLayoutTick-8        	    1872	    641165 ns/op	 406.70 MB/s	  286720 B/op	       1 allocs/op
+BenchmarkEncodeLayoutTick-8        	    1870	    642697 ns/op	 405.73 MB/s	  286720 B/op	       1 allocs/op
+BenchmarkBatchEncodeLayoutTick-8   	    2269	    526860 ns/op	 130.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeLayoutTick-8   	    2274	    528340 ns/op	 130.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeLayoutTick-8   	    2275	    526785 ns/op	 130.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeLayoutTick-8   	    2265	    527431 ns/op	 130.53 MB/s	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeLayoutTick-8   	    2271	    526779 ns/op	 130.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeLayoutTick-8   	    2275	    526362 ns/op	 130.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkEncodeSmall-8             	 3567865	       336.5 ns/op	     528 B/op	       2 allocs/op
+BenchmarkEncodeSmall-8             	 3563959	       335.7 ns/op	     528 B/op	       2 allocs/op
+BenchmarkEncodeSmall-8             	 3570819	       335.9 ns/op	     528 B/op	       2 allocs/op
+BenchmarkEncodeSmall-8             	 3582424	       343.1 ns/op	     528 B/op	       2 allocs/op
+BenchmarkEncodeSmall-8             	 3542751	       346.0 ns/op	     528 B/op	       2 allocs/op
+BenchmarkEncodeSmall-8             	 3543565	       336.2 ns/op	     528 B/op	       2 allocs/op
+BenchmarkBatchEncodeSmall-8        	10712484	       112.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeSmall-8        	10693192	       112.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeSmall-8        	10665019	       112.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeSmall-8        	10700948	       112.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeSmall-8        	10690724	       113.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBatchEncodeSmall-8        	10719082	       120.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMount1000Build-8          	    1585	    760650 ns/op	 1081535 B/op	   20813 allocs/op
+BenchmarkMount1000Build-8          	    1596	    767345 ns/op	 1081536 B/op	   20813 allocs/op
+BenchmarkMount1000Build-8          	    1580	    769097 ns/op	 1081537 B/op	   20813 allocs/op
+BenchmarkMount1000Build-8          	    1576	    754205 ns/op	 1081535 B/op	   20813 allocs/op
+BenchmarkMount1000Build-8          	    1570	    766457 ns/op	 1081536 B/op	   20813 allocs/op
+BenchmarkMount1000Build-8          	    1555	    780910 ns/op	 1081536 B/op	   20813 allocs/op
+BenchmarkMount1000Render-8         	     500	   2479799 ns/op	 8005797 B/op	   13028 allocs/op
+BenchmarkMount1000Render-8         	     462	   2554049 ns/op	 8005809 B/op	   13028 allocs/op
+BenchmarkMount1000Render-8         	     476	   2518249 ns/op	 8005808 B/op	   13028 allocs/op
+BenchmarkMount1000Render-8         	     456	   2892744 ns/op	 8005811 B/op	   13028 allocs/op
+BenchmarkMount1000Render-8         	     454	   2924913 ns/op	 8005800 B/op	   13028 allocs/op
+BenchmarkMount1000Render-8         	     433	   2661349 ns/op	 8005807 B/op	   13028 allocs/op
+BenchmarkMount1000Encode-8         	    2575	    463892 ns/op	     301 B/op	       0 allocs/op
+BenchmarkMount1000Encode-8         	    2574	    465988 ns/op	     301 B/op	       0 allocs/op
+BenchmarkMount1000Encode-8         	    2569	    464680 ns/op	     302 B/op	       0 allocs/op
+BenchmarkMount1000Encode-8         	    2574	    464777 ns/op	     301 B/op	       0 allocs/op
+BenchmarkMount1000Encode-8         	    2583	    464986 ns/op	     300 B/op	       0 allocs/op
+BenchmarkMount1000Encode-8         	    2554	    466390 ns/op	     304 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/yogisalomo/goowee/ssr
+cpu: Apple M1
+BenchmarkSSRParallel-8   	    5050	    238162 ns/op	  224199 B/op	    3633 allocs/op
+BenchmarkSSRParallel-8   	    5480	    236583 ns/op	  224200 B/op	    3633 allocs/op
+BenchmarkSSRParallel-8   	    4644	    237854 ns/op	  224197 B/op	    3633 allocs/op
+BenchmarkSSRParallel-8   	    5359	    234517 ns/op	  224206 B/op	    3633 allocs/op
+BenchmarkSSRParallel-8   	    5454	    240498 ns/op	  224208 B/op	    3633 allocs/op
+BenchmarkSSRParallel-8   	    5694	    244482 ns/op	  224195 B/op	    3633 allocs/op
+pkg: github.com/yogisalomo/goowee/examples/counter
+BenchmarkExampleWASM 1 5741497 raw-B 1481144 gzip-B 1063514 brotli-B

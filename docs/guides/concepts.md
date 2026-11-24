@@ -185,6 +185,34 @@ VirtualList(items, 48 /* row height in px */, func(i int, item Item) core.Node {
 
 ---
 
+### ForList (lists that change one row at a time)
+
+`For` takes a `*Signal[[]T]`: every change replaces the slice, and `For`
+compares the whole list with the rows it has. For long lists that change one
+row at a time, use a `core.List` and `ForList`. The list records each
+change, and `ForList` applies just that change: an append mounts one row, an
+update sets one row's item signal, and a removal or move touches one row.
+That costs the same at 10,000 rows as at 10.
+
+```go
+todos := core.NewList(func(t Todo) int { return t.ID }, initial...)
+
+Ul(ForList(todos, func(t *core.Signal[Todo]) core.Node {
+    title := core.Computed([]core.SignalAccessor{t}, func() string { return t.Get().Title })
+    return Li(TextS(title))
+}))
+
+todos.Append(Todo{ID: 4, Title: "milk"})
+todos.Update(4, func(t *Todo) { t.Title = "oat milk" }) // only this row's text changes
+todos.Move(4, 0)
+todos.Remove(4)
+todos.Set(all) // a full replace: rows are matched by key, as For does
+```
+
+Each row gets its item as a signal, so bind what depends on it. A `List` is
+a `SignalAccessor`: put it in a `Computed`'s dependencies and read
+`list.Items()` to derive a count or a filter. Keys must be unique.
+
 ### Checking dependencies in dev mode
 
 Dependencies are declared by hand, so a missing one is a silent bug — the

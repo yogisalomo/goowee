@@ -12,12 +12,12 @@ WebAssembly is highly compressible. For the example binary:
 
 | encoding | bytes on the wire | vs. raw |
 |----------|------------------:|--------:|
-| identity (uncompressed) | ~5 223 KB | 1.0× |
-| **gzip** (`-9`)          | ~1 363 KB | **3.8×** |
-| **brotli** (`-q 11`)     |   ~988 KB | **5.3×** |
+| identity (uncompressed) | ~5 741 KB | 1.0× |
+| **gzip** (`-9`)          | ~1 481 KB | **3.9×** |
+| **brotli** (`-q 11`)     | ~1 064 KB | **5.4×** |
 
-(Go 1.25, goowee 0.3.0; tracked per release in `docs/perf/`.) At a bandwidth-limited **500 KB/s** the download alone
-goes from **~10.4 s → ~2.7 s** with gzip, and **~2.0 s** with brotli. Serve `application/wasm` with `Content-Encoding: gzip` (or `br`) and a
+(Go 1.25, goowee 0.4.0; tracked per release in `docs/perf/`.) At a bandwidth-limited **500 KB/s** the download alone
+goes from **~11.5 s → ~3.0 s** with gzip, and **~2.1 s** with brotli. Serve `application/wasm` with `Content-Encoding: gzip` (or `br`) and a
 `Vary: Accept-Encoding` header, and the browser decompresses transparently before
 `instantiateStreaming` compiles it. This is a zero-code-risk win — do it before
 reaching for TinyGo.
@@ -38,6 +38,28 @@ error saying so, a `goowee:boot-error` event on `window`, and a rejected
 </script>
 ```
 
+**What costs what.** goowee's own client code doesn't link `fmt`,
+`encoding/json`, `log` or `net/url` (#126), so an app pays for them only
+when it uses them. Sizes are brotli, Go 1.25, for the smallest app
+(`test/e2e/hello`, 674 KB) plus one use of each:
+
+| The app uses | Brings in | Adds |
+|---|---|---|
+| `goowee/router` | | ~5 KB |
+| `h.Textf`, or `fmt` itself | `fmt` | ~35–40 KB |
+| `h.JSONLD`, `core.UseJSON(json.Marshal)` | `encoding/json` (marshal) | ~105 KB |
+| `json.Marshal` and `json.Unmarshal` | `encoding/json` | ~135 KB |
+| `hooks.UsePersist`, `hooks.Load` | `encoding/json` | ~140 KB |
+| `goowee/net` | `encoding/json`, more | ~145 KB |
+
+The costs overlap: an app that already uses `encoding/json` pays for it
+once. To format text without fmt, build the string with `strconv` and
+bind it with `TextS` (a `core.Computed`), as `test/e2e/hello` does. Bound
+strings, numbers and bools are formatted without fmt. A bound slice, map or
+struct needs `core.UseFmt(fmt.Sprintf)` (called for you by `Textf`), and a
+struct or typed slice as a property value or `ref.Call` argument needs
+`core.UseJSON(json.Marshal)`; without them goowee logs a warning.
+
 **Booting the module yourself.** `goowee.boot()` hands the WebAssembly
 instance to the runtime, which then calls into Go through the module's exports
 (about 20 ns a call) instead of `syscall/js` callbacks (about 18 µs). A page
@@ -50,6 +72,58 @@ const { instance } = await WebAssembly.instantiateStreaming(fetch("main.wasm"), 
 goowee.useInstance(go, instance);
 go.run(instance);
 ```
+
+**Start the download early: the preload hint.** Without a hint the WASM
+download starts only after `wasm_exec.js` and `goowee.js` have loaded and the
+shell's `goowee.boot()` runs. A hint in `<head>` starts it with the HTML
+parse:
+
+```html
+<link rel="preload" href="main.wasm" as="fetch" type="application/wasm" crossorigin>
+```
+
+`goowee.boot()` fetches with the credentials mode `crossorigin` gives, so the
+browser reuses the preloaded response. The shells `goowee new` writes, and
+`examples/counter`'s, have it.
+
+**When a server-rendered page boots: `goowee.boot({when})`.** A
+server-rendered page is readable before the WASM arrives, so it can choose
+when to boot:
+
+| `when` | Boots | For |
+|---|---|---|
+| `"load"` (default) | at once | apps, pages you interact with at once |
+| `"idle"` | after the load event, when the browser is idle (`idleTimeout`, 2000 ms by default) | pages that are read first; the tutorial site uses it |
+| `"visible"` | when `target` (an element or selector, `#root` by default) scrolls into view | a widget further down the page |
+| `"interaction"` | at the first pointerdown, keydown or focusin | pages mostly read (docs, a blog), where most visitors never need the app |
+
+Clicks, keys and submits on the server markup before the boot are queued and
+replayed once the app is live (#131), so the interaction that starts an
+`"interaction"` boot is handled, once. A client-only page has nothing to show
+before the boot and always boots at once. `?goowee-boot=idle` (or another
+mode) in the URL overrides `when`, to try a mode on a live page.
+
+With a lazy mode, use a low-priority hint (`fetchpriority="low"`) to warm
+the cache without competing with the page's CSS, fonts and images, or no
+hint at all to download nothing until the boot. With `"interaction"` and no
+hint, a visitor who only reads never downloads the WASM
+(`test/e2e/lazyboot.mjs` checks that nothing is requested before the first
+click).
+
+Measured with `THROTTLE=fast3g make boot` on the tutorial site's home page
+(one stylesheet, a low-priority hint, 1.4 MB of WASM, medians of 3 cold
+loads; times from navigation start):
+
+| mode | FCP | load event | boot starts | TTI |
+|---|---|---|---|---|
+| load | 1496 ms | 1490 ms | at once | 9353 ms |
+| idle | 1484 ms | 1475 ms | 1477 ms | 9354 ms |
+| interaction (a click 1 s after load) | 1488 ms | 1479 ms | 1576 ms | 9366 ms |
+
+With the hint the download runs from the start in every mode, so on this
+page, with nothing else to load, the modes cost nothing in time to
+interactive and change only when the boot's work runs. They pay off on pages
+whose own images and fonts would otherwise share the bandwidth with the WASM.
 
 Measure the effect yourself with the boot harness under a throttled network:
 

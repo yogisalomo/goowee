@@ -1,10 +1,11 @@
 package h
 
 import (
-	"fmt"
+	"math"
+	"strconv"
+
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
-	"math"
 )
 
 type virtualListConfig struct {
@@ -57,17 +58,17 @@ func VirtualList[T any](itemsSig *core.Signal[[]T], itemHeight int, renderItem f
 			}
 
 			return Div(
-				Style(fmt.Sprintf("overflow-y:auto;height:%dpx;", cfg.height)),
+				Style("overflow-y:auto;height:"+strconv.Itoa(cfg.height)+"px;"),
 				OnScrollE(func(e core.EventData) {
 					setScrollTop(e.ScrollTop())
 				}),
 				If(topPad > 0, Div(
-					Style(fmt.Sprintf("height:%dpx;flex-shrink:0;", topPad)),
+					Style("height:"+strconv.Itoa(topPad)+"px;flex-shrink:0;"),
 					Key("topPad"),
 				)),
 				Group(renderVisible(startIdx, endIdx, items, renderItem)...),
 				If(bottomPad > 0, Div(
-					Style(fmt.Sprintf("height:%dpx;flex-shrink:0;", bottomPad)),
+					Style("height:"+strconv.Itoa(bottomPad)+"px;flex-shrink:0;"),
 					Key("bottomPad"),
 				)),
 			)

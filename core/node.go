@@ -1,6 +1,6 @@
 package core
 
-import "fmt"
+import "strconv"
 
 type Node interface {
 	nodeMarker()
@@ -35,7 +35,7 @@ const SVGNamespace = "http://www.w3.org/2000/svg"
 
 func (e *ElementNode) nodeMarker() {}
 func (e *ElementNode) String() string {
-	return fmt.Sprintf("Element(%s)", e.Tag)
+	return "Element(" + e.Tag + ")"
 }
 
 type Attr struct {
@@ -126,7 +126,7 @@ type TextNode struct {
 
 func (t *TextNode) nodeMarker() {}
 func (t *TextNode) String() string {
-	return fmt.Sprintf("Text(%v)", t.Value)
+	return "Text(" + FormatValue(t.Value) + ")"
 }
 
 type FragmentNode struct {
@@ -135,7 +135,7 @@ type FragmentNode struct {
 
 func (f *FragmentNode) nodeMarker() {}
 func (f *FragmentNode) String() string {
-	return fmt.Sprintf("Fragment(%d children)", len(f.Children))
+	return "Fragment(" + strconv.Itoa(len(f.Children)) + " children)"
 }
 
 // PortalNode renders its children into a different container in the DOM — a
@@ -157,7 +157,7 @@ type PortalNode struct {
 
 func (p *PortalNode) nodeMarker() {}
 func (p *PortalNode) String() string {
-	return fmt.Sprintf("Portal(%s)", p.Target)
+	return "Portal(" + p.Target + ")"
 }
 func (p *PortalNode) Apply(el *ElementNode) {
 	if p == nil {
@@ -196,7 +196,7 @@ type MetadataNode struct {
 
 func (m *MetadataNode) nodeMarker() {}
 func (m *MetadataNode) String() string {
-	return fmt.Sprintf("Metadata(%d items)", len(m.Children))
+	return "Metadata(" + strconv.Itoa(len(m.Children)) + " items)"
 }
 func (m *MetadataNode) Apply(parent *ElementNode) {
 	if m == nil {
@@ -271,7 +271,7 @@ func SetKey(n Node, key any) Node {
 
 func (c *ComponentNode) nodeMarker() {}
 func (c *ComponentNode) String() string {
-	return fmt.Sprintf("Component(%s)", c.Name)
+	return "Component(" + c.Name + ")"
 }
 
 func Component(name string, render func() Node) *ComponentNode {
@@ -293,11 +293,25 @@ type ScopeNode struct {
 	// Consumes makes the scope a context consumer (Context.Use): its content
 	// is Consumes.Render of the nearest provided value, in place of Render.
 	Consumes *ContextUse
+	// Patch, if set, is tried first when a dependency changes: it changes the
+	// mounted content through p (mount one child, remove one, move one) and
+	// returns true, or returns false, without touching p, to have the scope
+	// rendered again as usual. h.ForList uses it (#140).
+	Patch func(p ScopePatcher) bool
+}
+
+// ScopePatcher changes a mounted scope's content in place (ScopeNode.Patch).
+// Indexes are positions among the content's children.
+type ScopePatcher interface {
+	Len() int
+	Insert(index int, n Node) // mount n at index
+	Remove(index int)         // unmount the child at index
+	Move(from, to int)        // move the child at from so it ends up at to
 }
 
 func (s *ScopeNode) nodeMarker() {}
 func (s *ScopeNode) String() string {
-	return fmt.Sprintf("Scope(%d deps)", len(s.Deps))
+	return "Scope(" + strconv.Itoa(len(s.Deps)) + " deps)"
 }
 
 var VoidElements = map[string]bool{
@@ -367,7 +381,7 @@ type RawNode struct {
 
 func (r *RawNode) nodeMarker() {}
 func (r *RawNode) String() string {
-	return fmt.Sprintf("Raw(%d bytes)", len(r.HTML))
+	return "Raw(" + strconv.Itoa(len(r.HTML)) + " bytes)"
 }
 
 func (r *RawNode) Apply(parent *ElementNode) {

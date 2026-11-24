@@ -255,8 +255,7 @@ Build and serve:
 
 ```sh
 GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app     # your wasm entry
-cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/            # Go's JS loader
-cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/  # the bridge
+go run github.com/yogisalomo/goowee/cmd/goowee assets ./web  # matching JS loader + bridge
 # Serve web/ with an index.html that loads: wasm_exec.js, goowee.js, main.wasm,
 # and has a <div id="root"></div>. (See goowee's examples/counter for a template.)
 ```

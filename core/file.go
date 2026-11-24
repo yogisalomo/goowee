@@ -24,8 +24,8 @@ type File struct {
 // files dropped by a drop. Empty for other events, and during dragover, when
 // the browser doesn't expose them yet (check DataTypes for "Files").
 func (e EventData) Files() []File {
-	raw, ok := e.Data["files"].([]any)
-	if !ok {
+	raw := e.list("files")
+	if raw == nil {
 		return nil
 	}
 	out := make([]File, 0, len(raw))

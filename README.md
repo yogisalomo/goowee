@@ -64,26 +64,24 @@ func App() core.Node {
 }
 ```
 
-The runnable reference app lives in `examples/counter` — `make serve` (client)
-or `make serve-ssr` (SSR + hydration). Build and serve with:
+Start a project, and run it with a rebuild and a reload on every save:
 
 ```bash
-GOOS=js GOARCH=wasm go build -o web/main.wasm ./cmd/app
-cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
-cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/
-cd web && python3 -m http.server 8080
+go run github.com/yogisalomo/goowee/cmd/goowee new myapp
+cd myapp && go run github.com/yogisalomo/goowee/cmd/goowee dev
 ```
+
+`goowee build` writes a production build with a size report
+([Getting Started](docs/guides/getting-started.md)). The runnable reference
+app lives in `examples/counter`: `make serve` (client) or `make serve-ssr`
+(SSR + hydration).
 
 ```html
 <!-- web/index.html (minimal) -->
 <script src="wasm_exec.js"></script>
 <script src="goowee.js"></script>
 <div id="root"></div>
-<script>
-    const go = new Go();
-    WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
-        .then(r => go.run(r.instance));
-</script>
+<script>goowee.boot();</script>
 ```
 
 ## Guides
@@ -92,6 +90,7 @@ cd web && python3 -m http.server 8080
 |-------|-------------------|
 | [Getting Started](docs/guides/getting-started.md) | Project scaffold, first component, WASM build, adding routing and SSR |
 | [Concepts](docs/guides/concepts.md) | Signals, run-once components, Show/For, effects, SSR, routing, refs, bindings |
+| [Forms](docs/guides/forms.md) | goowee/form: typed values, validation shared with the server, submit state |
 | [Testing](docs/guides/testing.md) | gooweetest, faking the network and storage, keeping browser code testable |
 | [API Reference](docs/api/reference.md) | Complete public surface for core, h, hooks, router, ssr, dom, bridge |
 

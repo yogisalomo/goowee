@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/yogisalomo/goowee/core"
@@ -195,7 +194,7 @@ func attrText(v any) string {
 		}
 		return "false"
 	}
-	return fmt.Sprintf("%v", v)
+	return core.FormatValue(v)
 }
 
 // styleValue keeps numbers as numbers so the runtime can append a unit (px,
@@ -228,7 +227,7 @@ func styleValue(v any) any {
 	case float64:
 		return n
 	default:
-		return fmt.Sprintf("%v", v)
+		return core.FormatValue(v)
 	}
 }
 

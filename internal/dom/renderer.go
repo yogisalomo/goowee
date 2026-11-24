@@ -1,7 +1,8 @@
 package dom
 
 import (
-	"fmt"
+	"reflect"
+	goruntime "runtime"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
@@ -442,8 +443,13 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 	var childMuts []core.Mutation
 	savedMuts := r.muts
 	r.muts = &childMuts
+	var stack string
 	id, rec := func() (id int, rec any) {
-		defer func() { rec = recover() }()
+		defer func() {
+			if rec = recover(); rec != nil {
+				stack = panicStack()
+			}
+		}()
 		id = walkInner()
 		return
 	}()
@@ -453,10 +459,7 @@ func (r *DOMRenderer) VisitErrorBoundary(ebn *core.ErrorBoundaryNode, walkInner 
 		runtime.RestoreFrameStack(frameDepth)
 		r.currentNS, r.hydrateDynamic = savedNS, savedDyn
 		r.abandon(mark, owner)
-		core.Log(core.LogRecoverErrorBoundary, "caught panic, rendering fallback", map[string]any{
-			"phase": "render",
-			"panic": rec,
-		})
+		core.Log(core.LogRecoverErrorBoundary, "caught panic, rendering fallback", boundaryFields("render", rec, stack))
 		fb := core.FlatTree(ebn.Fallback(rec))
 		ebn.Prev = fb
 		return r.Walker.Walk(fb, r)
@@ -587,12 +590,16 @@ func (r *DOMRenderer) reRenderScope(sn *core.ScopeNode) {
 				r.parentStack = r.parentStack[:baseStack]
 				runtime.RestoreFrameStack(frameDepth)
 				r.abandon(mark, nil)
-				core.Log(core.LogRecoverReRender, "panic during scope re-render; subtree kept previous state", map[string]any{
-					"panic": rec,
-				})
+				fields := map[string]any{}
+				if path := r.describeScope(sn); path != "" {
+					fields["component"] = path
+				}
+				core.Log(core.LogRecoverReRender, "panic during scope re-render; subtree kept previous state", core.PanicFields(rec, fields))
 			}
 		}()
-		r.updateScope(sn, info, &muts)
+		if sn.Patch == nil || !r.patchScope(sn, info, &muts) {
+			r.updateScope(sn, info, &muts)
+		}
 		return true
 	}()
 	if !ok {
@@ -609,6 +616,96 @@ func (r *DOMRenderer) reRenderScope(sn *core.ScopeNode) {
 // render runs under a fresh owner frame; once it succeeds, the previous
 // render's owner — the Watch/UseEffect/OnMount calls that render made — is
 // disposed, since this render re-created whatever it still needs.
+// patchScope lets sn.Patch change the mounted content in place, under the
+// scope's current owner, namespace and context, and reports whether it did.
+func (r *DOMRenderer) patchScope(sn *core.ScopeNode, info *scopeInfo, muts *[]core.Mutation) bool {
+	runtime.PushFrame(info.owner)
+	prevNS, prevCtx := r.currentNS, r.Walker.Context()
+	r.currentNS = info.ns
+	r.Walker.SetContext(info.ctx)
+	r.parentStack = append(r.parentStack, info.parentID)
+	defer func() {
+		r.parentStack = r.parentStack[:len(r.parentStack)-1]
+		r.currentNS = prevNS
+		r.Walker.SetContext(prevCtx)
+		runtime.PopComponent()
+	}()
+	p := &scopePatcher{r: r, sn: sn, parentID: info.parentID, muts: muts}
+	ok := false
+	r.Walker.WithProvided(sn, func() { ok = sn.Patch(p) })
+	return ok
+}
+
+// scopePatcher is the ScopePatcher patchScope hands to a scope: it keeps
+// sn.Prev's children in step with what it mounts, removes and moves.
+type scopePatcher struct {
+	r        *DOMRenderer
+	sn       *core.ScopeNode
+	parentID int
+	muts     *[]core.Mutation
+}
+
+func (p *scopePatcher) children() *core.FragmentNode {
+	if f, ok := p.sn.Prev.(*core.FragmentNode); ok {
+		return f
+	}
+	f := &core.FragmentNode{Children: contentList(p.sn.Prev)}
+	p.sn.Prev = f
+	return f
+}
+
+func (p *scopePatcher) Len() int { return len(p.children().Children) }
+
+// before is the DOM node a child at index goes before: the first root of a
+// later child, or the scope's end anchor.
+func (p *scopePatcher) before(index int) int {
+	kids := p.children().Children
+	for j := index; j < len(kids); j++ {
+		if id := firstRoot(kids[j]); id != 0 {
+			return id
+		}
+	}
+	return p.sn.Anchor
+}
+
+func (p *scopePatcher) Insert(index int, n core.Node) {
+	f := p.children()
+	index = max(0, min(index, len(f.Children)))
+	ref := p.before(index)
+	p.r.diffNode(nil, n, p.parentID, ref, p.muts)
+	place(p.parentID, rootIDs(n), ref, p.muts)
+	f.Children = append(f.Children, nil)
+	copy(f.Children[index+1:], f.Children[index:])
+	f.Children[index] = n
+}
+
+func (p *scopePatcher) Remove(index int) {
+	f := p.children()
+	if index < 0 || index >= len(f.Children) {
+		return
+	}
+	p.r.emitRemoveTree(f.Children[index], p.muts)
+	copy(f.Children[index:], f.Children[index+1:])
+	f.Children[len(f.Children)-1] = nil
+	f.Children = f.Children[:len(f.Children)-1]
+}
+
+func (p *scopePatcher) Move(from, to int) {
+	f := p.children()
+	if from < 0 || from >= len(f.Children) || to == from {
+		return
+	}
+	to = max(0, min(to, len(f.Children)-1))
+	n := f.Children[from]
+	if from < to {
+		copy(f.Children[from:to], f.Children[from+1:to+1])
+	} else {
+		copy(f.Children[to+1:from+1], f.Children[to:from])
+	}
+	f.Children[to] = n
+	place(p.parentID, rootIDs(n), p.before(to+1), p.muts)
+}
+
 func (r *DOMRenderer) updateScope(sn *core.ScopeNode, info *scopeInfo, muts *[]core.Mutation) {
 	owner := runtime.NewOwner(info.ownerParent)
 	runtime.PushFrame(owner)
@@ -952,7 +1049,7 @@ func warnPreservedPlainComponent(name string) {
 var warnedKeyTypes = map[string]bool{}
 
 func warnUncomparableKey(k any) {
-	t := fmt.Sprintf("%T", k)
+	t := reflect.TypeOf(k).String() // %T without fmt (#126)
 	if warnedKeyTypes[t] {
 		return
 	}
@@ -960,4 +1057,23 @@ func warnUncomparableKey(k any) {
 	core.Log(core.LogWarn, "uncomparable key; row matched positionally instead", map[string]any{
 		"keyType": t,
 	})
+}
+
+// panicStack is the panicking goroutine's stack in dev mode, for the dev
+// overlay (#148); "" otherwise. Call it from the deferred recover.
+func panicStack() string {
+	if !core.DevChecks() {
+		return ""
+	}
+	buf := make([]byte, 16<<10)
+	return string(buf[:goruntime.Stack(buf, false)]) // "" under TinyGo
+}
+
+// boundaryFields are an error boundary's log fields for a caught panic.
+func boundaryFields(phase string, rec any, stack string) map[string]any {
+	f := map[string]any{"phase": phase, "panic": rec}
+	if stack != "" {
+		f["stack"] = stack
+	}
+	return f
 }

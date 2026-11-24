@@ -3,11 +3,14 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/form"
 	. "github.com/yogisalomo/goowee/h"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/router"
-	"time"
 )
 
 func App(r *router.Router) core.Node {
@@ -138,11 +141,29 @@ type entry struct {
 	agreed      bool
 }
 
+// signup is the form lesson's value. Validate is plain Go: goowee/form runs
+// it as the user types and on submit, and a server would run the same method
+// on what it receives (examples/notes does).
+type signup struct {
+	Name   string
+	Email  string
+	Agreed bool
+}
+
+func (s signup) Validate() form.Errors {
+	var errs form.Errors
+	if strings.TrimSpace(s.Name) == "" {
+		errs = errs.Add("name", "Enter your name.")
+	}
+	if !strings.Contains(s.Email, "@") {
+		errs = errs.Add("email", "Enter an email address.")
+	}
+	return errs
+}
+
 func formPage(r *router.Router) core.Node {
 	return core.Component("FormPage", func() core.Node {
-		name, setName := hooks.UseState("")
-		email, setEmail := hooks.UseState("")
-		agreed, setAgreed := hooks.UseState(false)
+		f := form.Use(signup{})
 		age, setAge := hooks.UseState(0)
 		entries, setEntries := hooks.UseState([]entry{})
 		nameRef := Ref() // imperative focus (h.Ref -> ref.Focus), measuring (ref.Get)
@@ -171,7 +192,7 @@ func formPage(r *router.Router) core.Node {
 			}()
 		}
 
-		hasName := hooks.UseComputed([]core.SignalAccessor{name}, func() bool { return name.Get() != "" })
+		hasName := hooks.UseComputed([]core.SignalAccessor{f.Value}, func() bool { return f.Value.Get().Name != "" })
 
 		demo := Div(
 			Button(Type("button"), OnClick(func() { nameRef.Focus() }), Text("Focus name")),
@@ -184,32 +205,38 @@ func formPage(r *router.Router) core.Node {
 			Show(hooks.UseComputed([]core.SignalAccessor{nameWidth}, func() bool { return nameWidth.Get() > 0 }),
 				func() core.Node { return P(Class("measure"), Textf("Name input is %dpx wide", nameWidth)) }),
 			Form(
-				OnSubmit(func(vals map[string]string) {
+				// This lesson has no server: the submit function succeeds at
+				// once, and the second function, run after it, records the
+				// entry and starts the form over.
+				f.OnSubmit(func(ctx context.Context, v signup) error { return nil }, func(v signup) {
 					en := entry{
 						id:     len(entries.Get()) + 1, // append-only, so unique + stable
-						name:   vals["name"],
-						email:  vals["email"],
+						name:   v.Name,
+						email:  v.Email,
 						age:    age.Get(),
-						agreed: vals["agreed"] == "on",
+						agreed: v.Agreed,
 					}
 					setEntries(append(entries.Get(), en))
-					setName("")
-					setEmail("")
+					f.Reset(signup{})
 					setAge(0)
-					setAgreed(false)
 				}),
-				label("Name", Input(Type("text"), Name("name"), RefTo(nameRef), BindValue(name))),
-				label("Email", Input(Type("email"), Name("email"), BindValue(email))),
+				label("Name", Input(Type("text"), RefTo(nameRef), form.Text(f, "name", func(s *signup) *string { return &s.Name }))),
+				P(Class("field-error"), TextS(f.Error("name"))),
+				label("Email", Input(Type("email"), form.Text(f, "email", func(s *signup) *string { return &s.Email }))),
+				P(Class("field-error"), TextS(f.Error("email"))),
 				label("Age", Input(Type("number"), Name("age"), BindNumber(age))),
 				Label(
-					Input(Type("checkbox"), Name("agreed"), BindChecked(agreed)),
+					Input(form.Bool(f, "agreed", func(s *signup) *bool { return &s.Agreed })),
 					Text(" Subscribe to newsletter"),
 				),
 				label("Attachment", Input(Type("file"), Name("attachment"), OnChangeE(pickFile))),
 				P(Class("attachment"), TextS(attachment)),
-				Button(Text("Submit")),
+				Button(Type("submit"), DisabledS(f.Submitting), Text("Submit")),
 			),
-			P(Class("preview"), ClassIf("has-name", hasName), Textf("Preview, Name: %s, Email: %s, Age: %d", name, email, age)),
+			P(Class("preview"), ClassIf("has-name", hasName), TextS(core.Computed([]core.SignalAccessor{f.Value, age}, func() string {
+				v := f.Value.Get()
+				return fmt.Sprintf("Preview, Name: %s, Email: %s, Age: %d", v.Name, v.Email, age.Get())
+			}))),
 			H3(Text("Submissions")),
 			Ul(Class("submission-list"),
 				For(entries, func(e entry) int { return e.id }, func(e entry) core.Node {
@@ -227,13 +254,15 @@ func formPage(r *router.Router) core.Node {
 			),
 		)
 		return lessonLayout(r, "Forms & inputs",
-			"`BindValue` and `BindNumber` keep inputs and signals in sync both ways. `ClassIf` toggles a single class from a bool signal, `OnSubmit` hands you the named field values, and a ref lets you focus a field imperatively.",
+			"goowee/form keeps a form's fields in one typed value, checked by a plain Go `Validate` method that a server can run too. `BindNumber` keeps a number input and an `int` signal in sync, `ClassIf` toggles one class from a bool signal, and a ref lets you focus a field imperatively.",
 			demo, "form.go", formCode,
 			howItWorks(
-				"`BindValue(name)` fills the input from the signal and updates the signal on every keystroke, two-way.",
-				"`BindNumber(age)` uses the browser's `valueAsNumber`, so the signal holds an `int` rather than a string.",
+				"`f := form.Use(signup{})` holds the value, its errors, and which fields were left or submitted.",
+				"`form.Text(f, \"name\", func(s *signup) *string { return &s.Name })` binds an input to a field both ways, and sets its `name` and `aria-invalid`.",
+				"`signup.Validate()` runs as you type once a field was left, and on submit; `f.Error(\"name\")` is that field's message while it should show.",
+				"`f.OnSubmit(send, then)` runs `send` in a goroutine with `f.Submitting` set, shows a server's field errors on their fields, and runs `then` after a success.",
+				"`BindNumber(age)` uses the browser's `valueAsNumber`, so the signal holds an `int` rather than a string, and a half-typed number leaves it alone.",
 				"`ClassIf(\"has-name\", hasName)` toggles one class from a bool signal without recomputing the whole class list.",
-				"`OnSubmit(func(vals map[string]string) {…})` receives values keyed by each input's `Name`; the browser's default submit is prevented for you.",
 				"`ref := Ref()`, attached with `RefTo(ref)`; `ref.Focus()` in a handler focuses the node.",
 				"`ref.Get(\"offsetWidth\", func(v any) {…})` reads a value back from the node on the next frame; the callback runs on the render loop.",
 				"`OnChangeE` on a file input gives `e.Files()`: name, size, type. `f.Bytes()` reads the contents in a goroutine, and `core.Schedule` applies the result.",
@@ -712,9 +741,8 @@ func main() {
 </body>
 </html>`),
 			P(rich("Whatever `#root` holds until the app mounts (here a loading message) is replaced by its first frame.")),
-			P(rich("Copy the runtime files and serve the `web` directory:")),
-			snippet("sh", `cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/
-cp "$(go env GOMODCACHE)"/github.com/yogisalomo/goowee@*/runtime/goowee.js web/
+			P(rich("Copy the matching runtime files and serve the `web` directory:")),
+			snippet("sh", `go run github.com/yogisalomo/goowee/cmd/goowee assets ./web
 cd web && python3 -m http.server 8080`),
 			P(rich("Open `http://localhost:8080` in your browser.")),
 			tutorialStepNav(r, "/getting-started"),

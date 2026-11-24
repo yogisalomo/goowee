@@ -91,8 +91,8 @@ func gooweeEvent(id int32, typeLen, payloadLen uint32) uint32 {
 	if exportRegistry == nil || int(typeLen+payloadLen) > len(scratch) {
 		return 0
 	}
-	typ := string(scratch[:typeLen])
-	payload := string(scratch[typeLen : typeLen+payloadLen])
+	typ := internType(scratch[:typeLen])
+	payload := string(scratch[typeLen : typeLen+payloadLen]) // the one allocation per event (#135)
 	opts, handled := exportRegistry.Dispatch(int(id), typ, payload)
 	return uint32(dom.DispatchBits(opts, handled))
 }
@@ -105,3 +105,15 @@ func addr(b []byte) uint32 {
 	return uint32(uintptr(unsafe.Pointer(&b[0])))
 }
 
+// eventTypes interns event type names: an app listens for a handful, so after
+// the first of each, goowee_event gets the name without allocating.
+var eventTypes = map[string]string{}
+
+func internType(b []byte) string {
+	if s, ok := eventTypes[string(b)]; ok { // no allocation for the lookup
+		return s
+	}
+	s := string(b)
+	eventTypes[s] = s
+	return s
+}

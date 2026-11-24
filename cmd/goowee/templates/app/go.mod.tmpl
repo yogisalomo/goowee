@@ -1,0 +1,9 @@
+module {{.Module}}
+
+go 1.25
+
+require github.com/yogisalomo/goowee {{.Version}}
+{{- if .Replace}}
+
+replace github.com/yogisalomo/goowee => {{.Replace}}
+{{- end}}

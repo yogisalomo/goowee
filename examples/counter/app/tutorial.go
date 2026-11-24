@@ -52,34 +52,34 @@ return Div(
         func() core.Node { return P(Text("(hidden)")) }),
 )`
 
-const formCode = `name, setName := hooks.UseState("")
-age, setAge := hooks.UseState(0)
-hasName := hooks.UseComputed([]core.SignalAccessor{name},
-    func() bool { return name.Get() != "" })
-entries, setEntries := hooks.UseState([]entry{})
+const formCode = `type signup struct{ Name, Email string; Agreed bool }
 
-return Div(
-    P(Class("preview"), ClassIf("has-name", hasName),   // one class from a bool signal
-        Textf("Preview: %s (%d)", name, age)),
-    Form(
-        OnSubmit(func(vals map[string]string) {      // vals = named field values
-            setEntries(append(entries.Get(), entry{name: vals["name"], age: age.Get()}))
-            setName("")                               // clear the bound input
-            setAge(0)
-        }),
-        Input(Type("text"), Name("name"), RefTo(nameRef), BindValue(name)), // two-way binding
-        Input(Type("number"), BindNumber(age)),      // browser parses to a number
-        Input(Type("file"), OnChangeE(func(e core.EventData) { // e.Files(): name, size, type
-            f := e.Files()[0]
-            go func() {                               // bytes are read off-loop
-                data, err := f.Bytes()
-                core.Schedule(func() { setPicked(f.Name, data, err) })
-            }()
-        })),
-        Button(Text("Submit")),
-    ),
-    For(entries, func(e entry) int { return e.id },   // keyed list
-        func(e entry) core.Node { return Li(Text(e.name)) }),
+func (s signup) Validate() form.Errors {          // plain Go; a server can run it too
+    var errs form.Errors
+    if !strings.Contains(s.Email, "@") {
+        errs = errs.Add("email", "Enter an email address.")
+    }
+    return errs
+}
+
+f := form.Use(signup{})                            // value, errors, touched, submitting
+age, _ := hooks.UseState(0)
+return Form(
+    f.OnSubmit(func(ctx context.Context, v signup) error {
+        return nil                                 // e.g. api.Signup.Call(ctx, v)
+    }, func(v signup) { addEntry(v); f.Reset(signup{}) }),
+    Input(Type("email"), form.Text(f, "email", func(s *signup) *string { return &s.Email })),
+    P(TextS(f.Error("email"))),                    // shows once the field was left
+    Input(form.Bool(f, "agreed", func(s *signup) *bool { return &s.Agreed })),
+    Input(Type("number"), BindNumber(age)),        // an int signal; half-typed text is left alone
+    Input(Type("file"), OnChangeE(func(e core.EventData) {  // e.Files(): name, size, type
+        f := e.Files()[0]
+        go func() {                                       // bytes are read off-loop
+            data, err := f.Bytes()
+            core.Schedule(func() { setPicked(f.Name, data, err) })
+        }()
+    })),
+    Button(Type("submit"), DisabledS(f.Submitting), Text("Submit")),
 )
 // Elsewhere: nameRef.Focus() to focus the field, or read a value back —
 // nameRef.Get("offsetWidth", func(v any) { w, _ := v.(float64); setWidth(int(w)) })`

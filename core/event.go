@@ -1,23 +1,36 @@
 package core
 
-import "math"
+import (
+	"math"
+
+	"github.com/yogisalomo/goowee/internal/jsontext"
+)
 
 // EventData is what a handler receives: the event type, the node id of the
-// element whose handler is running, and the event's payload (Data) as decoded
-// from the browser. The typed accessors return zero values for fields the
-// event type doesn't carry.
+// element whose handler is running, and the event's payload. The typed
+// accessors (Key, ClientX, Value, …) return zero values for fields the event
+// type doesn't carry; Field and Fields read any other.
+//
+// An event from the browser carries its payload as the JSON text the runtime
+// sent, and each accessor reads its field from it without decoding the rest
+// or allocating (#135). Data is set only on EventData built with
+// NewEventData (tests, custom dispatchers); read the payload through the
+// accessors or Fields, which handle both.
 type EventData struct {
 	Type   string
 	Target int
-	Data   map[string]any
+	Data   map[string]any // the payload, when built from a map; see Fields
 
+	raw string        // the payload as JSON text, from the browser
 	ctl *eventControl // set by the dispatcher; nil in hand-built EventData
+	gen uint64        // ctl's generation for this event: a reused ctl ignores stale calls
 }
 
 // eventControl carries the decisions a handler makes while it runs.
 type eventControl struct {
 	preventDefault  bool
 	stopPropagation bool
+	gen             uint64 // bumped by Reset
 }
 
 // NewEventData builds the EventData a dispatcher hands to a handler, with
@@ -25,6 +38,59 @@ type eventControl struct {
 // Decisions after the handler returns.
 func NewEventData(typ string, target int, data map[string]any) EventData {
 	return EventData{Type: typ, Target: target, Data: data, ctl: &eventControl{}}
+}
+
+// NewEventDataJSON is NewEventData for a payload that is JSON text (an
+// object), as the browser runtime sends it: nothing is decoded until a
+// handler reads a field. ctl, if not nil, is where the handler's decisions go;
+// a dispatcher can reuse one from event to event (ResetControl).
+func NewEventDataJSON(typ string, target int, payload string, ctl *EventControl) EventData {
+	if ctl == nil {
+		ctl = &eventControl{}
+	}
+	return EventData{Type: typ, Target: target, raw: payload, ctl: ctl, gen: ctl.gen}
+}
+
+// EventControl holds a handler's decisions (PreventDefault,
+// StopPropagation); a dispatcher may reuse one across events.
+type EventControl = eventControl
+
+// Reset clears the decisions for the next event. An EventData of an earlier
+// event (kept by a handler past its return) no longer reaches this control.
+func (c *EventControl) Reset() { *c = eventControl{gen: c.gen + 1} }
+
+// Field returns the payload's member k as encoding/json would decode it into
+// an any (a string, float64, bool, []any, map[string]any or nil), and
+// whether the payload has it.
+func (e EventData) Field(k string) (any, bool) {
+	if e.Data != nil || e.raw == "" {
+		v, ok := e.Data[k]
+		return v, ok
+	}
+	text, ok := jsontext.Field(e.raw, k)
+	if !ok {
+		return nil, false
+	}
+	v, err := jsontext.Decode(text)
+	return v, err == nil
+}
+
+// Number, String and Bool read a payload member of that type by name, for
+// fields without an accessor of their own (a custom event's detail, say):
+// zero when the payload doesn't have it, or it is of another type.
+func (e EventData) Number(k string) float64 { return e.num(k) }
+func (e EventData) String(k string) string  { return e.str(k) }
+func (e EventData) Bool(k string) bool      { return e.flag(k) }
+
+// Fields returns the whole payload as a map, decoding it if it came as JSON
+// text. Prefer the accessors and Field for a field or two: they don't decode
+// the rest.
+func (e EventData) Fields() map[string]any {
+	if e.Data != nil || e.raw == "" {
+		return e.Data
+	}
+	m, _ := jsontext.DecodeObject(e.raw)
+	return m
 }
 
 // PreventDefault cancels the browser's default action for this event — a link
@@ -41,14 +107,14 @@ func NewEventData(typ string, target int, data map[string]any) EventData {
 // Coalesced high-frequency events (scroll, pointermove) are delivered after
 // the fact and can't be prevented.
 func (e EventData) PreventDefault() {
-	if e.ctl != nil {
+	if e.ctl != nil && e.ctl.gen == e.gen {
 		e.ctl.preventDefault = true
 	}
 }
 
 // StopPropagation stops the event from reaching handlers on ancestor elements.
 func (e EventData) StopPropagation() {
-	if e.ctl != nil {
+	if e.ctl != nil && e.ctl.gen == e.gen {
 		e.ctl.stopPropagation = true
 	}
 }
@@ -61,11 +127,38 @@ func (e EventData) Decisions() (preventDefault, stopPropagation bool) {
 	return e.ctl.preventDefault, e.ctl.stopPropagation
 }
 
-func (e EventData) str(k string) string  { return mapStr(e.Data, k) }
-func (e EventData) num(k string) float64 { return mapNum(e.Data, k) }
+func (e EventData) str(k string) string {
+	if e.raw != "" && e.Data == nil {
+		text, _ := jsontext.Field(e.raw, k)
+		s, _ := jsontext.String(text)
+		return s
+	}
+	return mapStr(e.Data, k)
+}
+
+func (e EventData) num(k string) float64 {
+	if e.raw != "" && e.Data == nil {
+		text, _ := jsontext.Field(e.raw, k)
+		f, _ := jsontext.Number(text)
+		return f
+	}
+	return mapNum(e.Data, k)
+}
+
 func (e EventData) flag(k string) bool {
+	if e.raw != "" && e.Data == nil {
+		text, _ := jsontext.Field(e.raw, k)
+		return text == "true"
+	}
 	v, _ := e.Data[k].(bool)
 	return v
+}
+
+// list is the payload's array member k.
+func (e EventData) list(k string) []any {
+	v, _ := e.Field(k)
+	a, _ := v.([]any)
+	return a
 }
 
 func mapStr(m map[string]any, k string) string {
@@ -98,7 +191,8 @@ func (e EventData) ValueAsNumber() float64 {
 // ok == false to keep the last valid signal value and leave the user's text
 // alone while they are still typing.
 func (e EventData) ValueAsNumberOK() (float64, bool) {
-	switch n := e.Data["valueAsNumber"].(type) {
+	v, _ := e.Field("valueAsNumber")
+	switch n := v.(type) {
 	case float64:
 		return n, !math.IsNaN(n)
 	case float32:
@@ -118,8 +212,8 @@ func (e EventData) ValueAsNumberOK() (float64, bool) {
 // select it has at most one item; for a multiple select, all selected options.
 // Other event types return nil.
 func (e EventData) SelectedValues() []string {
-	raw, ok := e.Data["selected"].([]any)
-	if !ok {
+	raw := e.list("selected")
+	if raw == nil {
 		return nil
 	}
 	out := make([]string, 0, len(raw))
@@ -152,7 +246,7 @@ func (e EventData) DataText() string { return e.str("text") }
 //	    }
 //	})
 func (e EventData) DataTypes() []string {
-	raw, _ := e.Data["types"].([]any)
+	raw := e.list("types")
 	out := make([]string, 0, len(raw))
 	for _, t := range raw {
 		if s, ok := t.(string); ok {
@@ -211,8 +305,8 @@ func (e EventData) Touches() []Touch { return e.touchList("touches") }
 func (e EventData) ChangedTouches() []Touch { return e.touchList("changedTouches") }
 
 func (e EventData) touchList(k string) []Touch {
-	raw, ok := e.Data[k].([]any)
-	if !ok {
+	raw := e.list(k)
+	if raw == nil {
 		return nil
 	}
 	out := make([]Touch, 0, len(raw))
@@ -227,7 +321,8 @@ func (e EventData) touchList(k string) []Touch {
 // FormValues returns a submitted form's named fields.
 func (e EventData) FormValues() map[string]string {
 	out := map[string]string{}
-	if m, ok := e.Data["values"].(map[string]any); ok {
+	if v, _ := e.Field("values"); v != nil {
+		m, _ := v.(map[string]any)
 		for k, v := range m {
 			if s, ok := v.(string); ok {
 				out[k] = s

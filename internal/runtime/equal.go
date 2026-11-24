@@ -1,8 +1,9 @@
 package runtime
 
 import (
-	"fmt"
 	"reflect"
+
+	"github.com/yogisalomo/goowee/core"
 )
 
 // SafeEqual reports whether a and b are equal under ==, without ever
@@ -38,5 +39,5 @@ func TextValue(v any) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
-	return fmt.Sprint(v)
+	return core.FormatValue(v) // fmt's %v without fmt (#126)
 }
