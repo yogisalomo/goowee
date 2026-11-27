@@ -7,6 +7,8 @@ WASM_BUDGET = 6291456
 # the site is served under — "/goowee/" for a project page, "/" at a domain root.
 PAGES_OUT = _site
 PAGES_BASE ?= /goowee/
+# Where site-export writes the prerendered pages before goowee build.
+PAGES_WEB = _site-web
 
 wasm:
 	GOOS=js GOARCH=wasm go build -o $(WASM_OUT) ./examples/counter
@@ -100,14 +102,17 @@ serve-ssr: wasm ssr-server cpwasm cpjs
 	@echo "Open http://localhost:${PORT:-8081} (SSR-rendered)"
 	PORT=${PORT:-8081} ./bin/ssr-server
 
+# The tutorial site: site-export prerenders every page into $(PAGES_WEB), then
+# goowee build replaces $(PAGES_OUT) with those pages plus the production wasm
+# (stripped, dev tools left out) and the runtime under content-hashed names,
+# and points the pages at them. Pages compresses on its own: no .gz/.br.
 pages:
-	rm -rf $(PAGES_OUT) && mkdir -p $(PAGES_OUT)
-	GOOS=js GOARCH=wasm go build -o $(PAGES_OUT)/main.wasm ./examples/counter
-	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(PAGES_OUT)/
-	cp runtime/goowee.js $(PAGES_OUT)/
-	cp examples/counter/site.css $(PAGES_OUT)/
-	go run ./cmd/site-export -out $(PAGES_OUT) -base $(PAGES_BASE) -shell scripts/pages-index.html
-	@echo "built $(PAGES_OUT)/ (base $(PAGES_BASE)) — prerendered static site (ssr.Export)"
+	rm -rf $(PAGES_WEB) && mkdir -p $(PAGES_WEB)
+	cp examples/counter/site.css $(PAGES_WEB)/
+	go run ./cmd/site-export -out $(PAGES_WEB) -base $(PAGES_BASE) -shell scripts/pages-index.html
+	go run ./cmd/goowee build ./examples/counter --web $(PAGES_WEB) --out $(abspath $(PAGES_OUT)) --no-report --no-compress
+	rm -rf $(PAGES_WEB)
+	@echo "built $(PAGES_OUT)/ (base $(PAGES_BASE)): prerendered static site (ssr.Export + goowee build)"
 
 clean:
 	rm -f $(WASM_OUT) $(WASM_OUT).br bin/ssr-server

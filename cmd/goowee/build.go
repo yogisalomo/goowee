@@ -24,6 +24,8 @@ func buildCmd(args []string) error {
 	out := fset.String("out", "dist", "output directory (replaced)")
 	tinygo := fset.Bool("tinygo", false, "build with TinyGo (also set by goowee.json)")
 	noReport := fset.Bool("no-report", false, "skip the code-by-package table (it links a second copy with names)")
+	webDir := fset.String("web", "", "static files to copy in, instead of the project's web/ (e.g. prerendered pages)")
+	noCompress := fset.Bool("no-compress", false, "skip the .gz/.br siblings, for hosts that compress on their own (GitHub Pages)")
 	if err := fset.Parse(reorder(args)); err != nil {
 		return err
 	}
@@ -38,11 +40,19 @@ func buildCmd(args []string) error {
 	if *tinygo {
 		p.cfg.TinyGo = true
 	}
+	if *webDir != "" {
+		if p.web, err = filepath.Abs(*webDir); err != nil {
+			return err
+		}
+		if fi, err := os.Stat(p.web); err != nil || !fi.IsDir() {
+			return errors.New("--web " + *webDir + ": not a directory")
+		}
+	}
 	outDir := *out
 	if !filepath.IsAbs(outDir) {
 		outDir = filepath.Join(p.dir, outDir)
 	}
-	res, err := build(p, outDir, !*noReport)
+	res, err := build(p, outDir, buildOptions{report: !*noReport, compress: !*noCompress})
 	if err != nil {
 		return err
 	}
@@ -51,18 +61,26 @@ func buildCmd(args []string) error {
 }
 
 type buildResult struct {
-	static   string            // the static files' directory
-	server   string            // the server binary, "" for a client-only app
-	names    map[string]string // runtime asset -> hashed name
-	wasm     []byte
-	gz, br   int
-	brotli   bool
-	packages []pkgSize
+	static string            // the static files' directory
+	server string            // the server binary, "" for a client-only app
+	names  map[string]string // runtime asset -> hashed name
+	wasm   []byte
+	gz, br int
+	brotli bool
+	// compressed is false for --no-compress: no .gz/.br were written.
+	compressed bool
+	packages   []pkgSize
+}
+
+// buildOptions are the optional parts of a build.
+type buildOptions struct {
+	report   bool // the code-by-package table
+	compress bool // .gz/.br siblings
 }
 
 // build writes the production files: in out for a client-only app, in
 // out/static with the server at out/server for an SSR one.
-func build(p *project, out string, report bool) (*buildResult, error) {
+func build(p *project, out string, opt buildOptions) (*buildResult, error) {
 	if err := os.RemoveAll(out); err != nil {
 		return nil, err
 	}
@@ -126,8 +144,9 @@ func build(p *project, out string, report bool) (*buildResult, error) {
 	// Precompressed siblings: .gz always, .br when a brotli binary is around.
 	_, berr := exec.LookPath("brotli")
 	res.brotli = berr == nil
+	res.compressed = opt.compress
 	err = filepath.Walk(res.static, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !compressible(contentType(path)) {
+		if err != nil || !opt.compress || info.IsDir() || !compressible(contentType(path)) {
 			return err
 		}
 		data, err := os.ReadFile(path)
@@ -159,7 +178,7 @@ func build(p *project, out string, report bool) (*buildResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if report {
+	if opt.report {
 		// The production build has no name section: link a copy with one.
 		named := filepath.Join(os.TempDir(), "goowee-named-"+hashedName("main.wasm", wasm))
 		if _, err := p.buildWasm(named, wasmNames); err == nil {
@@ -199,11 +218,15 @@ func (res *buildResult) report(w io.Writer) {
 	if res.server != "" {
 		fmt.Fprintf(w, "  server: %s (run it with -static %s)\n", res.server, res.static)
 	}
-	br := "brotli: install `brotli` to write .br files"
-	if res.brotli {
-		br = fmt.Sprintf("%s brotli", kb(res.br))
+	if !res.compressed {
+		fmt.Fprintf(w, "  %s: %s raw (no .gz/.br written)\n", res.names["main.wasm"], kb(len(res.wasm)))
+	} else {
+		br := "brotli: install `brotli` to write .br files"
+		if res.brotli {
+			br = fmt.Sprintf("%s brotli", kb(res.br))
+		}
+		fmt.Fprintf(w, "  %s: %s raw, %s gzip, %s\n", res.names["main.wasm"], kb(len(res.wasm)), kb(res.gz), br)
 	}
-	fmt.Fprintf(w, "  %s: %s raw, %s gzip, %s\n", res.names["main.wasm"], kb(len(res.wasm)), kb(res.gz), br)
 	if len(res.packages) > 0 {
 		total := 0
 		for _, p := range res.packages {
@@ -217,7 +240,11 @@ func (res *buildResult) report(w io.Writer) {
 			fmt.Fprintf(w, "    %9s  %4.1f%%  %s\n", kb(p.bytes), 100*float64(p.bytes)/float64(total), p.pkg)
 		}
 	}
-	fmt.Fprintln(w, "  Serve the hashed files with Cache-Control: immutable, the .gz/.br siblings with Content-Encoding, and .wasm as application/wasm (docs/guides/serving.md).")
+	if res.compressed {
+		fmt.Fprintln(w, "  Serve the hashed files with Cache-Control: immutable, the .gz/.br siblings with Content-Encoding, and .wasm as application/wasm (docs/guides/serving.md).")
+	} else {
+		fmt.Fprintln(w, "  Serve the hashed files with Cache-Control: immutable and .wasm as application/wasm (docs/guides/serving.md).")
+	}
 }
 
 func kb(n int) string { return fmt.Sprintf("%.1f KB", float64(n)/1024) }

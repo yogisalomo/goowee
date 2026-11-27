@@ -302,11 +302,17 @@ function bootTrigger(when, opts, go) {
     fire();
 }
 
+// bootWasmURL is the absolute URL startBoot fetched the module from.
+let bootWasmURL = null;
+
 function startBoot(opts) {
     if (opts.transport) goowee.transport = opts.transport;
     // calls: "callbacks" keeps every call into Go on syscall/js callbacks,
     // as before 0.4 (for comparing, or a problem with the exports).
     const wasmURL = opts.wasm || "main.wasm";
+    // The resolved URL, for bootMetrics to find the download among the
+    // resource timings (goowee build gives it a hashed name).
+    try { bootWasmURL = new URL(wasmURL, document.baseURI).href; } catch (e) { bootWasmURL = null; }
     const go = new Go();
     mark("goowee:fetch-start");
     const started = fetch(wasmURL)
@@ -382,7 +388,10 @@ goowee.bootTimings = function bootTimings() {
         trigger: at("goowee:boot-trigger"), // a lazy boot's moment (#130)
     };
     const res = performance.getEntriesByType("resource")
-        .find(function (r) { return r.name.split("?")[0].endsWith("main.wasm"); });
+        .find(function (r) {
+            const name = r.name.split("?")[0];
+            return bootWasmURL ? name === bootWasmURL : name.endsWith("main.wasm");
+        });
     // First Contentful Paint, from navigation start (timeOrigin) — same basis as
     // tti. With SSR the server HTML paints before WASM boots, so FCP lands well
     // before tti; a client-only render paints only after WASM renders (FCP ~ tti).

@@ -18,3 +18,4 @@ _site/
 
 # graphify knowledge graph — generated locally (graphify update .), machine-specific
 graphify-out/
+_site-web/

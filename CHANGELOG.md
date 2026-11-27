@@ -13,6 +13,13 @@ time. The public surface freezes under semver at v1.
 
 ### Added
 
+- `goowee build` takes `--web <dir>` (static files in place of `web/`, e.g.
+  pages prerendered with `ssr.Export`) and `--no-compress` (no `.gz`/`.br`, for
+  hosts that compress on their own), and builds a main package anywhere inside
+  a module. `make pages` now builds the tutorial site with it, so GitHub Pages
+  serves the stripped `goowee_nodev` WASM and the runtime under content-hashed
+  names (#145). Boot metrics find the wasm download by its resolved URL, so a
+  hashed name is measured too.
 - Events outside the mouse, keyboard and form families now carry their data
   (#210). Media events (`timeupdate`, `play`, `pause`, `ended`, `seeked`,
   `volumechange`, `progress`, …) carry the playback state when they fired:

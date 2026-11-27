@@ -151,8 +151,13 @@ pages, err := ssr.Export(ssr.ExportOptions{
   client, as the client-only setup would.
 - **Directory URLs.** Static hosts serve `about/index.html` at `/about/`,
   usually redirecting `/about` there. The router treats `/about/` as `/about`.
-- **Assets.** Export writes only the HTML. Copy `main.wasm`, `wasm_exec.js`,
-  `goowee.js` and your stylesheets next to it.
+- **Assets.** Export writes only the HTML. Export into a staging directory
+  and let `goowee build --web <dir>` add the production WASM and runtime under
+  content-hashed names and rewrite the pages to them. Name the assets in the
+  shell as plain quoted strings (`"main.wasm"`, `"goowee.js"`,
+  `"wasm_exec.js"`) and pass the wasm to `goowee.boot({wasm: "main.wasm"})`
+  so the rewrite finds them. Add `--no-compress` for hosts that compress on
+  their own, such as GitHub Pages. This repo's `make pages` does exactly this.
 
 ### Self-hosted (Nginx)
 
