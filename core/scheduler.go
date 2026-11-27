@@ -415,20 +415,22 @@ func (s *Scheduler) String() string {
 }
 
 type Mutation struct {
-	Type    MutationType `json:"type"`
-	NodeID  int          `json:"nodeId"`
-	Key     string       `json:"key,omitempty"`
-	Value   any          `json:"value,omitempty"`
-	ChildID int          `json:"childId,omitempty"`
-	RefID   int          `json:"refId,omitempty"`
-	NS      string       `json:"ns,omitempty"` // XML namespace for CreateElement (SVG); also the unit for MutSetStyle
+	Type MutationType `json:"type"`
+	// Kind sits next to Type so the two share one word: a Mutation is 104
+	// bytes, and a mount's batch is thousands of them (#203).
+	Kind    ValueKind `json:"-"` // where the value is, see below
+	NodeID  int       `json:"nodeId"`
+	Key     string    `json:"key,omitempty"`
+	Value   any       `json:"value,omitempty"`
+	ChildID int       `json:"childId,omitempty"`
+	RefID   int       `json:"refId,omitempty"`
+	NS      string    `json:"ns,omitempty"` // XML namespace for CreateElement (SVG); also the unit for MutSetStyle
 
 	// A bound update carries its value typed rather than boxed in Value, so
 	// it reaches the encoders without an allocation (#136): Kind says which,
 	// and Value is nil. Read it with Val. See ValueKind.
-	Kind ValueKind `json:"-"`
-	Str  string    `json:"-"` // the value, for ValString
-	Bits uint64    `json:"-"` // the value, for the number and bool kinds; see Float, Int, Bool
+	Str  string `json:"-"` // the value, for ValString
+	Bits uint64 `json:"-"` // the value, for the number and bool kinds; see Float, Int, Bool
 }
 
 // ValueKind says where a Mutation's value is (#136).
@@ -525,7 +527,8 @@ func (m *Mutation) AsText() {
 	}
 }
 
-type MutationType int
+// MutationType is a byte: it is one on the wire too (the binary batch).
+type MutationType uint8
 
 const (
 	MutCreateElement MutationType = iota

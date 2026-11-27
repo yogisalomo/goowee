@@ -284,9 +284,6 @@ func TestBatchEncoderDrops(t *testing.T) {
 			}
 		}
 	}
-	if _, dropped := e.Encode([]core.Mutation{{Type: 300, NodeID: 1}, {Type: -1, NodeID: 1}}); len(dropped) != 2 {
-		t.Fatalf("mutation types outside a byte were not dropped")
-	}
 }
 
 // Reusing the encoder's buffers never leaks one batch into the next.

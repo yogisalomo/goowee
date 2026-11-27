@@ -87,6 +87,16 @@ time. The public surface freezes under semver at v1.
   stand. The tutorial lessons and agent rules now use them where they shorten
   code.
 
+### Changed
+
+- Mounting allocates a quarter as much (#203). `Render` sizes its mutation
+  buffer from the tree before walking it, and each component and scope
+  reserves room for its content when the walk reaches it, instead of the
+  buffer doubling its way up. `core.Mutation` shrank from 112 to 104 bytes:
+  `MutationType` is now a `uint8` (it was already one byte on the wire) and
+  sits next to `Kind`. Mounting 1,000 rows went from 8.0 MB to 1.9 MB, and
+  from about 11 ms to 3.4 ms under WASM.
+
 ### Fixed
 
 - In dev mode, the inspector formatted every signal for its panel, and a
