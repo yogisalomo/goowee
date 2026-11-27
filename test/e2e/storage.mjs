@@ -51,15 +51,24 @@ ws.onmessage = (ev) => { const m = JSON.parse(ev.data);
   if (m.method === "Runtime.exceptionThrown") errors.push("exception: " + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text)); };
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const ev = async (expr) => (await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result.result.value;
-const text = (sel) => ev(`document.querySelector(${JSON.stringify(sel)})?.textContent`);
+// In worker mode the switch itself is a localStorage key; leave it out.
+const text = async (sel) => {
+  const t = await ev(`document.querySelector(${JSON.stringify(sel)})?.textContent`);
+  return WORKER && typeof t === "string"
+    ? t.replace(/(keys=)(.*)$/, (_, p, k) => p + k.split(",").filter((x) => x && x !== "goowee-worker").join(",")) : t;
+};
 const waitText = async (sel, want, label) => { let t; for (let i = 0; i < 100; i++) { t = await text(sel); if (typeof want === "string" ? t === want : want.test(t ?? "")) return; await sleep(50); } throw new Error(`timeout: ${label || sel} — got ${JSON.stringify(t)}, want ${want}`); };
 const type = (value) => ev(`(() => { const el = document.querySelector("#draft"); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new InputEvent("input", {bubbles: true})); })()`);
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 try {
   const base = `http://localhost:${PORT}`;
   await send("Page.navigate", { url: base + "/" });
   await waitText("#restored", `draft="" found=false visits="" keys=`, "first visit: nothing stored");
+  check(await ev(`!!goowee.worker`) === WORKER, `worker mode is ${await ev(`!!goowee.worker`)}, want ${WORKER}`);
   await type("half-written");
   await waitText("#save", "<nil>", "saved");
   check(await ev(`localStorage.getItem("draft")`) === "half-written", "not in localStorage");
@@ -95,7 +104,7 @@ try {
   await waitText("#like", "likes 1", "disabled: a persisted counter still counts");
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "STORAGE CHECK FAIL:\n- " + fail.join("\n- ") : "STORAGE CHECK PASS: localStorage + sessionStorage, reload, remove, UsePersist, storage disabled");
+console.log(fail.length ? "STORAGE CHECK FAIL:\n- " + fail.join("\n- ") : "STORAGE CHECK PASS" + (WORKER ? " (worker)" : "") + ": localStorage + sessionStorage, reload, remove, UsePersist, storage disabled");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 // Delete the Chrome profile (tens of MB) once Chrome has exited.
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });

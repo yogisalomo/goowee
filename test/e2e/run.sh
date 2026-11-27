@@ -60,11 +60,16 @@ if [ "$BR" = 1 ]; then brotli -q 9 -f -k examples/counter/main.wasm; fi
 echo "==> running smoke test (JSON transport)"
 URL="http://localhost:$PORT" TRANSPORT=json node test/e2e/smoke.mjs
 
+echo "==> running smoke test in worker mode (#158)"
+URL="http://localhost:$PORT" GOOWEE_WORKER=1 node test/e2e/smoke.mjs
+
 echo "==> running devtools e2e"
 URL="http://localhost:$PORT" node test/e2e/devtools.mjs
 
 echo "==> running goowee/net e2e (fetch + WebSocket against a real server)"
 node test/e2e/net.mjs
+echo "==> running goowee/net e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/net.mjs
 
 echo "==> running clipboard e2e (paste/drop files, ref.Call)"
 node test/e2e/clipboard.mjs
@@ -79,6 +84,8 @@ node test/e2e/worker.mjs
 
 echo "==> running storage e2e (localStorage, sessionStorage, storage disabled)"
 node test/e2e/storage.mjs
+echo "==> running storage e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/storage.mjs
 
 echo "==> running router e2e (back/forward, fragment, query URLs)"
 node test/e2e/router.mjs

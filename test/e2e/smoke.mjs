@@ -72,6 +72,9 @@ async function main() {
 
   await send("Runtime.enable");
   await send("Page.enable");
+  // GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+  const WORKER = process.env.GOOWEE_WORKER === "1";
+  if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
   if (TRANSPORT !== "binary") {
     // Set before goowee.js runs; it keeps an existing window.goowee.
     await send("Page.addScriptToEvaluateOnNewDocument", { source: `window.goowee = {transport: ${JSON.stringify(TRANSPORT)}};` });
@@ -110,6 +113,7 @@ async function main() {
   // --- Hydration on the landing page ---
   // Wait for a real hydration signal: the first applyMutations removes markers.
   await waitFor(hydrationReady, "landing hydration complete");
+  check(await evalJS(`!!goowee.worker`) === WORKER, `worker mode is ${await evalJS(`!!goowee.worker`)}, want ${WORKER}`);
   check(await evalJS(`goowee.transport`) === TRANSPORT, `DOM updates went over ${await evalJS(`goowee.transport`)}, not ${TRANSPORT}`);
   check(await evalJS(`(document.body.innerText.match(/Reactive web UIs, written in Go\\./g)||[]).length`) === 1, "landing headline duplicated (hydration)");
   check(await evalJS(`document.querySelectorAll('.count').length`) === 1, "hero demo duplicated");
@@ -212,12 +216,20 @@ async function main() {
   await clickText("a", "goowee");
   await clickText("a", "Tutorial");
   await clickLinkContaining("Dashboard");
+  if (WORKER) {
+    // A worker has no DOM objects: bridge.Element returns undefined there and
+    // says so once (#158, limit 7); the chart stays empty.
+    await waitFor(`!!document.querySelector('canvas.bars')`, "dashboard rendered");
+    for (let i = 0; i < 40 && !consoleLines.some((l) => /bridge\.Element is not available in worker mode/.test(l)); i++) await new Promise((r) => setTimeout(r, 50));
+    check(consoleLines.some((l) => /bridge\.Element is not available in worker mode/.test(l)), "no warning that bridge.Element is unavailable in worker mode");
+  } else {
   await waitFor(`document.querySelector('canvas.bars')?.dataset.sum === '215'`, "OnMount drew the chart through bridge.Element");
   await clickText("button", "Randomize Values");
   await waitFor(`document.querySelector('canvas.bars')?.dataset.sum === '170'`, "chart redrawn after the data changed");
   // Direct (SSR) load: OnMount on the first screen runs after hydration too.
   await send("Page.navigate", { url: URL + "/dashboard" });
   await waitFor(`document.querySelector('canvas.bars')?.dataset.sum === '215'`, "OnMount on an SSR-loaded page sees its element");
+  }
 
   // --- Events: bubbling, StopPropagation, non-bubbling, dynamic preventDefault ---
   await clickText("a", "goowee");
@@ -404,7 +416,9 @@ async function main() {
 
   // --- A goowee.js older than the wasm: no binary decoder, so the bridge
   // falls back to JSON, says why, and the app still works.
-  if (TRANSPORT === "binary" && !process.env.NODEV) {
+  // (Not in worker mode: the worker runs the real goowee.js, so a stub on the
+  // page can't make it an older one.)
+  if (TRANSPORT === "binary" && !process.env.NODEV && !WORKER) {
     const { identifier } = await send("Page.addScriptToEvaluateOnNewDocument", {
       source: `window.goowee = {}; Object.defineProperty(window.goowee, "applyBatch", {get() {}, set() {}});`,
     });
@@ -420,7 +434,7 @@ async function main() {
 
   if (logs.length) console.log("--- browser logs ---\n" + logs.join("\n"));
   if (fail.length) { console.log("E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }
-  else console.log(`E2E PASS (${TRANSPORT} transport${process.env.NODEV ? ", goowee_nodev build" : ""}): hydration reuses SSR DOM, interactive, routing + history work.`);
+  else console.log(`E2E PASS (${TRANSPORT} transport${process.env.NODEV ? ", goowee_nodev build" : ""}${WORKER ? ", worker" : ""}): hydration reuses SSR DOM, interactive, routing + history work.`);
 }
 
 main().catch((e) => {

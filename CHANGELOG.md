@@ -13,6 +13,16 @@ time. The public surface freezes under semver at v1.
 
 ### Added
 
+- Worker mode, phase 6 (#158): the router (push, replace, back and forward,
+  popstate, scroll restoration, fragments, focus and announcement), storage
+  and `goowee/net` work when Go runs in a worker. Storage reads answer from a
+  copy the page sends at start and writes go to the page, so `Store.Set`
+  can't return a quota error there (the page logs it). Relative fetch and
+  EventSource URLs resolve against the page. Embedded resource data reaches
+  the worker, so a hydrated page doesn't fetch it again. Limits in worker
+  mode: a `ScrollOptions.Container` position isn't tracked, `BeforeLeave`
+  doesn't guard a page unload, and a fragment link whose target is missing
+  doesn't scroll to the top.
 - Worker mode, phase 5 (#158): `ref.Get` reads are answered from the page,
   pasted, dropped and picked files travel with their event so `File.Bytes`
   works in the worker, and typing is safe while frames arrive late: the page
@@ -26,8 +36,7 @@ time. The public surface freezes under semver at v1.
   applies its batches and forwards events, deciding cancellation from the
   handlers' static options and `PreventDefaultWhen` filters. A dynamic
   `e.PreventDefault()` can't take effect there and logs a warning once per
-  event type. Not yet in worker mode: history and storage (phase 6), dev
-  tools (phase 7), `bridge.Element`
+  event type. Not yet in worker mode: dev tools (phase 7), `bridge.Element`
   (`bridge.InWorker()` reports the mode). `localStorage` "goowee-worker" = "1"
   turns it on without changing the page.
 - `h.PreventDefaultWhen(f)` cancels an event's default action when it
