@@ -482,7 +482,26 @@ function bootWorker(opts) {
         w.postMessage({t: "init", wasm: abs(opts.wasm || "main.wasm"), wasmExec: abs(opts.wasmExec || "wasm_exec.js"),
             dev: goowee.devEnabled(), hydrating: goowee.host.hydrating(), hidden: document.hidden,
             baseURI: document.baseURI, baseHref: goowee.host.baseHref(),
-            location: goowee.host.location(), calls: opts.calls || ""});
+            location: goowee.host.location(), historyState: cloneable(history.state),
+            storage: {localStorage: snapshotStorage("localStorage"), sessionStorage: snapshotStorage("sessionStorage")},
+            // The data ssr embedded for hydration (internal/data), so the
+            // worker doesn't fetch it again.
+            dataScripts: dataScripts(),
+            calls: opts.calls || ""});
+        // What the router in the worker hears from the browser: back and
+        // forward, and the window's scroll position (one per frame).
+        addEventListener("popstate", function () {
+            w.postMessage({t: "popstate", location: goowee.host.location(), state: cloneable(history.state)});
+        });
+        let scrollQueued = false;
+        addEventListener("scroll", function () {
+            if (scrollQueued) return;
+            scrollQueued = true;
+            requestAnimationFrame(function () {
+                scrollQueued = false;
+                w.postMessage({t: "scroll", x: scrollX, y: scrollY});
+            });
+        }, {passive: true});
         document.addEventListener("visibilitychange", function () {
             w.postMessage({t: "visibility", hidden: document.hidden});
         });
@@ -492,6 +511,31 @@ function bootWorker(opts) {
     });
     started.catch(function () {});
     return started;
+}
+
+// snapshotStorage is every entry of a storage area, for the worker's copy,
+// or null where the area is unavailable.
+function snapshotStorage(area) {
+    try {
+        const s = globalThis[area];
+        if (!s) return null;
+        const out = [];
+        for (let i = 0; i < s.length; i++) { const k = s.key(i); out.push([k, s.getItem(k)]); }
+        return out;
+    } catch (_) { return null; }
+}
+
+// dataScripts is the text of each <script type="application/json" id=…>.
+function dataScripts() {
+    const out = {};
+    for (const el of document.querySelectorAll('script[type="application/json"][id]')) out[el.id] = el.textContent;
+    return out;
+}
+
+// cloneable is v if postMessage can copy it, else null (history.state may
+// hold anything a page put there).
+function cloneable(v) {
+    try { structuredClone(v); return v; } catch (_) { return null; }
 }
 
 // onWorkerMessage is the page's half of worker mode: what the worker's Go
@@ -524,6 +568,27 @@ function onWorkerMessage(d) {
         }
         case "ack": applyDeferredInput(d.seq); break;
         case "log": goowee.log(d.entry); break;
+        case "history":
+            switch (d.op) {
+                case "push": history.pushState(d.state, "", d.url); break;
+                case "replace": history.replaceState(d.state, "", d.url); break;
+                case "back": history.back(); break;
+                case "forward": history.forward(); break;
+            }
+            break;
+        // The router's DOM work (scrolling, focus, the announcement).
+        case "host": goowee.host[d.call].apply(goowee.host, d.args || []); break;
+        case "storage":
+            try {
+                const area = globalThis[d.area];
+                if (d.op === "set") area.setItem(d.key, d.value);
+                else if (d.op === "remove") area.removeItem(d.key);
+                else if (d.op === "clear") area.clear();
+            } catch (err) {
+                // The worker's Store.Set already returned: report it here.
+                goowee.log({kind: "warn", message: "goowee/storage: " + d.area + " " + d.op + " failed in worker mode: " + err});
+            }
+            break;
         case "set": goowee[d.key] = d.value; break;
     }
 }
@@ -2061,6 +2126,16 @@ if (inWorker) {
     globalThis.goListen = function (type, capture) { post({t: "listen", type: type, capture: !!capture}); };
     goowee.log = function (entry) { post({t: "log", entry: entry}); };
     goowee.node = function () { return undefined; }; // a worker has no DOM nodes
+    // Properties Go sets on goowee that the page reports (goowee.transport),
+    // mirrored there.
+    for (const key of ["transport", "calls"]) {
+        let value = goowee[key];
+        Object.defineProperty(goowee, key, {
+            configurable: true,
+            get: function () { return value; },
+            set: function (v) { value = v; post({t: "set", key: key, value: v}); },
+        });
+    }
     goowee.mountRoot = function (parentId, container, base, hydrate) {
         post({t: "mount", parentId: parentId, selector: container.selector, base: base, hydrate: hydrate});
     };
@@ -2109,6 +2184,15 @@ if (inWorker) {
             case "files-release":
                 for (const h of d.handles) delete fileStore[h];
                 break;
+            case "popstate":
+                loc = d.location;
+                hstate = d.state;
+                if (listeners.popstate) listeners.popstate();
+                break;
+            case "scroll":
+                scroll = {x: d.x, y: d.y};
+                if (listeners.scroll) listeners.scroll();
+                break;
             case "visibility":
                 hidden = d.hidden;
                 if (visibilityCb) visibilityCb(hidden);
@@ -2116,9 +2200,39 @@ if (inWorker) {
         }
     };
 
+    let loc = null, hstate = null, scroll = {x: 0, y: 0};
+    const listeners = {}, stores = {};
+    const setLoc = function (url) {
+        const u = new URL(url, loc.href);
+        loc = {pathname: u.pathname, search: u.search, hash: u.hash, href: u.href};
+    };
+    const pageCall = function (call) {
+        post({t: "host", call: call, args: Array.prototype.slice.call(arguments, 1)});
+    };
+    // workerStorage is the worker's copy of a storage area: reads answer at
+    // once from the copy the page sent at start, writes update it and go to
+    // the page, which writes the real area.
+    function workerStorage(area, entries) {
+        const m = new Map(entries);
+        return {
+            get length() { return m.size; },
+            key: function (i) { const k = Array.from(m.keys())[i]; return k === undefined ? null : k; },
+            getItem: function (k) { return m.has(k) ? m.get(k) : null; },
+            setItem: function (k, v) { v = String(v); m.set(k, v); post({t: "storage", area: area, op: "set", key: k, value: v}); },
+            removeItem: function (k) { m.delete(k); post({t: "storage", area: area, op: "remove", key: k}); },
+            clear: function () { m.clear(); post({t: "storage", area: area, op: "clear"}); },
+        };
+    }
+
     function start(d) {
         init = d;
         hidden = d.hidden;
+        loc = d.location;
+        hstate = d.historyState;
+        for (const area of ["localStorage", "sessionStorage"]) {
+            const entries = d.storage && d.storage[area];
+            if (entries) stores[area] = workerStorage(area, entries);
+        }
         goowee.devEnabled = function () { return d.dev; };
         // The worker's host: what the page told it at start. History,
         // storage and the rest arrive in later phases; until then they do
@@ -2136,21 +2250,34 @@ if (inWorker) {
             onVisibilityChange: function (cb) { visibilityCb = cb; },
             baseURI: function () { return d.baseURI; },
             baseHref: function () { return d.baseHref; },
-            location: function () { return d.location; },
-            historyState: function () { return null; },
-            pushState: function () {},
-            replaceState: function () {},
-            back: function () {},
-            forward: function () {},
-            manualScrollRestoration: function () {},
-            on: function () {},
-            scrollPosition: function () { return {x: 0, y: 0}; },
-            scrollTo: function () {},
-            scrollToFragment: function () { return false; },
-            focusRoute: function () {},
-            announceRoute: function () {},
-            storage: function () { return null; },
-            dataScript: function () { return null; },
+            location: function () { return loc; },
+            historyState: function () { return hstate; },
+            pushState: function (state, url) { hstate = state; setLoc(url); post({t: "history", op: "push", state: state, url: url}); },
+            replaceState: function (state, url) { hstate = state; setLoc(url); post({t: "history", op: "replace", state: state, url: url}); },
+            back: function () { post({t: "history", op: "back"}); },
+            forward: function () { post({t: "history", op: "forward"}); },
+            manualScrollRestoration: function () { pageCall("manualScrollRestoration"); },
+            // popstate and scroll come from the page; beforeunload can't be
+            // answered from a worker in time, so BeforeLeave doesn't guard a
+            // page unload in worker mode.
+            on: function (type, cb) { listeners[type] = cb; },
+            // The window's position as the page last reported it; a scroll
+            // container (ScrollOptions.Container) isn't tracked here.
+            scrollPosition: function () { return {x: scroll.x, y: scroll.y}; },
+            scrollTo: function (container, x, y) { pageCall("scrollTo", container, x, y); },
+            // Can't ask the page whether the target exists: a fragment is
+            // assumed to have one, and the page scrolls to it if it does.
+            scrollToFragment: function (fragment, container) {
+                if (!fragment) return false;
+                pageCall("scrollToFragment", fragment, container);
+                return true;
+            },
+            focusRoute: function () { pageCall("focusRoute"); },
+            announceRoute: function () { pageCall("announceRoute"); },
+            storage: function (area) { return stores[area] || null; },
+            dataScript: function (id) {
+                return d.dataScripts && Object.prototype.hasOwnProperty.call(d.dataScripts, id) ? d.dataScripts[id] : null;
+            },
         };
         try {
             importScripts(d.wasmExec);

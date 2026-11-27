@@ -60,7 +60,11 @@ func (browser) Fetch(ctx context.Context, req Request) (Response, error) {
 	stop := context.AfterFunc(ctx, func() { ctrl.Call("abort") })
 	defer stop()
 
-	resp, err := await(global.Call("fetch", req.URL, init))
+	url, err := pageURL(req.URL)
+	if err != nil {
+		return Response{}, fmt.Errorf("goowee/net: %s %s: %w", req.Method, req.URL, err)
+	}
+	resp, err := await(global.Call("fetch", url, init))
 	var buf js.Value
 	if err == nil {
 		buf, err = await(resp.Call("arrayBuffer"))
@@ -224,6 +228,21 @@ func (c *browserConn) release() {
 	c.onClose.Release()
 }
 
+// pageURL is url as the page resolves it. In a worker (#158) a relative URL
+// would resolve against the worker's script, not the page, so it is resolved
+// against the page's base URI first. A malformed URL is an error, not a panic.
+func pageURL(url string) (resolved string, err error) {
+	if !host.Worker() {
+		return url, nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			resolved, err = "", fmt.Errorf("invalid URL: %v", r)
+		}
+	}()
+	return js.Global().Get("URL").New(url, host.Call("baseURI")).Call("toString").String(), nil
+}
+
 // Subscribe opens an EventSource.
 func (browser) Subscribe(url string, events []string, withCredentials bool, ev StreamEvents) (st Stream, err error) {
 	defer func() { // the constructor throws on a malformed URL
@@ -234,7 +253,11 @@ func (browser) Subscribe(url string, events []string, withCredentials bool, ev S
 	global := js.Global()
 	init := global.Get("Object").New()
 	init.Set("withCredentials", withCredentials)
-	es := global.Get("EventSource").New(url, init)
+	resolved, err := pageURL(url)
+	if err != nil {
+		return nil, fmt.Errorf("goowee/net: subscribe %s: %w", url, err)
+	}
+	es := global.Get("EventSource").New(resolved, init)
 	bs := &browserStream{es: es}
 	bs.onOpen = js.FuncOf(func(js.Value, []js.Value) any {
 		ev.Open()

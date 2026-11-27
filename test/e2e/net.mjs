@@ -161,10 +161,14 @@ const waitText = (sel, want, label) => waitFor(async () => { const t = await tex
 const click = (sel) => ev(`document.querySelector(${JSON.stringify(sel)}).click()`);
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 try {
   await send("Page.navigate", { url: `http://localhost:${PORT}/` });
   // Fetch.
   await waitText("#user", "user: Ada", "UseResource + Fetch + JSON");
+  check(await ev(`!!goowee.worker`) === WORKER, `worker mode is ${await ev(`!!goowee.worker`)}, want ${WORKER}`);
   await click("#post");
   await waitText("#echo", `201 POST application/json {"n":1,"s":"héllo"}`, "JSON POST echo");
   check(seen.echoHeader === "e2e", `custom header reached the server as ${seen.echoHeader}`);
@@ -215,7 +219,9 @@ try {
   await ev(`delete document.hidden`);
   wsSend(conns[0], 1, Buffer.from("before-hide"));
   await sleep(200);
-  check(!/before-hide/.test(await text("#msgs")), "frames weren't actually stopped (the stub didn't take)");
+  // In worker mode the worker runs its own frames: the page's stubbed
+  // requestAnimationFrame can't hold them, so this half doesn't apply (#158).
+  if (!WORKER) check(!/before-hide/.test(await text("#msgs")), "frames weren't actually stopped (the stub didn't take)");
   await ev(`${hide}; document.dispatchEvent(new Event("visibilitychange"))`);
   await waitText("#msgs", /\|before-hide$/, "frame requested before hiding runs once hidden");
   await ev(show);
@@ -236,7 +242,7 @@ try {
   check(await text("#status") === "closed by app" && await text("#closes") === "1006:true ", `after Close: status ${await text("#status")}, closes ${await text("#closes")}`);
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "NET CHECK FAIL:\n- " + fail.join("\n- ") : "NET CHECK PASS: fetch (JSON, headers, 404, bytes, abort, 16 MB zero-copy Form upload), event stream (named, reconnect with Last-Event-ID, give up), socket (subprotocol, text+binary, reconnect from cursor, close), updates while hidden");
+console.log(fail.length ? "NET CHECK FAIL:\n- " + fail.join("\n- ") : "NET CHECK PASS" + (WORKER ? " (worker)" : "") + ": fetch (JSON, headers, 404, bytes, abort, 16 MB zero-copy Form upload), event stream (named, reconnect with Last-Event-ID, give up), socket (subprotocol, text+binary, reconnect from cursor, close), updates while hidden");
 for (const r of sse) r.destroy();
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 // Delete the Chrome profile (tens of MB) once Chrome has exited.
