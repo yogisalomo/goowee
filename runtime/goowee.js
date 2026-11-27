@@ -738,6 +738,32 @@ function touchList(list) {
     return out;
 }
 
+// MEDIA_EVENTS are the HTMLMediaElement events whose payload is the
+// element's playback state (#210).
+const MEDIA_EVENTS = new Set(["loadstart", "progress", "suspend", "abort", "emptied", "stalled",
+    "loadedmetadata", "loadeddata", "canplay", "canplaythrough", "playing", "waiting",
+    "seeking", "seeked", "ended", "durationchange", "timeupdate", "play", "pause",
+    "ratechange", "volumechange"]);
+
+function isMedia(t) {
+    return typeof HTMLMediaElement !== "undefined" && t instanceof HTMLMediaElement;
+}
+
+// mediaState is a media element's playback state. JSON has no NaN or
+// Infinity: an unknown duration (NaN) becomes null and a live stream's
+// (Infinity) the string "Infinity", which EventData.Duration reads as +Inf.
+function mediaState(t) {
+    const d = t.duration, buffered = [];
+    for (let i = 0; t.buffered && i < t.buffered.length; i++) {
+        buffered.push([t.buffered.start(i), t.buffered.end(i)]);
+    }
+    const s = {currentTime: t.currentTime, duration: d === Infinity ? "Infinity" : d,
+        paused: t.paused, ended: t.ended, seeking: t.seeking, muted: t.muted,
+        volume: t.volume, playbackRate: t.playbackRate, readyState: t.readyState, buffered: buffered};
+    if (t.error) { s.errorCode = t.error.code; s.errorMessage = t.error.message; }
+    return s;
+}
+
 function isPlainObject(v) {
     if (v === null || typeof v !== "object") return false;
     const p = Object.getPrototypeOf(v);
@@ -784,7 +810,7 @@ function buildPayload(type, e) {
                 modifiers(e));
         case "input": case "change": {
             const t = e.target;
-            const extra = type === "input" ? {inputType: e.inputType, isComposing: e.isComposing} : {};
+            const extra = type === "input" ? {inputType: e.inputType, isComposing: e.isComposing, data: e.data} : {};
             if (t.type === "checkbox" || t.type === "radio")
                 return Object.assign({value: t.value, checked: t.checked}, extra);
             if (t.type === "file" && t.files)
@@ -810,9 +836,34 @@ function buildPayload(type, e) {
         case "keydown": case "keyup": case "keypress":
             return Object.assign({key: e.key, code: e.code, repeat: e.repeat,
                 isComposing: e.isComposing}, modifiers(e));
-        case "scroll":
+        case "scroll": case "scrollend":
             return {scrollTop: e.target.scrollTop, scrollLeft: e.target.scrollLeft};
+        case "beforeinput":
+            return {data: e.data, inputType: e.inputType, isComposing: e.isComposing};
+        case "compositionstart": case "compositionupdate": case "compositionend":
+            return {data: e.data};
+        case "toggle": case "beforetoggle": {
+            // A ToggleEvent carries the states; where the browser fires a plain
+            // Event (older <details>), the element's open flag says the new one.
+            if (typeof e.newState === "string") return {newState: e.newState, oldState: e.oldState};
+            const open = !!e.target.open;
+            return {newState: open ? "open" : "closed", oldState: open ? "closed" : "open"};
+        }
+        case "close": case "cancel":
+            return {returnValue: typeof e.target.returnValue === "string" ? e.target.returnValue : ""};
+        case "transitionrun": case "transitionstart": case "transitionend": case "transitioncancel":
+            return {propertyName: e.propertyName, elapsedTime: e.elapsedTime, pseudoElement: e.pseudoElement};
+        case "animationstart": case "animationiteration": case "animationend": case "animationcancel":
+            return {animationName: e.animationName, elapsedTime: e.elapsedTime, pseudoElement: e.pseudoElement};
+        case "load": case "error": {
+            const t = e.target;
+            if (isMedia(t)) return mediaState(t);
+            if (type === "load" && t && t.nodeName === "IMG")
+                return {naturalWidth: t.naturalWidth, naturalHeight: t.naturalHeight};
+            return {};
+        }
         default:
+            if (MEDIA_EVENTS.has(type) && isMedia(e.target)) return mediaState(e.target);
             // A custom event's detail, when it's a plain object, becomes the
             // handler's e.Data (goowee:canvasresize carries the new size).
             if (typeof CustomEvent !== "undefined" && e instanceof CustomEvent && isPlainObject(e.detail))
@@ -1456,6 +1507,7 @@ function ownString(s) {
 
 // For test/e2e/batch.mjs, which checks decodeBatch against JSON.parse.
 goowee._decodeBatch = decodeBatch;
+goowee._buildPayload = buildPayload; // for test/e2e (event data, #210)
 
 // applyMutation applies one update. mut is only valid during the call: the
 // binary decoder reuses one object for the whole batch.

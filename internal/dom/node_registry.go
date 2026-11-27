@@ -28,12 +28,12 @@ type NodeRegistry struct {
 var nonBubbling = map[string]bool{
 	"focus": true, "blur": true, "scroll": true, "scrollend": true,
 	"mouseenter": true, "mouseleave": true, "pointerenter": true, "pointerleave": true,
-	"load": true, "error": true, "abort": true, "invalid": true, "toggle": true,
+	"load": true, "error": true, "abort": true, "invalid": true, "toggle": true, "beforetoggle": true,
 	"cancel": true, "close": true,
 	// goowee/canvas: a Fill canvas's size changed (canvas.ResizeEvent)
 	"goowee:canvasresize": true,
 	// media
-	"play": true, "pause": true, "playing": true, "ended": true, "waiting": true,
+	"loadstart": true, "play": true, "pause": true, "playing": true, "ended": true, "waiting": true,
 	"seeking": true, "seeked": true, "timeupdate": true, "volumechange": true,
 	"ratechange": true, "durationchange": true, "loadeddata": true,
 	"loadedmetadata": true, "canplay": true, "canplaythrough": true,

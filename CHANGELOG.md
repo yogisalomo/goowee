@@ -13,6 +13,20 @@ time. The public surface freezes under semver at v1.
 
 ### Added
 
+- Events outside the mouse, keyboard and form families now carry their data
+  (#210). Media events (`timeupdate`, `play`, `pause`, `ended`, `seeked`,
+  `volumechange`, `progress`, …) carry the playback state when they fired:
+  `e.CurrentTime()`, `e.Duration()`, `e.Paused()`, `e.Ended()`, `e.Volume()`,
+  `e.Muted()`, `e.Buffered()`, `e.MediaError()` and more. `toggle` carries
+  `e.NewState()`, a dialog's `close`/`cancel` `e.ReturnValue()`, transition and
+  animation events `e.PropertyName()`/`e.AnimationName()` and
+  `e.ElapsedTime()`, an image's `load` `e.NaturalWidth()`/`e.NaturalHeight()`,
+  `scrollend` the scroll position, and `input`, `beforeinput` and composition
+  events `e.InputData()`. New helpers: `OnToggle`, `OnClose`, `OnCancel`,
+  `OnScrollEnd`, `OnBeforeInput`, `OnTransitionEnd`, `OnAnimationEnd`,
+  `OnPlay`, `OnPause`, `OnEnded`, `OnTimeUpdate`, `OnSeeked`,
+  `OnVolumeChange` and `OnLoadedMetadata`. `beforetoggle` and `loadstart` are
+  now delivered to the target only, as they don't bubble.
 - `h.Transition(name)` animates nodes inserted or removed by `Show`, `Switch`,
   `For` or a route (#156). The runtime adds `<name>-enter` on insert and holds
   a removed node with `<name>-leave` until `transitionend`/`animationend` (or a
