@@ -92,6 +92,7 @@ app lives in `examples/counter`: `make serve` (client) or `make serve-ssr`
 | [Concepts](docs/guides/concepts.md) | Signals, run-once components, Show/For, effects, SSR, routing, refs, bindings |
 | [Forms](docs/guides/forms.md) | goowee/form: typed values, validation shared with the server, submit state |
 | [Testing](docs/guides/testing.md) | gooweetest, faking the network and storage, keeping browser code testable |
+| [Worker mode](docs/guides/worker.md) | Running the Go program in a Web Worker so the page keeps painting; `PreventDefaultWhen`; limits |
 | [API Reference](docs/api/reference.md) | Complete public surface for core, h, hooks, router, ssr, dom, bridge |
 
 ### Serving & compression

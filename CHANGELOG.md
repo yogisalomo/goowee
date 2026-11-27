@@ -13,6 +13,10 @@ time. The public surface freezes under semver at v1.
 
 ### Added
 
+- Worker mode is documented (`docs/guides/worker.md`, ADR-034) and measured
+  (#158, phase 8): with a handler that computes for two seconds, the page goes
+  1,983 ms without a frame on the main thread and 16.8 ms in worker mode
+  (`test/e2e/busy.mjs`).
 - Worker mode, phase 7 (#158): `goowee.inspect()` and `goowee.changes()`
   return promises there and the dev overlay renders from the worker; islands,
   `goowee/canvas` drawing and boot errors (a stale `goowee.js` found after
@@ -36,7 +40,7 @@ time. The public surface freezes under semver at v1.
   holds a `value`/`checked` write to a field the user typed in after the
   worker computed it, and applies it once the worker has caught up.
   `h.CarriesFiles()` also matches a paste with files.
-- Experimental: `goowee.boot({worker: true})` runs the Go program in a Web
+- `goowee.boot({worker: true})` runs the Go program in a Web
   Worker (#158, phase 4), so garbage collection and long handlers no longer
   block input and painting. The worker is started from `goowee.js` itself; it
   loads `wasm_exec.js` (`opts.wasmExec`, default `wasm_exec.js`), and the page

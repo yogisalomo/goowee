@@ -1204,3 +1204,61 @@ raw and 25–32% gzipped. `ProtocolVersion` is 2: a goowee.js from before this
 is rejected. Correspondence is now positional, so the walkers must agree on
 order as well as shape; `TestSSRHydrationParity` and the browser E2E guard it.
 
+---
+
+## ADR-034: The Go program can run in a Web Worker; the page applies batches and decides what can't wait
+
+**Status:** Accepted (2026-11-29), for #158 (phases 1 to 8: #216, #217, #218,
+#219, #220, #221 and this one).
+
+**Context.** The Go program ran on the page's main thread, so garbage
+collection, a large re-render and any computation in a handler competed with
+input and painting. ADR-005 already kept the bridge narrow: Go sends one batch
+per frame and receives events. Nothing in that contract needs both ends on
+one thread.
+
+**Decision.**
+- `goowee.boot({worker: true})` (or `localStorage` `goowee-worker` = `1`)
+  runs the program in a dedicated Worker started from `goowee.js` itself, one
+  file for both roles. One wasm binary; the main thread stays the default.
+- Go reaches the browser only through `goowee.host` (a guard test enforces
+  it). The page's host acts on the DOM; the worker's answers from what the
+  page sent at start and posts everything else.
+- The page decides what must be decided while an event is dispatched: static
+  options and `h.PreventDefaultWhen` filters arrive with `MutListen`, and the
+  page cancels, stops and selects before posting the event with its target
+  ids. A dynamic `e.PreventDefault()` can't take effect and logs a warning.
+- Frames run right after an event, on the worker's animation frame
+  otherwise, on a timer while hidden. Every batch says which event it has
+  seen, and the page holds a `value`/`checked` write to a field typed in since,
+  so a late frame never undoes typing.
+- `ref.Get` replies, files (cloned `File` objects), history, storage (a
+  snapshot, writes posted), the router's scrolling and focus, islands,
+  `goowee/canvas` buffers and the dev tools all cross as messages.
+
+**Measurement.** `test/e2e/busy.mjs`, Apple M1, Chrome 158 headless, Go
+1.25.1, three runs. A click handler computes for two seconds:
+
+| | main thread | worker |
+|---|---|---|
+| longest gap between page animation frames | 1,983 ms | 16.8 ms |
+| click on a counter → DOM updated, at rest, p50 / p90 | 7.2–7.6 / 15.3–15.4 ms | 0.5–0.8 / 0.8–1.1 ms |
+
+The worker's DOM update lands before the next frame; on the main thread it
+is applied inside a frame callback, so "click to painted" is about the same
+either way. The cost is one message hop per event and per frame.
+
+**Limits in worker mode.** `bridge.Element` (no DOM objects in a worker) and
+app code that reaches the DOM through `syscall/js`; dynamic
+`e.PreventDefault()`; `BeforeLeave` on a page unload; a scroll container's
+position (`ScrollOptions.Container`); a fragment link whose target is missing
+doesn't scroll to the top; `Store.Set` can't return a quota error;
+`goowee.inspect()`/`changes()` are asynchronous. Handlers still run one at a
+time: a long handler delays the next event's handlers, but no longer the
+page's painting, scrolling or native input.
+
+**Alternatives.** A `SharedArrayBuffer` channel would allow synchronous
+answers (dynamic `PreventDefault`, `BeforeLeave`) but needs a cross-origin
+isolated page; left for later. A second runtime file for the worker would
+risk version skew between the two.
+
