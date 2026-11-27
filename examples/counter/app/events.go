@@ -22,6 +22,10 @@ func eventsPage(r *router.Router) core.Node {
 		wheel, setWheel := hooks.UseState(0.0)
 		detailsOpen, setDetailsOpen := hooks.UseState(false)
 
+		// Enter sends; Shift+Enter (and Enter that confirms an IME
+		// composition) still types a newline.
+		enter := KeyIs("Enter").Without(core.ModShift)
+
 		hoverText := core.Derive(hovering, func(in bool) string {
 			if in {
 				return "Pointer inside: yes"
@@ -55,12 +59,11 @@ func eventsPage(r *router.Router) core.Node {
 			Textarea(Class("enter-send"), Placeholder("Type, then Enter to send (Shift+Enter: newline)"),
 				BindValue(draft),
 				OnKeyDownE(func(e core.EventData) {
-					if e.Key() == "Enter" && !e.ShiftKey() {
-						e.PreventDefault() // decided per keystroke, not per handler
+					if enter.Match(e) {
 						setSent(draft.Get())
 						setDraft("")
 					}
-				})),
+				}, PreventDefaultWhen(enter))), // the browser checks it, per keystroke
 			P(Class("sent"), Textf("Sent: %s", sent)),
 
 			Div(Class("demo-row wheel-zone"),
@@ -79,7 +82,7 @@ func eventsPage(r *router.Router) core.Node {
 				"Clicking the inner button runs its handler, then the card's: handlers bubble innermost-first.",
 				"`e.StopPropagation()` inside a handler keeps the event from reaching ancestors — the card doesn't count that click.",
 				"`mouseenter`/`mouseleave` and `invalid` don't bubble; goowee listens for them in the capture phase and delivers them to the element itself.",
-				"`e.PreventDefault()` is decided per event: Enter sends (no newline), Shift+Enter still inserts one.",
+				"`PreventDefaultWhen(KeyIs(\"Enter\").Without(core.ModShift))` cancels the default per event, decided by the browser before Go runs: Enter sends (no newline), Shift+Enter still inserts one. `e.PreventDefault()` inside a handler works too.",
 				"Event data comes typed on `core.EventData`: `e.DeltaY()`, `e.ClientX()`, `e.PointerType()`, `e.Key()`, `e.CtrlKey()`, …",
 				"Events beyond the mouse and keyboard carry their data too: a toggle its new state, a dialog's close its returnValue, a video's timeupdate `e.CurrentTime()` and `e.Duration()`.",
 			),
@@ -99,12 +102,12 @@ Div(OnMouseEnter(enter), OnMouseLeave(leave))   // non-bubbling: target only
 
 Input(Required(true), OnInvalid(func() { invalids++ }))
 
+enter := KeyIs("Enter").Without(core.ModShift)
 Textarea(OnKeyDownE(func(e core.EventData) {
-    if e.Key() == "Enter" && !e.ShiftKey() {
-        e.PreventDefault()                      // decided while handling
+    if enter.Match(e) {
         send()
     }
-}))
+}, PreventDefaultWhen(enter)))                  // decided by the browser, per keystroke
 
 Div(OnWheel(func(e core.EventData) { setWheel(e.DeltaY()) }))
 

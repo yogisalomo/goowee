@@ -83,6 +83,9 @@ type HandlerOptions struct {
 	PreventDefault  bool
 	StopPropagation bool
 	SelectOnFocus   bool // select all text when the element receives focus
+	// PreventWhen cancels the event's default action when it matches, decided
+	// by the browser runtime before Go runs (h.PreventDefaultWhen, #158).
+	PreventWhen EventFilter
 }
 
 type Item interface {

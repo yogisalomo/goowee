@@ -222,8 +222,8 @@ func (r *DOMRenderer) diffElement(old, nw *core.ElementNode, muts *[]core.Mutati
 	}
 
 	for _, hd := range nw.Handlers {
-		if !r.Registry.Has(old.ID, hd.Event) {
-			*muts = append(*muts, listen(old.ID, hd.Event, true))
+		if r.Registry.listenChanged(old.ID, hd) {
+			*muts = append(*muts, listen(old.ID, hd.Event, true, hd.Options))
 		}
 		// Always re-registered: the new render's closure must replace the
 		// old one (it may capture new values).
@@ -232,7 +232,7 @@ func (r *DOMRenderer) diffElement(old, nw *core.ElementNode, muts *[]core.Mutati
 	for _, hd := range old.Handlers {
 		if !hasHandler(nw.Handlers, hd.Event) && r.Registry.Has(old.ID, hd.Event) {
 			r.Registry.RemoveHandler(old.ID, hd.Event)
-			*muts = append(*muts, listen(old.ID, hd.Event, false))
+			*muts = append(*muts, listen(old.ID, hd.Event, false, core.HandlerOptions{}))
 		}
 	}
 

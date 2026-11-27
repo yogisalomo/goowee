@@ -1028,6 +1028,22 @@ function buildPayload(type, e) {
 // before.
 // goowee.eventCalls counts the calls into Go's event handlers, either way.
 goowee.eventCalls = 0;
+
+// filterMatches is core.EventFilter.Match, on the browser's event: f is the
+// spec split on newlines ("plain", "files", or "key", with, without, keys…).
+function filterMatches(f, e) {
+    switch (f[0]) {
+        case "plain": return e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey;
+        case "files": return !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+        case "key": {
+            if (e.isComposing) return false;
+            const m = (e.ctrlKey ? 1 : 0) | (e.altKey ? 2 : 0) | (e.shiftKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+            return (m & +f[1]) === +f[1] && (m & +f[2]) === 0 && f.indexOf(e.key, 3) !== -1;
+        }
+    }
+    return false;
+}
+
 function dispatchToGo(type, e, targetOnly) {
     let payload = null;
     for (let el = e.target; el; el = targetOnly ? null : el.parentNode) {
@@ -1036,6 +1052,9 @@ function dispatchToGo(type, e, targetOnly) {
         if (el._goInert) return 0;
         if (el._nodeID === undefined) continue;
         if (goowee.listenSets && !(el._goEvents && el._goEvents.has(type))) continue;
+        // PreventDefaultWhen: decided here, before Go runs (#158).
+        const filter = el._goFilters && el._goFilters[type];
+        if (filter && e.cancelable && filterMatches(filter, e)) e.preventDefault();
         if (payload === null) payload = JSON.stringify(buildPayload(type, e));
         goowee.eventCalls++;
         const r = viaExports ? callEvent(el._nodeID, type, payload) : decodeDispatch(handleEvent(el._nodeID, type, payload));
@@ -1762,6 +1781,12 @@ function applyMutation(mut, b) {
             if (el) {
                 if (mut.value) (el._goEvents || (el._goEvents = new Set())).add(mut.key);
                 else if (el._goEvents) el._goEvents.delete(mut.key);
+                // A string value is the handler's PreventDefaultWhen spec (#158).
+                if (typeof mut.value === "string" && mut.value) {
+                    (el._goFilters || (el._goFilters = {}))[mut.key] = mut.value.split("\n");
+                } else if (el._goFilters) {
+                    delete el._goFilters[mut.key];
+                }
             }
             break;
         case 14: // ToggleClass — classList.toggle(key, value), other classes stay

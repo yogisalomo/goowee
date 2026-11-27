@@ -420,7 +420,12 @@ func (d *document) apply(muts []core.Mutation) {
 			calls = append(calls, m)
 		case core.MutListen:
 			if n := d.nodes[m.NodeID]; n != nil {
-				if on, _ := m.Value.(bool); on {
+				// true, or a PreventDefaultWhen spec (#158): either means on.
+				on, _ := m.Value.(bool)
+				if spec, ok := m.Value.(string); ok && spec != "" {
+					on = true
+				}
+				if on {
 					if n.listens == nil {
 						n.listens = map[string]bool{}
 					}

@@ -201,13 +201,14 @@ func (r *Router) Link(to, text string, items ...core.Item) *core.ElementNode {
 func (r *Router) LinkTo(to string, items ...core.Item) *core.ElementNode {
 	all := []core.Item{
 		h.Href(r.base + to), // real URL carries the base; internal nav is base-relative
+		// The runtime cancels a plain click's navigation itself (#158); a
+		// modified click (new tab, download) stays the browser's.
 		h.OnClickE(func(e core.EventData) {
 			if !InAppClick(e) {
 				return
 			}
-			e.PreventDefault()
 			r.Navigate(to)
-		}),
+		}, h.PreventDefaultWhen(h.PlainClick())),
 	}
 	return h.A(append(all, items...)...)
 }
