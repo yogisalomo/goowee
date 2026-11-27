@@ -96,6 +96,12 @@ time. The public surface freezes under semver at v1.
 
 ### Changed
 
+- The Go side reaches the browser only through the runtime's `goowee.host`
+  (#158, phase 1): the root and selectors, the URL and history, the router's
+  scrolling, focus and announcement, visibility, storage and the embedded
+  data. Nothing changes for apps; it is the seam a Web Worker mode will
+  implement over messages. A guard test keeps Go code in the module from
+  reading `document`, `location`, `history` or storage directly.
 - Mounting allocates a quarter as much (#203). `Render` sizes its mutation
   buffer from the tree before walking it, and each component and scope
   reserves room for its content when the walk reaches it, instead of the
