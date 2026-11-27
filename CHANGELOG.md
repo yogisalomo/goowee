@@ -13,6 +13,12 @@ time. The public surface freezes under semver at v1.
 
 ### Added
 
+- Worker mode, phase 5 (#158): `ref.Get` reads are answered from the page,
+  pasted, dropped and picked files travel with their event so `File.Bytes`
+  works in the worker, and typing is safe while frames arrive late: the page
+  holds a `value`/`checked` write to a field the user typed in after the
+  worker computed it, and applies it once the worker has caught up.
+  `h.CarriesFiles()` also matches a paste with files.
 - Experimental: `goowee.boot({worker: true})` runs the Go program in a Web
   Worker (#158, phase 4), so garbage collection and long handlers no longer
   block input and painting. The worker is started from `goowee.js` itself; it
@@ -20,8 +26,8 @@ time. The public surface freezes under semver at v1.
   applies its batches and forwards events, deciding cancellation from the
   handlers' static options and `PreventDefaultWhen` filters. A dynamic
   `e.PreventDefault()` can't take effect there and logs a warning once per
-  event type. Not yet in worker mode: history and storage (phase 6), `ref.Get`
-  replies and files (phase 5), dev tools (phase 7), `bridge.Element`
+  event type. Not yet in worker mode: history and storage (phase 6), dev
+  tools (phase 7), `bridge.Element`
   (`bridge.InWorker()` reports the mode). `localStorage` "goowee-worker" = "1"
   turns it on without changing the page.
 - `h.PreventDefaultWhen(f)` cancels an event's default action when it

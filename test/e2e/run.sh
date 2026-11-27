@@ -68,6 +68,8 @@ node test/e2e/net.mjs
 
 echo "==> running clipboard e2e (paste/drop files, ref.Call)"
 node test/e2e/clipboard.mjs
+echo "==> running clipboard e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/clipboard.mjs
 
 echo "==> running wasm MIME e2e (goowee.boot fallbacks and errors)"
 node test/e2e/wasmmime.mjs
