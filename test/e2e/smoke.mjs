@@ -98,7 +98,9 @@ async function main() {
     await waitFor(`[...document.querySelectorAll('a')].some(a=>a.textContent.includes(${JSON.stringify(sub)}))`, `link containing ${JSON.stringify(sub)}`);
     return evalJS(`(()=>{const el=[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})); el.click();})()`);
   };
-  const markerCount = `(()=>{const root=document.getElementById('root'); if(!root) return -1; let n=0;const w=document.createTreeWalker(root,NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^g\\d+$/.test(w.currentNode.data))n++;return n;})()`;
+  // Hydration (ADR-033) removes ssr's <!--goowee--> and text separators as it
+  // claims; until the claim the root isn't marked _goServer.
+  const markerCount = `(()=>{const root=document.getElementById('root'); if(!root||!root._goServer) return -1; let n=0;const w=document.createTreeWalker(root,NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^(goowee|t|)$/.test(w.currentNode.data))n++;return n;})()`;
   const heroCount = `(document.querySelector('.count')?.textContent.trim())`;
   const hydrationReady = `(()=>{const m=${markerCount}; return m>=0&&m===0&&${heroCount}==='0'&&[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='increment');})()`;
 
@@ -118,7 +120,7 @@ async function main() {
   // #121: the client renders the Metadata <title> for real and drops the
   // server's copy, so a TitleS binding can update the document's title.
   check(await evalJS(`(()=>{const ts=[...document.head.querySelectorAll(':scope > title')];return ts.length===1 && ts[0]._nodeID!==undefined && document.title==='goowee — Reactive web UIs in Go';})()`), `after hydration the document title isn't the app's own <title>: ${await evalJS("JSON.stringify([document.title, document.head.querySelectorAll('title').length])")}`);
-  check(await evalJS(`(()=>{let n=0;const w=document.createTreeWalker(document.getElementById('root'),NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^\\/\\d+$/.test(w.currentNode.data))n++;return n;})()`) > 0, "scope anchors missing after hydration");
+  check(await evalJS(`(()=>{let n=0;const w=document.createTreeWalker(document.getElementById('root'),NodeFilter.SHOW_COMMENT);while(w.nextNode())if(w.currentNode.data==='/')n++;return n;})()`) > 0, "scope anchors missing after hydration");
   // Inline SVG (h.Svg) must carry the SVG namespace end-to-end, root and descendants.
   check(await evalJS(`(()=>{const s=document.querySelector('.logo');const ns='http://www.w3.org/2000/svg';return !!s && s.namespaceURI===ns && s.querySelector('rect')?.namespaceURI===ns;})()`), "inline SVG logo namespaced correctly");
 

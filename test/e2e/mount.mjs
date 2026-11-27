@@ -79,8 +79,8 @@ const load = async (path, ready) => {
 
 // One mount, measured in a fresh page: way is "nodes" (today's per-node
 // batch, through the runtime's applyBatch), "html" (one HTML string parsed
-// through a <template>, then its nodes claimed by data-node-id and text
-// markers, as hydration does) or "clone" (a row template cloned per row,
+// through a <template>, then its nodes claimed in document order, as
+// hydration does) or "clone" (a row template cloned per row,
 // with its dynamic parts set and its nodes recorded).
 const mount = (way, index) => `(async () => {
   const F = (await (await fetch("frames.json")).json())[${index}];
@@ -94,10 +94,16 @@ const mount = (way, index) => `(async () => {
     apply = () => {
       const tpl = document.createElement("template");
       tpl.innerHTML = F.html;
-      for (const el of tpl.content.querySelectorAll("[data-node-id]")) nodes[+el.getAttribute("data-node-id")] = el;
-      const w = document.createTreeWalker(tpl.content, NodeFilter.SHOW_COMMENT), marks = [];
-      while (w.nextNode()) marks.push(w.currentNode);
-      for (const c of marks) { const m = /^g(\\d+)$/.exec(c.data); if (m) { nodes[+m[1]] = c.nextSibling; c.remove(); } }
+      // Claimed in document order, as hydration does (ADR-033): markers go,
+      // every other node is the next id.
+      const w = document.createTreeWalker(tpl.content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT | NodeFilter.SHOW_COMMENT);
+      const marks = [];
+      let id = 1;
+      while (w.nextNode()) {
+        const n = w.currentNode;
+        if (n.nodeType === 8 && (n.data === "goowee" || n.data === "")) marks.push(n); else nodes[id++] = n;
+      }
+      for (const c of marks) c.remove();
       root.appendChild(tpl.content);
     };
   } else {

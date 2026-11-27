@@ -293,7 +293,7 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 	prevNS := r.currentNS
 	if r.hydrating {
 		*r.muts = append(*r.muts, core.Mutation{
-			Type: core.MutHydrate, NodeID: id, Key: "tag", Value: el.Tag,
+			Type: core.MutHydrate, NodeID: id, Key: hydrateKey(el), Value: el.Tag,
 		})
 		dynamic := r.hydrateDynamic || el.Dynamic
 		if dynamic {
@@ -338,6 +338,26 @@ func (r *DOMRenderer) VisitElement(id int, el *core.ElementNode, walkChild func(
 	}
 	r.currentNS = prevNS
 	r.parentStack = r.parentStack[:len(r.parentStack)-1]
+}
+
+// HydrateOpaque is a Hydrate mutation's Key for an element whose content only
+// the server wrote (a raw node's HTML, a textContent property): the runtime
+// claims the element and skips what is inside it, since the client claims
+// nothing there (ADR-033). Any other Hydrate has Key "tag".
+const HydrateOpaque = "opaque"
+
+func hydrateKey(el *core.ElementNode) string {
+	for _, b := range el.Binds {
+		if b.Target == core.BindToProp && b.Name == "textContent" {
+			return HydrateOpaque
+		}
+	}
+	for _, p := range el.Props {
+		if p.Name == "textContent" {
+			return HydrateOpaque
+		}
+	}
+	return "tag"
 }
 
 // childNS is the namespace an element's children inherit: the element's own,
@@ -610,9 +630,10 @@ func (r *DOMRenderer) VisitRaw(id int, rn *core.RawNode) {
 		return
 	}
 	if r.hydrating {
-		// SSR renders a raw node as a <div> wrapper; claim it as one.
+		// SSR renders a raw node as a <div> wrapper; claim it as one, and
+		// not the HTML inside it.
 		*r.muts = append(*r.muts, core.Mutation{
-			Type: core.MutHydrate, NodeID: id, Key: "tag", Value: "div",
+			Type: core.MutHydrate, NodeID: id, Key: HydrateOpaque, Value: "div",
 		})
 		return
 	}

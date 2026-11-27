@@ -103,6 +103,14 @@ time. The public surface freezes under semver at v1.
   `MutationType` is now a `uint8` (it was already one byte on the wire) and
   sits next to `Kind`. Mounting 1,000 rows went from 8.0 MB to 1.9 MB, and
   from about 11 ms to 3.4 ms under WASM.
+- Hydration claims the server's nodes by position (#141, ADR-033), so server
+  HTML carries no ids: no `data-node-id` on elements and no `<!--gN-->`
+  before text. A body opens with `<!--goowee-->`, and the only other comments
+  are an empty one between adjacent text nodes, `<!--t-->` for empty text
+  and `<!--/-->` after a scope. The tutorial's pages are 34-41% smaller (25-32%
+  gzipped). Text inside a `<textarea>` or `<title>` no longer needs markers,
+  so such pages can be server-rendered. `ProtocolVersion` is 2: serve the
+  goowee.js of this version (`goowee assets`).
 
 ### Fixed
 

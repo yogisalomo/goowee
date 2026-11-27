@@ -92,7 +92,7 @@ async function main() {
     return evalJS(`(()=>{const el=[...document.querySelectorAll('a')].find(a=>a.textContent.includes(${JSON.stringify(sub)})); el.click();})()`);
   };
   const heroCount = `(document.querySelector('.count')?.textContent.trim())`;
-  const hydrationReady = `(()=>{const root=document.getElementById('root'); if(!root) return false; let n=0;const w=document.createTreeWalker(root,NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^g\\d+$/.test(w.currentNode.data))n++;return n===0&&${heroCount}==='0'&&[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='increment');})()`;
+  const hydrationReady = `(()=>{const root=document.getElementById('root'); if(!root) return false; if(!root._goServer) return false; let n=0;const w=document.createTreeWalker(root,NodeFilter.SHOW_COMMENT);while(w.nextNode())if(/^(goowee|t|)$/.test(w.currentNode.data))n++;return n===0&&${heroCount}==='0'&&[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='increment');})()`;
 
   const fail = [];
   const check = (cond, msg) => { if (!cond) fail.push(msg); };

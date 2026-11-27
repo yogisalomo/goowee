@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/yogisalomo/goowee/ssr"
 	"testing"
 	"time"
 )
@@ -229,7 +231,7 @@ func TestServerRoutes(t *testing.T) {
 		srv.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		return rec.Code, rec.Body.String()
 	}
-	if code, body := get("/"); code != 200 || !strings.Contains(body, "data-node-id") {
+	if code, body := get("/"); code != 200 || !strings.Contains(body, ssr.HydrationMarker) {
 		t.Fatalf("/ should be server-rendered: %d", code)
 	}
 	if code, body := get("/greet/bob"); code != 200 || !strings.Contains(body, "Hello, bob!") {

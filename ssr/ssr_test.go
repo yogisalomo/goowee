@@ -6,6 +6,7 @@ import (
 	"github.com/yogisalomo/goowee/h"
 	"github.com/yogisalomo/goowee/hooks"
 	"github.com/yogisalomo/goowee/internal/dom"
+	"github.com/yogisalomo/goowee/internal/hydratetest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,8 +61,8 @@ func TestSSRRender(t *testing.T) {
 	}
 	r := New()
 	html, _ := r.Render(n)
-	if !strings.Contains(html, "data-node-id") {
-		t.Fatal("expected data-node-id")
+	if !strings.HasPrefix(html, HydrationMarker) {
+		t.Fatal("expected the hydration marker")
 	}
 	if !strings.Contains(html, "greeting") {
 		t.Fatal("expected class")
@@ -83,7 +84,7 @@ func TestSSRBoundTextContent(t *testing.T) {
 		}},
 	}
 	html, _ := New().Render(n)
-	if html != `<button data-node-id="1" class="btn">7</button>` {
+	if html != HydrationMarker+`<button class="btn">7</button>` {
 		t.Fatalf("got %s", html)
 	}
 }
@@ -97,8 +98,8 @@ func TestSSRFragment(t *testing.T) {
 	}
 	r := New()
 	html, _ := r.Render(n)
-	if !strings.Contains(html, "data-node-id") {
-		t.Fatal("expected data-node-id")
+	if !strings.HasPrefix(html, HydrationMarker) {
+		t.Fatal("expected the hydration marker")
 	}
 }
 
@@ -111,7 +112,7 @@ func TestSSRTextNodeSignal(t *testing.T) {
 		},
 	}
 	html, _ := New().Render(n)
-	if html != `<p data-node-id="1"><!--g2-->hello</p>` {
+	if html != HydrationMarker+`<p>hello</p>` {
 		t.Fatalf("got %s", html)
 	}
 }
@@ -125,8 +126,8 @@ func TestSSRComponentNode(t *testing.T) {
 	})
 	r := New()
 	html, _ := r.Render(comp)
-	if !strings.Contains(html, "data-node-id") {
-		t.Fatal("expected data-node-id")
+	if !strings.HasPrefix(html, HydrationMarker) {
+		t.Fatal("expected the hydration marker")
 	}
 	if !strings.Contains(html, "comp") {
 		t.Fatal("expected class")
@@ -147,40 +148,34 @@ func TestSSRScopeNode(t *testing.T) {
 	if !strings.Contains(html, "scoped") {
 		t.Fatal("expected class from scope")
 	}
-	if !strings.Contains(html, "data-node-id") {
-		t.Fatal("expected data-node-id")
+	if !strings.HasPrefix(html, HydrationMarker) {
+		t.Fatal("expected the hydration marker")
 	}
 }
 
-func TestSSRIDMatchesDOM(t *testing.T) {
-	comp := core.Component("IDTest", func() core.Node {
-		count, _ := hooks.UseState(0)
-		return &core.ElementNode{
-			Tag:   "span",
-			Attrs: []core.Attr{{Name: "class", Value: "test"}},
-			Binds: []core.Bind{{
-				Target: core.BindToProp, Name: "textContent", Signal: count,
-			}},
-		}
-	})
-
-	ssrR := New()
-	ssrHTML, _ := ssrR.Render(comp)
-
-	domR := dom.New()
-	muts, domID := domR.Render(comp)
-
-	if !strings.Contains(ssrHTML, fmt.Sprintf(`data-node-id="%d"`, domID)) {
-		t.Fatalf("DOM root ID %d not found in SSR HTML: %s", domID, ssrHTML)
+// The client's hydrating render claims the server's markup node for node
+// (ADR-033): the same tree, walked in the same order.
+func TestSSRHydrationClaimsEveryNode(t *testing.T) {
+	comp := func() core.Node {
+		return core.Component("IDTest", func() core.Node {
+			count, _ := hooks.UseState(0)
+			return h.Div(
+				&core.ElementNode{
+					Tag:   "span",
+					Attrs: []core.Attr{{Name: "class", Value: "test"}},
+					Binds: []core.Bind{{Target: core.BindToProp, Name: "textContent", Signal: count}},
+				},
+				h.Text("a"), h.TextS(count), h.P(h.Text("b")),
+			)
+		})
 	}
-
-	for _, m := range muts {
-		if m.Type == core.MutCreateElement {
-			expectedAttr := fmt.Sprintf(`data-node-id="%d"`, m.NodeID)
-			if !strings.Contains(ssrHTML, expectedAttr) {
-				t.Fatalf("SSR missing %s for element %s", expectedAttr, m.Val())
-			}
-		}
+	html, _ := New().Render(comp())
+	domR := dom.New()
+	domR.SetHydrating(true)
+	muts, _ := domR.Render(comp())
+	claimed, mismatches := hydratetest.Claim(html, muts)
+	if len(mismatches) > 0 || len(claimed) != 6 {
+		t.Fatalf("claimed %d of 6: %v\n%s", len(claimed), mismatches, html)
 	}
 }
 
@@ -202,7 +197,7 @@ func TestSSRRawSHydrates(t *testing.T) {
 			rawID = m.NodeID
 		}
 	}
-	if want := fmt.Sprintf(`<div data-node-id="%d"><b>pending</b></div>`, rawID); rawID == 0 || !strings.Contains(page, want) {
+	if rawID == 0 || !strings.Contains(page, `<section><div><b>pending</b></div><!--/--></section>`) {
 		t.Fatalf("SSR %s, hydration claims div %d", page, rawID)
 	}
 	body.Set("<b>approved</b>")

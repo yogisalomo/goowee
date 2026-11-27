@@ -16,7 +16,7 @@ execFileSync("go", ["build", "-o", join(dir, "main.wasm"), "./test/e2e/hello"], 
 const goroot = execFileSync("go", ["env", "GOROOT"]).toString().trim();
 copyFileSync(existsSync(join(goroot, "lib/wasm/wasm_exec.js")) ? join(goroot, "lib/wasm/wasm_exec.js") : join(goroot, "misc/wasm/wasm_exec.js"), join(dir, "wasm_exec.js"));
 const stale = readFileSync("runtime/goowee.js", "utf8").replace(
-  "goowee.protocolVersion = 1;", "goowee.protocolVersion = 0; // stale, #144 e2e"
+  "goowee.protocolVersion = 2;", "goowee.protocolVersion = 0; // stale, #144 e2e"
 );
 if (!stale.includes("// stale, #144 e2e")) throw new Error("protocolVersion marker not found in runtime/goowee.js");
 
@@ -70,7 +70,7 @@ try {
   for (let i = 0; i < 200 && !message; i++) { message = await ev(`window.goowee && goowee.bootError && goowee.bootError.message`); if (!message) await sleep(50); }
   check(!!message, "no goowee.bootError was set on a protocol mismatch");
   if (message) {
-    check(message.includes("protocol 1"), `error doesn't name the app protocol: ${message}`);
+    check(message.includes("protocol 2"), `error doesn't name the app protocol: ${message}`);
     check(message.includes("protocol 0"), `error doesn't name the page protocol: ${message}`);
     check(message.includes(`goowee ${moduleVersion}`), `error doesn't name the app version (${moduleVersion}): ${message}`);
     check(message.includes("go run github.com/yogisalomo/goowee/cmd/goowee assets ./web"), `error lacks the fix command: ${message}`);

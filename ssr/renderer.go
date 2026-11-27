@@ -41,6 +41,9 @@ func (r *Renderer) renderWith(n core.Node, provided *core.ContextValue) (body, h
 			r.Walker.SetContext(walker.Provided(provided))
 		}
 		var buf strings.Builder
+		// The marker says "goowee rendered this, hydrate it" (ADR-033): the
+		// runtime looks for it as the container's first node and removes it.
+		buf.WriteString(HydrationMarker)
 		v := &ssrVisitor{r: r, buf: &buf, selected: make(map[int][]string)}
 		r.Walker.Walk(n, v)
 		body = buf.String()
@@ -49,6 +52,26 @@ func (r *Renderer) renderWith(n core.Node, provided *core.ContextValue) (body, h
 	return
 }
 
+// HydrationMarker opens every server-rendered body. The client hydrates a
+// container whose first node is this comment, claiming the server's nodes in
+// document order (ADR-033), and renders from scratch otherwise.
+const HydrationMarker = "<!--goowee-->"
+
+// The other comments positional hydration needs (ADR-033). Everything else
+// is claimed by position, so elements carry no ids and text no markers.
+const (
+	// textSeparator goes between two adjacent text nodes, which the HTML
+	// parser would otherwise merge into one.
+	textSeparator = "<!---->"
+	// emptyText stands for an empty text node, which has no markup.
+	emptyText = "<!--t-->"
+	// scopeEnd is a scope's end anchor, which stays in the DOM.
+	scopeEnd = "<!--/-->"
+)
+
+// rawTextElements hold text only: a comment inside one would be text.
+var rawTextElements = map[string]bool{"textarea": true, "title": true, "script": true, "style": true, "xmp": true}
+
 // ssrVisitor implements walker.Visitor for the SSR renderer.
 type ssrVisitor struct {
 	r        *Renderer
@@ -56,6 +79,10 @@ type ssrVisitor struct {
 	silent   bool             // when true, VisitElement/VisitText don't write to buffer
 	selectID int              // the <select> whose <option> children we're walking
 	selected map[int][]string // select node id -> initially selected option values
+	// lastText is set when the last thing written was a text node's text, so
+	// a text node right after it needs a separator.
+	lastText bool
+	rawText  int // depth inside elements whose content is text only
 }
 
 var _ walker.Visitor = (*ssrVisitor)(nil)
@@ -118,9 +145,9 @@ func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(c
 		return
 	}
 
+	v.lastText = false
 	v.buf.WriteString("<")
 	v.buf.WriteString(el.Tag)
-	fmt.Fprintf(v.buf, ` data-node-id="%d"`, id)
 
 	writes, classes, styles := v.elementAttrs(id, el)
 	seenClass, seenStyle := false, false
@@ -165,6 +192,16 @@ func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(c
 	if core.VoidElements[el.Tag] {
 		return
 	}
+	switch el.Tag {
+	case "pre", "textarea", "listing":
+		// The parser drops one newline right after these start tags; write
+		// one, so content that starts with a newline keeps it.
+		v.buf.WriteByte('\n')
+	}
+	if rawTextElements[el.Tag] {
+		v.rawText++
+		defer func() { v.rawText-- }()
+	}
 
 	// A textContent property (static or bound) replaces the element's
 	// children on the client; render it as the content here too.
@@ -179,6 +216,7 @@ func (v *ssrVisitor) VisitElement(id int, el *core.ElementNode, walkChild func(c
 		}
 	}
 
+	v.lastText = false
 	v.buf.WriteString("</")
 	v.buf.WriteString(el.Tag)
 	v.buf.WriteString(">")
@@ -326,13 +364,27 @@ func (v *ssrVisitor) VisitText(id int, tn *core.TextNode) {
 	if tn == nil || v.silent {
 		return
 	}
-	fmt.Fprintf(v.buf, "<!--g%d-->", id)
+	var text string
 	switch val := tn.Value.(type) {
 	case string:
-		v.buf.WriteString(escapeHTML(val))
+		text = val
 	case core.SignalAccessor:
-		v.buf.WriteString(escapeHTML(runtime.TextValue(val.Value())))
+		text = runtime.TextValue(val.Value())
 	}
+	if v.rawText > 0 { // no comments in a textarea; its text is one node
+		v.buf.WriteString(escapeHTML(text))
+		return
+	}
+	switch {
+	case text == "":
+		v.buf.WriteString(emptyText)
+		v.lastText = false
+		return
+	case v.lastText:
+		v.buf.WriteString(textSeparator)
+	}
+	v.buf.WriteString(escapeHTML(text))
+	v.lastText = true
 }
 
 func (v *ssrVisitor) VisitFragment(fn *core.FragmentNode, walkChild func(core.Node) int) {
@@ -431,11 +483,12 @@ func (v *ssrVisitor) VisitComponentLeave(cn *core.ComponentNode, innerID int) {}
 
 func (v *ssrVisitor) VisitScopeEnter(sn *core.ScopeNode) {}
 
-// VisitScopeLeave writes the scope's end anchor as a <!--/{id}--> comment; the
+// VisitScopeLeave writes the scope's end anchor as a <!--/--> comment; the
 // client claims it on hydration and inserts re-rendered content before it.
 func (v *ssrVisitor) VisitScopeLeave(sn *core.ScopeNode, innerID int) int {
 	if !v.silent {
-		fmt.Fprintf(v.buf, "<!--/%d-->", sn.Anchor)
+		v.buf.WriteString(scopeEnd)
+		v.lastText = false
 	}
 	return innerID
 }
@@ -444,7 +497,11 @@ func (v *ssrVisitor) VisitRaw(id int, rn *core.RawNode) {
 	if rn == nil || v.silent {
 		return
 	}
-	fmt.Fprintf(v.buf, `<div data-node-id="%d">%s</div>`, id, rn.HTML)
+	// The client claims the wrapper and leaves its content alone.
+	v.buf.WriteString("<div>")
+	v.buf.WriteString(rn.HTML)
+	v.buf.WriteString("</div>")
+	v.lastText = false
 }
 
 var propToAttr = map[string]string{

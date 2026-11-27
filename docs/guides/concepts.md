@@ -454,13 +454,17 @@ router falls through to its not-found route (`router.NotFound`), serves
 for paths you mark `ClientOnly`, and gzips the HTML. Lower level:
 `body, head := ssr.New().Render(node)`.
 
-SSR emits `data-node-id` attributes, `<!--g{id}-->` text markers, and a
-`<!--/{id}-->` end anchor after each reactive region (`Show`, `For`, `Switch`,
-`Route`, `UseScope`). On the client, the `dom` renderer detects the
-server-rendered DOM and **hydrates** — claiming existing nodes (anchors
-included) and wiring up event handlers and bindings without rebuilding. The
-anchors stay in the DOM: they mark where each region ends, so re-rendered
-content is always inserted in the right place.
+SSR output is plain HTML plus a few comments: `<!--goowee-->` at the start of
+the body, a `<!--/-->` end anchor after each reactive region (`Show`, `For`,
+`Switch`, `Route`, `UseScope`), an empty `<!---->` between two adjacent text
+nodes (the parser would merge them) and `<!--t-->` for an empty text node.
+Elements carry no ids. On the client, the `dom` renderer walks the same tree
+and **hydrates** it: it claims the server's nodes in document order (ADR-033)
+and wires up event handlers and bindings without rebuilding. The anchors stay
+in the DOM: they mark where each region ends, so re-rendered content is
+always inserted in the right place. Because nodes are matched by position,
+server and client must render the same tree; a difference is logged as a
+hydration mismatch naming the node.
 
 ### Before the app is interactive
 

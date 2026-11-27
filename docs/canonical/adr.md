@@ -193,7 +193,9 @@ only); resources go in `OnMount`.
 
 ## ADR-008: Hydration by node-id parity + claim-based reuse; two walkers guarded by a golden test
 
-**Status:** Accepted (2026-07-05)
+**Status:** Superseded by ADR-033 (2026-11-28) for how nodes are matched: by
+position, not by an id in the markup. Claim-based reuse and the two walkers
+agreeing on the tree still stand.
 
 **Context.** SSR and the client must agree on which DOM node is which to reuse
 server-rendered markup.
@@ -218,7 +220,7 @@ node (logged), not full recovery; robust mismatch handling is roadmap P1.2.
 
 ## ADR-009: Text nodes get `<!--g{id}-->` hydration markers
 
-**Status:** Accepted (2026-07-05)
+**Status:** Superseded by ADR-033 (2026-11-28).
 
 **Context.** Text nodes can't carry attributes, so the client couldn't address
 server-rendered text to reuse it (leading to duplicated text). Adjacent text
@@ -1150,3 +1152,55 @@ benchmarks stay, to measure fresh-subtree cost. Revisit (2) if, after #203,
 the per-node path's Go side still dominates large mounts, or for lists:
 h.ForList (#140) already makes a list's later changes O(1), which leaves
 the first mount as the remaining large case.
+
+---
+
+## ADR-033: Hydration claims server nodes by position, without ids in the markup
+
+**Status:** Accepted (2026-11-28), for #141. Supersedes the id-based parts of
+ADR-008 and ADR-009.
+
+**Context.** Hydration found each server node by id: `data-node-id` on every
+element, `<!--g{id}-->` before every text node, `<!--/{id}-->` after every
+scope. On the tutorial site that was 28–40% of the body HTML. Raw-text
+elements (`<textarea>`, `<title>`) couldn't hold the markers, so pages with
+text inside them had to be client-only.
+
+**Decision.** The client walks the same tree the server rendered and sends its
+`Hydrate` mutations in document order (it always did). The runtime keeps a
+cursor per server-rendered root and each `Hydrate` claims the next node:
+
+- The body opens with `<!--goowee-->` (`ssr.HydrationMarker`). It says the
+  container is a server render (bridge and runtime check for it as the
+  container's first node) and is removed when claimed.
+- Elements carry no id and text no marker. The only other comments are an
+  empty `<!---->` between two adjacent text nodes (which the HTML parser
+  would merge), `<!--t-->` for an empty text node (which has no markup), and
+  `<!--/-->` for a scope's end anchor, which stays in the DOM. None are
+  written inside raw-text elements.
+- An element whose content only the server writes (a raw node's HTML, a
+  `textContent` property) is claimed with `Key: "opaque"`, and the cursor
+  skips its subtree.
+- Whitespace-only text the page put around the render is passed over when the
+  client expects an element or comment.
+- A node of the wrong kind is a mismatch: it is reported with the node id and
+  both tags, passed over, and the client gets a bare node, as before.
+- A `Hydrate`'s id still says which root it belongs to: each root's ids
+  start at its base, so islands keep one cursor each.
+- `<pre>`, `<textarea>` and `<listing>` get a newline after the start tag, which
+  the parser drops, so content that starts with a newline keeps it.
+
+`internal/hydratetest` parses the server markup and claims it exactly as the
+runtime does. It replaces `TestSSRDOMIDParity` with `TestSSRHydrationParity`:
+every claim must land on a node of the kind it expects.
+
+**Alternatives.** Keep ids and only drop the text markers (half the saving,
+same textarea limitation). Send each node's expected text length so the
+runtime splits merged text instead of a separator (more bytes on the wire for
+every text node, against a separator only where two texts touch).
+
+**Consequences.** The body HTML of the four measured routes shrinks 34–41%
+raw and 25–32% gzipped. `ProtocolVersion` is 2: a goowee.js from before this
+is rejected. Correspondence is now positional, so the walkers must agree on
+order as well as shape; `TestSSRHydrationParity` and the browser E2E guard it.
+

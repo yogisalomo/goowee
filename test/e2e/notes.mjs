@@ -57,7 +57,7 @@ await send("Runtime.enable"); await send("Page.enable");
 try {
   // Server-rendered: the page's markup arrives with the HTML.
   const html = await (await fetch(base + "/")).text();
-  check(/<h1[^>]*>.*Notes.*<\/h1>/.test(html) && html.includes("data-node-id"), "/ isn't server-rendered");
+  check(/<h1[^>]*>.*Notes.*<\/h1>/.test(html) && html.includes("<!--goowee-->"), "/ isn't server-rendered");
 
   await send("Page.navigate", { url: base + "/" });
   await waitText("#notes", /Groceries.*Ideas/s, "the list loads through rpc");

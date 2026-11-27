@@ -18,7 +18,7 @@ import (
 // entry point for a goowee client: create your root node (typically an
 // App(router) component) and hand it to Run from your program's main.
 //
-// If the page was server-rendered — its nodes carry data-node-id — Run hydrates
+// If the page was server-rendered — #root opens with ssr's <!--goowee--> marker — Run hydrates
 // by claiming that DOM instead of rebuilding it. Run does not return; it blocks
 // forever so the WASM module stays alive to service events.
 //
@@ -67,7 +67,19 @@ func serverRendered() bool {
 	if fn := js.Global().Get("goowee").Get("serverRendered"); fn.Type() == js.TypeFunction {
 		return fn.Invoke().Bool()
 	}
-	return js.Global().Get("document").Call("querySelector", "[data-node-id]").Truthy()
+	return hasServerMarkup(js.Global().Get("document").Call("getElementById", "root"))
+}
+
+// hasServerMarkup reports whether container holds a server render: its first
+// node, past whitespace, is the <!--goowee--> comment ssr writes (ADR-033).
+func hasServerMarkup(container js.Value) bool {
+	if container.IsNull() || container.IsUndefined() {
+		return false
+	}
+	if fn := js.Global().Get("goowee").Get("_hasServerMarkup"); fn.Type() == js.TypeFunction {
+		return fn.Invoke(container).Bool()
+	}
+	return false
 }
 
 func initObservability() {
