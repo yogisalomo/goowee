@@ -53,6 +53,9 @@ const state = `(() => {
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 const expect = async (want, label) => { let got; for (let i = 0; i < 100; i++) { got = await ev(state); if (got === want + " | " + want) return; await sleep(30); } fail.push(`${label}: ${got}, want ${want} (both lists)`); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 try {
   await send("Page.navigate", { url: `http://localhost:${PORT}/` });
   await expect("1a 2b 3c", "first render");

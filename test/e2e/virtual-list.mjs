@@ -56,6 +56,9 @@ const ev = async (expr) => (await send("Runtime.evaluate", { expression: expr, r
 const waitFor = async (expr, label) => { for (let i = 0; i < 200; i++) { if (await ev(expr)) return; await sleep(50); } throw new Error("timeout: " + label); };
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 // Count observer targets before goowee.js runs: the row scanner must watch
 // only the opted-in list, and unmounting must unobserve its rows.
 await send("Page.addScriptToEvaluateOnNewDocument", { source: `

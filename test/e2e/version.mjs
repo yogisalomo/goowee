@@ -64,6 +64,9 @@ const ev = async (expr) => (await send("Runtime.evaluate", { expression: expr, r
 const moduleVersion = readFileSync("internal/version/version.go", "utf8").match(/const Module = "([^"]+)"/)[1];
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 try {
   await send("Page.navigate", { url: `http://localhost:${PORT}/` });
   let message;

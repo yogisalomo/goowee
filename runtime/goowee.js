@@ -90,11 +90,19 @@ goowee.inspect = function inspect() {
         console.warn("[goowee] built without dev tools (-tags goowee_nodev): no inspector in this build.");
         return null;
     }
-    if (typeof goowee.inspectGo !== "function") {
+    if (typeof goowee.inspectGo !== "function" && !goowee._workerInspector) {
         console.warn(
             "[goowee] inspector unavailable — enable dev mode with ?goowee-dev or localStorage.setItem('goowee-dev','1') and reload."
         );
         return null;
+    }
+    if (goowee.worker) {
+        // Go runs in the worker: the answer comes back in a message, so
+        // this returns a promise of the snapshot (#158).
+        return askWorker("snapshot").then(function (snap) {
+            console.log("[goowee] inspector snapshot:", snap);
+            return snap;
+        });
     }
     const snap = goowee.inspectGo();
     console.log("[goowee] inspector snapshot:", snap);
@@ -109,16 +117,34 @@ goowee.changes = function changes(opts) {
         console.warn("[goowee] built without dev tools (-tags goowee_nodev): no change log in this build.");
         return null;
     }
-    if (typeof goowee.changesGo !== "function") {
+    if (typeof goowee.changesGo !== "function" && !goowee._workerInspector) {
         console.warn(
             "[goowee] change log unavailable — enable dev mode with ?goowee-dev or localStorage.setItem('goowee-dev','1') and reload."
         );
         return null;
     }
-    const rows = goowee.changesGo(!!(opts && opts.clear));
-    if (!(opts && opts.clear)) console.table(rows);
+    const clear = !!(opts && opts.clear);
+    if (goowee.worker) {
+        return askWorker(clear ? "clear" : "changes").then(function (rows) {
+            if (!clear) console.table(rows);
+            return rows;
+        });
+    }
+    const rows = goowee.changesGo(clear);
+    if (!clear) console.table(rows);
     return rows;
 };
+
+// askWorker asks the worker's dev tools for a snapshot or the change log.
+const inspectWaiting = {};
+let inspectSeq = 0;
+function askWorker(what) {
+    const id = ++inspectSeq;
+    return new Promise(function (resolve) {
+        inspectWaiting[id] = resolve;
+        goowee.worker.postMessage({t: "inspect", id: id, what: what});
+    });
+}
 
 function mark(name) {
     try { performance.mark(name); } catch (_) {}
@@ -256,6 +282,16 @@ if (!inWorker) goowee.host = {
     query: function (selector) { return document.querySelector(selector); },
     queryAll: function (selector) { return Array.from(document.querySelectorAll(selector)); },
     body: function () { return document.body; },
+    // overlayContainer is the element the dev overlay mounts into (#148).
+    overlayContainer: function () {
+        let el = document.getElementById("goowee-devtools");
+        if (!el) {
+            el = document.createElement("div");
+            el.id = "goowee-devtools";
+            document.body.appendChild(el);
+        }
+        return el;
+    },
     hidden: function () { return document.hidden; },
     onVisibilityChange: function (cb) { document.addEventListener("visibilitychange", function () { cb(document.hidden); }); },
     baseURI: function () { return document.baseURI; },
@@ -445,16 +481,17 @@ function workerMode(opts) {
 }
 
 let workerBoot = null; // {resolve, reject} until the worker says it runs
+let workerRunning = false, workerFail = null;
 function bootWorker(opts) {
     const abs = function (u) { return new URL(u, document.baseURI).href; };
     const src = opts.runtime ? abs(opts.runtime) : runtimeURL;
-    const fail = function (err) {
+    const fail = (workerFail = function (err) {
         goowee.bootError = err;
         releaseEarly();
         console.error(err.message);
         window.dispatchEvent(new CustomEvent("goowee:boot-error", {detail: err}));
         return err;
-    };
+    });
     if (!src) {
         const err = fail(bootError('worker mode needs the URL of goowee.js: pass {runtime: ".../goowee.js"} to goowee.boot'));
         const p = Promise.reject(err);
@@ -479,7 +516,7 @@ function bootWorker(opts) {
             });
         };
         w.onerror = function (e) { reject(bootError("the worker failed to start (" + (e.message || "error") + ")")); };
-        w.postMessage({t: "init", wasm: abs(opts.wasm || "main.wasm"), wasmExec: abs(opts.wasmExec || "wasm_exec.js"),
+        w.postMessage({t: "init", wasm: abs(opts.wasm || "main.wasm"), wasmExec: abs(opts.wasmExec || pageWasmExec() || "wasm_exec.js"),
             dev: goowee.devEnabled(), hydrating: goowee.host.hydrating(), hidden: document.hidden,
             baseURI: document.baseURI, baseHref: goowee.host.baseHref(),
             location: goowee.host.location(), historyState: cloneable(history.state),
@@ -487,6 +524,7 @@ function bootWorker(opts) {
             // The data ssr embedded for hydration (internal/data), so the
             // worker doesn't fetch it again.
             dataScripts: dataScripts(),
+            islands: islandStandIns(),
             calls: opts.calls || ""});
         // What the router in the worker hears from the browser: back and
         // forward, and the window's scroll position (one per frame).
@@ -511,6 +549,27 @@ function bootWorker(opts) {
     });
     started.catch(function () {});
     return started;
+}
+
+// islandStandIns describes the page's islands (ssr.Island) for the worker,
+// which can't look at the DOM: a selector that finds each again, the
+// attributes bridge.Islands reads, and whether it holds server markup.
+function islandStandIns() {
+    const out = [];
+    document.querySelectorAll("[data-goowee-island]").forEach(function (el, i) {
+        el.setAttribute("data-goowee-mount", String(i));
+        out.push({id: el.id, selector: '[data-goowee-mount="' + i + '"]', serverMarkup: hasServerMarkup(el),
+            attrs: {"data-goowee-island": el.getAttribute("data-goowee-island"),
+                "data-goowee-props": el.getAttribute("data-goowee-props")}});
+    });
+    return out;
+}
+
+// pageWasmExec is the URL of the page's own wasm_exec.js script, if it has
+// one: the loader the worker should import too.
+function pageWasmExec() {
+    for (const s of document.scripts) if (/(^|\/)wasm_exec\.js(\?|$)/.test(s.getAttribute("src") || "")) return s.src;
+    return null;
 }
 
 // snapshotStorage is every entry of a storage area, for the worker's copy,
@@ -542,13 +601,18 @@ function cloneable(v) {
 // program asks of the DOM.
 function onWorkerMessage(d) {
     switch (d.t) {
-        case "running": mark("goowee:run"); if (workerBoot) workerBoot.resolve(); break;
+        case "running": workerRunning = true; mark("goowee:run"); if (workerBoot) workerBoot.resolve(); break;
         case "boot-error": {
             const err = new Error(d.message);
             err.gooweeBoot = true;
-            if (workerBoot) workerBoot.reject(err);
+            // After "running" the boot promise has settled (a protocol
+            // mismatch is found by the running program): report it directly.
+            if (workerRunning) workerFail(err);
+            else if (workerBoot) workerBoot.reject(err);
             break;
         }
+        case "console": console[d.level].apply(console, d.args); break;
+        case "draw": goowee.draw(new Uint8Array(d.buf), d.buf.byteLength, d.nodeId); break;
         case "mark": mark(d.name); break;
         case "listen": goListen(d.type, d.capture); break;
         case "mount": goowee.mountRoot(d.parentId, document.querySelector(d.selector), d.base, d.hydrate); break;
@@ -568,6 +632,12 @@ function onWorkerMessage(d) {
         }
         case "ack": applyDeferredInput(d.seq); break;
         case "log": goowee.log(d.entry); break;
+        case "inspect-result": {
+            const done = inspectWaiting[d.id];
+            delete inspectWaiting[d.id];
+            if (done) done(d.value);
+            break;
+        }
         case "history":
             switch (d.op) {
                 case "push": history.pushState(d.state, "", d.url); break;
@@ -1665,8 +1735,13 @@ function unobserveVirtualRows(root) {
         }
     }
     if (root.nodeType === 1 && root.hasAttribute && root.hasAttribute("data-goowee-virtual-list")) {
-        if (rowScan) rowScan.unobserve(root);
         watchedVirtualLists.delete(root._nodeID);
+        // A MutationObserver has no unobserve: disconnect, then watch the
+        // lists that remain again.
+        if (rowScan) {
+            rowScan.disconnect();
+            for (const list of watchedVirtualLists.values()) rowScan.observe(list, {childList: true, subtree: true});
+        }
     }
 }
 function stopVirtualRows(id) {
@@ -2100,6 +2175,16 @@ function readProp(el, key) {
 // as messages, and the page sends events back.
 if (inWorker) {
     const post = function (m, transfer) { postMessage(m, transfer || []); };
+    // The worker's warnings and errors (boot warnings, Go's panics) show in
+    // the page's console, where people and tests look.
+    for (const level of ["warn", "error"]) {
+        console[level] = function () {
+            const args = Array.prototype.map.call(arguments, function (a) {
+                return a instanceof Error ? (a.stack || a.message) : typeof a === "object" ? JSON.stringify(a) : String(a);
+            });
+            post({t: "console", level: level, args: args});
+        };
+    }
     let hidden = false, inEvent = false, init = null;
     // lastSeq is the last event handled; a batch says it has seen it (ack),
     // so the page can tell a stale write to a field typed in since.
@@ -2126,9 +2211,18 @@ if (inWorker) {
     globalThis.goListen = function (type, capture) { post({t: "listen", type: type, capture: !!capture}); };
     goowee.log = function (entry) { post({t: "log", entry: entry}); };
     goowee.node = function () { return undefined; }; // a worker has no DOM nodes
+    // goowee/canvas buffers are replayed on the page's canvases, after the
+    // batch that created them.
+    goowee.draw = function (u8, nbytes, nodeId) {
+        const copy = u8.slice(0, nbytes);
+        post({t: "draw", buf: copy.buffer, nodeId: nodeId}, [copy.buffer]);
+    };
+    // A root's container is a stand-in here ({id, selector}); one the page
+    // reported server markup for says so.
+    goowee._hasServerMarkup = function (c) { return !!(c && c.serverMarkup); };
     // Properties Go sets on goowee that the page reports (goowee.transport),
     // mirrored there.
-    for (const key of ["transport", "calls"]) {
+    for (const key of ["transport", "calls", "noDevTools"]) {
         let value = goowee[key];
         Object.defineProperty(goowee, key, {
             configurable: true,
@@ -2140,6 +2234,13 @@ if (inWorker) {
         post({t: "mount", parentId: parentId, selector: container.selector, base: base, hydrate: hydrate});
     };
     goowee.unmountRoot = function (parentId) { post({t: "unmount", parentId: parentId}); };
+    // Dev tools: the page learns the inspector exists when Go registers it.
+    let inspectGo;
+    Object.defineProperty(goowee, "inspectGo", {
+        configurable: true,
+        get: function () { return inspectGo; },
+        set: function (fn) { inspectGo = fn; post({t: "set", key: "_workerInspector", value: true}); },
+    });
 
     // Frames: right after an event (the page is waiting for its result), on
     // a timer while the page is hidden, else on the worker's own animation
@@ -2181,6 +2282,17 @@ if (inWorker) {
             case "replies":
                 if (typeof goowee.resolveReads === "function") goowee.resolveReads(d.value);
                 break;
+            case "inspect": {
+                let value = null;
+                try {
+                    value = d.what === "snapshot" ? goowee.inspectGo() : goowee.changesGo(d.what === "clear");
+                    value = JSON.parse(JSON.stringify(value)); // plain data for postMessage
+                } catch (err) {
+                    value = {error: String(err)};
+                }
+                post({t: "inspect-result", id: d.id, value: value});
+                break;
+            }
             case "files-release":
                 for (const h of d.handles) delete fileStore[h];
                 break;
@@ -2243,9 +2355,21 @@ if (inWorker) {
             // A stand-in for #root: the page mounts into the element with
             // this selector (goowee.mountRoot posts it).
             root: function () { return {id: "root", selector: "#root"}; },
-            query: function () { return null; },
-            queryAll: function () { return []; },
+            // bridge.Mount: the page finds the element when it mounts.
+            query: function (selector) { return {id: "", selector: selector, serverMarkup: false}; },
+            // bridge.Islands: the islands the page described at start.
+            queryAll: function (selector) {
+                if (selector !== "[data-goowee-island]") return [];
+                return (d.islands || []).map(function (isl) {
+                    return {id: isl.id, selector: isl.selector, serverMarkup: isl.serverMarkup,
+                        getAttribute: function (name) { return Object.prototype.hasOwnProperty.call(isl.attrs, name) ? isl.attrs[name] : null; }};
+                });
+            },
             body: function () { return null; },
+            overlayContainer: function () {
+                pageCall("overlayContainer");
+                return {id: "goowee-devtools", selector: "#goowee-devtools"};
+            },
             hidden: function () { return hidden; },
             onVisibilityChange: function (cb) { visibilityCb = cb; },
             baseURI: function () { return d.baseURI; },

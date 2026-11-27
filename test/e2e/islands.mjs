@@ -57,6 +57,9 @@ const waitText = async (sel, want, label) => { let t; for (let i = 0; i < 100; i
 const type = (value) => ev(`(() => { const el = document.querySelector("#draft"); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new InputEvent("input", {bubbles: true})); })()`);
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 try {
   await send("Page.navigate", { url: `http://localhost:${PORT}/` });
   await waitText("#a button.inc", "3", "island a, server rendered");
@@ -73,6 +76,10 @@ try {
   check(await text("#a button.inc") === "4", "clicking island b changed island a");
 
   // Unmount island b: its nodes go, island a's stay tracked and working.
+  // (Not in worker mode: the test reaches Go through window.unmountIsland,
+  // which the app sets with syscall/js; in a worker that lands on the
+  // worker's global, not the page's — #158, limit 7.)
+  if (!WORKER) {
   const tracked = `(() => { let n = 0; const w = (el) => { if (el._nodeID !== undefined) n++; for (let c = el.firstChild; c; c = c.nextSibling) w(c); }; w(document.documentElement); return n; })()`;
   const before = await ev(`goowee.nodeCount()`);
   await ev(`window.unmountIsland(1)`);
@@ -82,9 +89,11 @@ try {
   check(await ev(`document.querySelector("#b [data-goowee-island]").children.length === 0`), "island b's content is still in the page");
   await ev(`document.querySelector("#a button.inc").click()`);
   await waitText("#a button.inc", "5", "island a after b unmounted");
+  }
+  check(await ev(`!!goowee.worker`) === WORKER, `worker mode is ${await ev(`!!goowee.worker`)}, want ${WORKER}`);
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "ISLANDS CHECK FAIL:\n- " + fail.join("\n- ") : "ISLANDS CHECK PASS: two islands in a server page hydrate and work independently; one unmounts cleanly");
+console.log(fail.length ? "ISLANDS CHECK FAIL:\n- " + fail.join("\n- ") : "ISLANDS CHECK PASS" + (WORKER ? " (worker)" : "") + ": two islands in a server page hydrate and work independently; one unmounts cleanly");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });
 try { rmSync(profile, { recursive: true, force: true, maxRetries: 3 }); } catch {}

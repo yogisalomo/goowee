@@ -217,11 +217,9 @@ async function main() {
   await clickText("a", "Tutorial");
   await clickLinkContaining("Dashboard");
   if (WORKER) {
-    // A worker has no DOM objects: bridge.Element returns undefined there and
-    // says so once (#158, limit 7); the chart stays empty.
-    await waitFor(`!!document.querySelector('canvas.bars')`, "dashboard rendered");
-    for (let i = 0; i < 40 && !consoleLines.some((l) => /bridge\.Element is not available in worker mode/.test(l)); i++) await new Promise((r) => setTimeout(r, 50));
-    check(consoleLines.some((l) => /bridge\.Element is not available in worker mode/.test(l)), "no warning that bridge.Element is unavailable in worker mode");
+    // A worker has no DOM objects to draw on (#158, limit 7): the page
+    // says so instead of drawing the chart.
+    await waitFor(`!!document.querySelector('canvas.bars') && !!document.querySelector('.chart-note')`, "the chart's worker-mode note");
   } else {
   await waitFor(`document.querySelector('canvas.bars')?.dataset.sum === '215'`, "OnMount drew the chart through bridge.Element");
   await clickText("button", "Randomize Values");

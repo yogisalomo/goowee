@@ -67,6 +67,9 @@ const send = (method, params = {}) => new Promise((r) => { const i = ++id; pendi
 const ev = async (expr) => (await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result.result.value;
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 // Count which WebAssembly entry point boot used, and record boot-error events.
 await send("Page.addScriptToEvaluateOnNewDocument", { source: `
   window.__calls = {streaming: 0, bytes: 0}; window.__bootErrors = [];
@@ -85,10 +88,13 @@ async function load(c) {
   await sleep(300); // let late console messages arrive
   return { calls: await ev(`JSON.stringify(__calls)`), errors: await ev(`JSON.stringify(__bootErrors)`), started: await ev(`!!document.querySelector("#hello")`) };
 }
+// In worker mode the module is compiled in the worker, where the page's
+// WebAssembly counters can't see it; the warnings and errors still reach the
+// page's console and boot-error event (#158).
 try {
   // The fast path: streaming only, silently.
   let r = await load("ok");
-  check(r.started && r.calls === `{"streaming":1,"bytes":0}` && log.length === 0, `application/wasm: ${JSON.stringify(r)} ${log.join(" | ")}`);
+  check(r.started && (WORKER || r.calls === `{"streaming":1,"bytes":0}`) && log.length === 0, `application/wasm: ${JSON.stringify(r)} ${log.join(" | ")}`);
   await ev(`document.querySelector("#inc").click()`);
   await sleep(200);
   check(await ev(`document.querySelector("#hello").textContent`) === "clicked 1", "app not interactive after a streaming boot");
@@ -99,7 +105,7 @@ try {
   for (const c of ["octet", "none"]) {
     r = await load(c);
     const warned = log.length === 1 && /^warning: goowee: .*main\.wasm is served as .*not application\/wasm.*Content-Type: application\/wasm/.test(log[0]);
-    check(r.started && r.calls === `{"streaming":0,"bytes":1}` && warned, `${c}: ${JSON.stringify(r)} ${log.join(" | ")}`);
+    check(r.started && (WORKER || r.calls === `{"streaming":0,"bytes":1}`) && warned, `${c}: ${JSON.stringify(r)} ${log.join(" | ")}`);
   }
   // Real failures: one actionable error, the event, no unhandled rejection.
   for (const [c, want] of [["html", /isn't a WebAssembly module.*HTML page.*index\.html fallback/], ["missing", /downloading .*\/missing\/main\.wasm failed: HTTP 404/]]) {
@@ -109,7 +115,7 @@ try {
       `${c}: ${JSON.stringify(r)} log: ${log.join(" | ")}`);
   }
 } catch (e) { fail.push(e.message); }
-console.log(fail.length ? "WASM MIME CHECK FAIL:\n- " + fail.join("\n- ") : "WASM MIME CHECK PASS: streaming with application/wasm (+ reactive title); octet-stream and no type fall back with a warning; HTML and 404 give one actionable error");
+console.log(fail.length ? "WASM MIME CHECK FAIL:\n- " + fail.join("\n- ") : "WASM MIME CHECK PASS" + (WORKER ? " (worker)" : "") + ": streaming with application/wasm (+ reactive title); octet-stream and no type fall back with a warning; HTML and 404 give one actionable error");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 // Delete the Chrome profile (tens of MB) once Chrome has exited.
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });
