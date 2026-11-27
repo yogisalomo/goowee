@@ -7,6 +7,7 @@ import (
 	"syscall/js"
 
 	"github.com/yogisalomo/goowee/core"
+	"github.com/yogisalomo/goowee/internal/host"
 )
 
 // storage is the browser's Storage object. Reading window.localStorage throws
@@ -20,8 +21,7 @@ func (s *Store) storage() (area js.Value, err error) {
 			area, err = js.Undefined(), ErrUnavailable
 		}
 	}()
-	global := js.Global()
-	area = global.Get("Reflect").Call("get", global, s.area)
+	area = host.Call("storage", s.area) // null where storage is disabled
 	if area.IsUndefined() || area.IsNull() {
 		return area, ErrUnavailable
 	}

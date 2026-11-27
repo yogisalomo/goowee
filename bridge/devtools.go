@@ -8,6 +8,7 @@ import (
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/devtools"
 	"github.com/yogisalomo/goowee/devtools/overlay"
+	"github.com/yogisalomo/goowee/internal/host"
 	"github.com/yogisalomo/goowee/internal/jsonlite"
 )
 
@@ -75,9 +76,9 @@ func afterMount() {
 		return
 	}
 	overlayMounted = true
-	doc := js.Global().Get("document")
-	el := doc.Call("createElement", "div")
+	body := host.Call("body")
+	el := body.Get("ownerDocument").Call("createElement", "div")
 	el.Set("id", "goowee-devtools")
-	doc.Get("body").Call("appendChild", el)
+	body.Call("appendChild", el)
 	mountInto(el, overlay.View(), false)
 }

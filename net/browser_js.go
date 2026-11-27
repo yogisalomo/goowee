@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"syscall/js"
+
+	"github.com/yogisalomo/goowee/internal/host"
 )
 
 // platform is the browser's fetch and WebSocket.
@@ -130,7 +132,7 @@ func (browser) Dial(url string, protocols []string, ev ConnEvents) (c Conn, err 
 	global := js.Global()
 	// Resolve against the page, as fetch does, and use the page's scheme: an
 	// https page connects with wss.
-	u := global.Get("URL").New(url, global.Get("document").Get("baseURI"))
+	u := global.Get("URL").New(url, host.Call("baseURI"))
 	switch u.Get("protocol").String() {
 	case "http:":
 		u.Set("protocol", "ws:")

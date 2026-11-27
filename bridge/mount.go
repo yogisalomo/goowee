@@ -8,6 +8,7 @@ import (
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/dom"
+	"github.com/yogisalomo/goowee/internal/host"
 )
 
 // Root is an app or island mounted into the page by Mount or Islands.
@@ -35,7 +36,7 @@ var app struct {
 // core.NextFrame and a signal read by two roots work across them. It returns
 // nil, and logs why, when selector matches nothing.
 func Mount(selector string, node core.Node) *Root {
-	el := js.Global().Get("document").Call("querySelector", selector)
+	el := host.Call("query", selector)
 	if !el.Truthy() {
 		core.Log(core.LogWarn, "bridge.Mount: no element matches the selector", map[string]any{"selector": selector})
 		return nil
@@ -62,7 +63,7 @@ func Wait() { select {} }
 //	})
 //	bridge.Wait()
 func Islands(factories map[string]func(props json.RawMessage) core.Node) []*Root {
-	list := js.Global().Get("document").Call("querySelectorAll", "[data-goowee-island]")
+	list := host.Call("queryAll", "[data-goowee-island]")
 	roots := make([]*Root, 0, list.Length())
 	for i := 0; i < list.Length(); i++ {
 		el := list.Index(i)

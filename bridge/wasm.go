@@ -10,6 +10,7 @@ import (
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/dom"
+	"github.com/yogisalomo/goowee/internal/host"
 	"github.com/yogisalomo/goowee/internal/jsonlite"
 	"github.com/yogisalomo/goowee/internal/version"
 )
@@ -29,7 +30,11 @@ func Run(app core.Node) {
 	if !protocolMatches() {
 		return
 	}
-	el := js.Global().Get("document").Call("getElementById", "root")
+	if !host.Available() {
+		core.Log(core.LogWarn, "this page's goowee.js is older than the app's goowee module; serve the goowee.js of the same version (goowee assets)", nil)
+		return
+	}
+	el := host.Call("root")
 	if !el.Truthy() {
 		core.Log(core.LogWarn, "bridge.Run: the page has no element with id root to mount into", nil)
 		Wait()
@@ -60,15 +65,8 @@ func protocolMatches() bool {
 }
 
 // serverRendered reports whether the page holds server markup for this URL
-// to hydrate (goowee.serverRendered: node ids, and a prerendered page was
-// rendered for this path). An older goowee.js has no such function: then any
-// node id means server-rendered, as before.
-func serverRendered() bool {
-	if fn := js.Global().Get("goowee").Get("serverRendered"); fn.Type() == js.TypeFunction {
-		return fn.Invoke().Bool()
-	}
-	return hasServerMarkup(js.Global().Get("document").Call("getElementById", "root"))
-}
+// to hydrate (goowee.serverRendered, through the host).
+func serverRendered() bool { return host.Call("hydrating").Bool() }
 
 // hasServerMarkup reports whether container holds a server render: its first
 // node, past whitespace, is the <!--goowee--> comment ssr writes (ADR-033).
@@ -153,7 +151,6 @@ func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry, tr *transport
 type frameLoop struct {
 	sched     *core.Scheduler
 	tr        *transport
-	doc       js.Value
 	scheduled bool // a frame is requested and hasn't run yet
 	inFrame   bool // the frame callback is running
 	wanted    bool // work appeared during the frame; request after it
@@ -171,7 +168,7 @@ var loop *frameLoop
 
 func startScheduler(sched *core.Scheduler, tr *transport, viaExports bool) {
 	global := js.Global()
-	l := &frameLoop{sched: sched, tr: tr, doc: global.Get("document")}
+	l := &frameLoop{sched: sched, tr: tr}
 	loop = l
 	if viaExports {
 		l.requestFrame = global.Get("goowee").Get("requestFrame")
@@ -190,8 +187,8 @@ func startScheduler(sched *core.Scheduler, tr *transport, viaExports bool) {
 		}
 		l.request()
 	}
-	l.doc.Call("addEventListener", "visibilitychange", js.FuncOf(func(this js.Value, args []js.Value) any {
-		if l.doc.Get("hidden").Bool() {
+	host.Call("onVisibilityChange", js.FuncOf(func(this js.Value, args []js.Value) any {
+		if host.Call("hidden").Bool() {
 			// A frame requested just before the page was hidden would wait
 			// for it to be shown again; move it to a timer too.
 			if l.scheduled {
@@ -218,7 +215,7 @@ func (l *frameLoop) request() {
 	if l.scheduled {
 		return
 	}
-	hidden := l.doc.Get("hidden").Bool()
+	hidden := host.Call("hidden").Bool()
 	if hidden && !l.sched.HasWork() {
 		return
 	}

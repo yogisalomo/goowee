@@ -237,6 +237,89 @@ function releaseEarly() {
 
 if (typeof document !== "undefined") startEarly();
 
+// goowee.host is everything the Go side asks of the browser other than
+// applying batches and receiving events (#158, ADR-005): the page, the URL
+// and history, scrolling and focus for the router, storage. Go reaches the
+// browser only through it (internal/host), so a worker can stand in for the
+// page later with the same methods over messages. These are the page's.
+goowee.host = {
+    worker: false,
+    hydrating: function () { return goowee.serverRendered(); },
+    root: function () { return document.getElementById("root"); },
+    query: function (selector) { return document.querySelector(selector); },
+    queryAll: function (selector) { return Array.from(document.querySelectorAll(selector)); },
+    body: function () { return document.body; },
+    hidden: function () { return document.hidden; },
+    onVisibilityChange: function (cb) { document.addEventListener("visibilitychange", function () { cb(document.hidden); }); },
+    baseURI: function () { return document.baseURI; },
+    baseHref: function () {
+        const b = document.querySelector("base");
+        return b ? (b.getAttribute("href") || "") : "";
+    },
+    location: function () {
+        return {pathname: location.pathname, search: location.search, hash: location.hash, href: location.href};
+    },
+    historyState: function () { return history.state; },
+    pushState: function (state, url) { history.pushState(state, "", url); },
+    replaceState: function (state, url) { history.replaceState(state, "", url); },
+    back: function () { history.back(); },
+    forward: function () { history.forward(); },
+    // The router restores scroll positions itself, after a route's frame.
+    manualScrollRestoration: function () { history.scrollRestoration = "manual"; },
+    // on listens on window: popstate, scroll, beforeunload.
+    on: function (type, cb, passive) { addEventListener(type, cb, passive ? {passive: true} : undefined); },
+    scrollPosition: function (container) {
+        const el = container ? document.querySelector(container) : null;
+        return el ? {x: el.scrollLeft, y: el.scrollTop} : {x: scrollX, y: scrollY};
+    },
+    scrollTo: function (container, x, y) {
+        const el = container ? document.querySelector(container) : null;
+        if (el) { el.scrollLeft = x; el.scrollTop = y; } else scrollTo(x, y);
+    },
+    // scrollToFragment scrolls the fragment's target (an id, or a named
+    // anchor) to the top of the page or container; false when there is none.
+    scrollToFragment: function (fragment, container) {
+        if (!fragment) return false;
+        let target = document.getElementById(fragment);
+        if (!target) {
+            const name = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(fragment) : fragment;
+            target = document.querySelector('[name="' + name + '"]');
+        }
+        if (!target) return false;
+        const el = container ? document.querySelector(container) : null;
+        let top = target.getBoundingClientRect().top;
+        if (el) { el.scrollTop = top + el.scrollTop - el.getBoundingClientRect().top; el.scrollLeft = 0; }
+        else scrollTo(0, top + scrollY);
+        return true;
+    },
+    // focusRoute moves focus to the new page's heading after a navigation.
+    focusRoute: function () {
+        const el = document.querySelector("[data-route-focus], h1, main");
+        if (!el) return;
+        if (el.tabIndex < 0) el.tabIndex = -1; // headings and <main> aren't focusable by default
+        el.focus({preventScroll: true});
+    },
+    // announceRoute tells screen readers the page changed, by its title.
+    announceRoute: function () {
+        let el = document.querySelector("[data-goowee-route-status]");
+        if (!el) {
+            el = document.createElement("div");
+            el.setAttribute("data-goowee-route-status", "");
+            el.setAttribute("aria-live", "polite");
+            el.setAttribute("role", "status");
+            Object.assign(el.style, {position: "absolute", width: "1px", height: "1px",
+                overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap"});
+            document.body.appendChild(el);
+        }
+        el.textContent = "Navigated to " + (document.title || location.pathname);
+    },
+    // storage is localStorage or sessionStorage, or null where it is
+    // unavailable (disabled, a sandboxed frame).
+    storage: function (area) { try { return globalThis[area] || null; } catch (_) { return null; } },
+    // dataScript is the text of the <script> ssr embeds resource data in.
+    dataScript: function (id) { const el = document.getElementById(id); return el ? el.textContent : null; },
+};
+
 // opts.when says when a server-rendered page starts the download (#130): the
 // page is readable before the WASM arrives, and a page that is mostly read
 // can keep the download from competing with its CSS, fonts and images.

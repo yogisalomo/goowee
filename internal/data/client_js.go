@@ -5,6 +5,8 @@ package data
 import (
 	"encoding/json"
 	"syscall/js"
+
+	"github.com/yogisalomo/goowee/internal/host"
 )
 
 // loadPage reads the page's data for the client store, the first time a Load
@@ -14,14 +16,13 @@ import (
 // doesn't link encoding/json for it (#126).
 func loadPage() map[string]json.RawMessage {
 	out := map[string]json.RawMessage{}
-	g := js.Global().Get("goowee")
-	if fn := g.Get("serverRendered"); fn.Type() == js.TypeFunction && !fn.Invoke().Bool() {
+	if !host.Call("hydrating").Bool() {
 		return out
 	}
-	el := js.Global().Get("document").Call("getElementById", ScriptID)
-	if !el.Truthy() {
+	text := host.Call("dataScript", ScriptID)
+	if text.Type() != js.TypeString {
 		return out
 	}
-	_ = json.Unmarshal([]byte(el.Get("textContent").String()), &out)
+	_ = json.Unmarshal([]byte(text.String()), &out)
 	return out
 }

@@ -15,4 +15,5 @@ func (r *Router) scrollState() any { return nil }
 
 func (r *Router) freshScrollState() any { return nil }
 
-func (r *Router) applyNav(kind navKind, fragment string, saved any, opt ScrollOptions, scope navScope) {}
+func (r *Router) applyNav(kind navKind, fragment string, saved any, opt ScrollOptions, scope navScope) {
+}

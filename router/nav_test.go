@@ -95,9 +95,9 @@ func TestBeforeLeaveCancelsNavigation(t *testing.T) {
 
 func TestChangedNavScope(t *testing.T) {
 	cases := []struct {
-		name                         string
+		name                           string
 		prevPath, prevFrag, path, frag string
-		want                         navScope
+		want                           navScope
 	}{
 		{"query only", "/docs", "", "/docs", "", navScopeNone},
 		{"fragment only", "/docs", "", "/docs", "top", navScopeFragment},
