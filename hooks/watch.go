@@ -33,3 +33,12 @@ func Watch(deps []core.SignalAccessor, fn func()) {
 		}
 	})
 }
+
+// Watch1 is Watch for one dependency, passed by value to fn so the declaration
+// and the read cannot drift apart. Like Watch, it doesn't run on mount and is
+// disposed with the component frame.
+//
+//	hooks.Watch1(query, func(q string) { refetch(q) })
+func Watch1[T any](dep *core.Signal[T], fn func(T)) {
+	Watch([]core.SignalAccessor{dep}, func() { fn(dep.Get()) })
+}

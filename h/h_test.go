@@ -558,6 +558,35 @@ func TestShowTogglesSubtree(t *testing.T) {
 	_ = n
 }
 
+func TestShowWhenDerivesCondition(t *testing.T) {
+	count := core.NewSignal(0)
+	calls := 0
+	n := ShowWhen(count, func(c int) bool { return c > 1 }, func() core.Node {
+		calls++
+		return Text("big")
+	})
+	scope, ok := n.(*core.ScopeNode)
+	if !ok {
+		t.Fatalf("expected *core.ScopeNode, got %T", n)
+	}
+	scope.Render()
+	if calls != 0 {
+		t.Fatalf("then ran with count 0: %d", calls)
+	}
+	count.Set(2)
+	scope.Render()
+	if calls != 1 {
+		t.Fatalf("then should run once when count becomes 2: %d", calls)
+	}
+	count.Set(0)
+	scope.Render()
+	count.Set(3)
+	scope.Render()
+	if calls != 2 {
+		t.Fatalf("then should run again after hiding and showing: %d", calls)
+	}
+}
+
 func TestShowElseBranches(t *testing.T) {
 	cond := core.NewSignal(true)
 	var thenCalled, elseCalled bool

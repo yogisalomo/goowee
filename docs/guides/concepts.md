@@ -21,21 +21,29 @@ A signal bound to a DOM node updates **only that node** — there's no
 re-render, no virtual DOM, no component function re-run. This is fine-grained
 reactivity.
 
-Derive a signal from others with `core.Computed`:
+Derive a signal from another with `core.Derive` (or `Derive2` for two signals).
+The dependency and its read are one expression, so they can't drift apart:
 
 ```go
-total := core.Computed([]core.SignalAccessor{items}, func() string {
+total := core.Derive(items, func(xs []Item) string {
     sum := 0
-    for _, item := range items.Get() { sum += item.Value }
+    for _, item := range xs { sum += item.Value }
     return fmt.Sprintf("Total: %d", sum)
 })
+full := core.Derive2(first, last, func(f, l string) string { return f + " " + l })
 ```
 
-`Computed` recomputes only when a listed dependency changes. It is read-only:
-`total.Get()`. It is also lazy: it subscribes to its deps only while something
-observes it (a binding, a scope, a `Watch`), and an unobserved `Computed` holds
-no subscriptions at all — `Get` recomputes on demand — so creating one inside a
-render (as `Textf` does) can't leak.
+For three or more dependencies, use `Computed` with `core.Deps`:
+
+```go
+total := core.Computed(core.Deps(items, tax, discount), func() string { … })
+```
+
+Both are thin wrappers over the same lazy primitive. A derived signal recomputes
+only when a dependency changes. It is read-only: `total.Get()`. It subscribes to
+its deps only while something observes it (a binding, a scope, a `Watch`), and
+an unobserved derived signal holds no subscriptions at all — `Get` recomputes on
+demand — so creating one inside a render (as `Textf` does) can't leak.
 
 ### Batching
 
@@ -135,10 +143,15 @@ ShowElse(loading,
     func() core.Node { return P(Text("Loading\u2026")) },
     func() core.Node { return P(Text("Content")) },
 )
+
+// A condition on another signal doesn't need a hand-written Computed:
+ShowWhen(count, func(n int) bool { return n > 0 },
+    func() core.Node { return P(Text("Visible")) })
 ```
 
 `flag` can be a `bool`, a `*core.Signal[bool]`, or any expression — if it's a
-signal, the shown/hidden scope re-renders on change.
+signal, the shown/hidden scope re-renders on change. `ShowWhen` derives that
+bool signal from any typed signal, keeping the condition and its read together.
 
 ### Switch
 
@@ -315,7 +328,13 @@ hooks.Watch([]core.SignalAccessor{count}, func() {
 })
 ```
 
-No cleanup. Runs on each dep change — not on mount (use `OnMount` or
+For one dependency, `Watch1` passes its value to the callback:
+
+```go
+hooks.Watch1(query, func(q string) { refetch(q) })
+```
+
+Both have no cleanup and run on changes — not on mount (use `OnMount` or
 `UseEffect` for that).
 
 ### UseEffect

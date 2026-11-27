@@ -75,10 +75,15 @@ Bind a signal instead.
    re-render can pass different data, pass signals, use
    `core.ComponentWithProps(name, props, func(p *core.Signal[P]) core.Node)`, or
    key it (`return core.SetKey(Card(id), id)` — it returns the node) to remount.
-6. **Conditionals → `Show` / `ShowElse` / `Switch`** (not an `if` in the body,
-   which only runs once): `ShowElse(flag, func() core.Node {...}, func() core.Node {...})`.
-7. **Derived values → `core.Computed`**, not recomputation in the body:
-   `total := core.Computed([]core.SignalAccessor{items}, func() int { ... })`.
+6. **Conditionals → `Show` / `ShowElse` / `ShowWhen` / `Switch`** (not an `if` in
+   the body, which only runs once): `ShowElse(flag, then, else)`; for a condition
+   on another signal, `ShowWhen(sig, func(v T) bool {...}, then)` avoids a
+   hand-written `Computed`.
+7. **Derived values → `core.Derive` / `Derive2`**, not recomputation in the body:
+   `total := core.Derive(items, func(xs []Item) int { ... })`,
+   `full := core.Derive2(first, last, func(f, l string) string { ... })`.
+   Use `core.Computed(core.Deps(a, b, c), fn)` for three or more dependencies;
+   keep `Computed` for the many-dependency case.
 8. **SSR must be deterministic.** If you server-render, the client must produce the
    same markup. For content that legitimately differs per request (dates, locale,
    auth), either wrap it in `h.Dynamic()` (client value wins on hydration) or render
@@ -136,8 +141,9 @@ import (
 - `count, setCount := hooks.UseState(0)` → `*core.Signal[int]`, `func(int)`
 - `sig.Get()`, `sig.Set(v)`, `core.NewSignal(v)`, `sig.WithEquals(eq)`, `sig.Named("cart")`
   (a label in dev mode's inspector and change log: `?goowee-dev`, then `goowee.changes()`)
-- `core.Computed(deps, compute) *Signal[T]`
-- `hooks.UseEffect(deps, func() func())`, `hooks.Watch(deps, func())`, `hooks.OnMount(func() func())`
+- `core.Derive(sig, func(T) R)`, `core.Derive2(a, b, func(T1, T2) R)` — typed derived signals
+- `core.Deps(a, b, c)` — `[]core.SignalAccessor` for `Computed`/effects; `core.Computed(deps, compute) *Signal[T]` for 3+ deps
+- `hooks.UseEffect(deps, func() func())`, `hooks.Watch(deps, func())`, `hooks.Watch1(sig, func(T))`, `hooks.OnMount(func() func())`
 - `hooks.UseResource(deps, func(ctx) (T, error)) *Resource[T]` — async load (`Data`/`Loading`/`Err` + `Refetch`; ctx cancelled on refetch/unmount)
 - `hooks.UseComputed(deps, compute) *Signal[T]` — re-export of `core.Computed`
 - `core.Schedule(func())` — run an update on the render loop from off-loop code
@@ -158,7 +164,8 @@ import (
   (`ClassS(sig)`, `StyleS(sig)`).
 - Props: `Value`, `Checked`, `Disabled`, `Required`, … and reactive `ValueS`, `DisabledS`, …
 - Control flow: `Show(cond, then)`, `ShowElse(cond, then, else)`,
-  `Switch(sig, map[T]func()core.Node, default)`, `For(sig, keyFn, render)`.
+  `ShowWhen(sig, func(T) bool, then)`, `Switch(sig, map[T]func()core.Node, default)`,
+  `For(sig, keyFn, render)`.
   Put `Transition("name")` on a row's root element to animate insert/remove
   (runtime adds `<name>-enter`/`<name>-leave`; reduced motion skips it).
 - Async rendering: `ShowResource(res, loadingFn, errFn, dataFn)` — handles loading/error/data states.

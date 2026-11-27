@@ -92,8 +92,8 @@ func canvasPage(r *router.Router) core.Node {
 			core.NextFrame(tick)
 			return func() { stopped = true }
 		})
-		playLabel := core.Computed([]core.SignalAccessor{playing}, func() string {
-			if playing.Get() {
+		playLabel := core.Derive(playing, func(on bool) string {
+			if on {
 				return "Pause"
 			}
 			return "Animate"
