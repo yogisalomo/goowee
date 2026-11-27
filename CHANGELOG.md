@@ -13,6 +13,17 @@ time. The public surface freezes under semver at v1.
 
 ### Added
 
+- Experimental: `goowee.boot({worker: true})` runs the Go program in a Web
+  Worker (#158, phase 4), so garbage collection and long handlers no longer
+  block input and painting. The worker is started from `goowee.js` itself; it
+  loads `wasm_exec.js` (`opts.wasmExec`, default `wasm_exec.js`), and the page
+  applies its batches and forwards events, deciding cancellation from the
+  handlers' static options and `PreventDefaultWhen` filters. A dynamic
+  `e.PreventDefault()` can't take effect there and logs a warning once per
+  event type. Not yet in worker mode: history and storage (phase 6), `ref.Get`
+  replies and files (phase 5), dev tools (phase 7), `bridge.Element`
+  (`bridge.InWorker()` reports the mode). `localStorage` "goowee-worker" = "1"
+  turns it on without changing the page.
 - `h.PreventDefaultWhen(f)` cancels an event's default action when it
   matches `f`, decided by the browser runtime before any Go code runs (#158,
   phase 3): `h.PlainClick()`, `h.KeyIs(keys...)` with `.With`/`.Without`

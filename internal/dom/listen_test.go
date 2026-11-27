@@ -82,3 +82,27 @@ func TestDispatchBits(t *testing.T) {
 		t.Fatal("handled alone must be 1")
 	}
 }
+
+// A handler's Listen tells the runtime its static options and its
+// PreventDefaultWhen condition, which the page applies itself when Go runs in
+// a worker (#158).
+func TestListenCarriesOptions(t *testing.T) {
+	cases := []struct {
+		opts core.HandlerOptions
+		want any
+	}{
+		{core.HandlerOptions{}, true},
+		{core.HandlerOptions{PreventDefault: true}, "1"},
+		{core.HandlerOptions{StopPropagation: true, SelectOnFocus: true}, "6"},
+		{core.HandlerOptions{PreventWhen: core.PlainClick()}, "0\nplain"},
+		{core.HandlerOptions{PreventDefault: true, PreventWhen: core.KeyIs("Enter").Without(core.ModShift)}, "1\nkey\n0\n4\nEnter"},
+	}
+	for _, c := range cases {
+		if got := listen(1, "click", true, c.opts).Value; got != c.want {
+			t.Errorf("%+v: Listen value %#v, want %#v", c.opts, got, c.want)
+		}
+	}
+	if got := listen(1, "click", false, core.HandlerOptions{PreventDefault: true}).Value; got != false {
+		t.Errorf("removed handler: %#v, want false", got)
+	}
+}

@@ -1,6 +1,8 @@
 package dom
 
 import (
+	"strconv"
+
 	"github.com/yogisalomo/goowee/core"
 )
 
@@ -20,6 +22,12 @@ type NodeRegistry struct {
 	ctls      []*core.EventControl // free event controls, reused by Dispatch
 
 	OnNewEventType func(eventType string, capture bool)
+
+	// WarnDynamicPrevent is set when Go runs in a worker (#158): a handler's
+	// e.PreventDefault() that no static option or filter covers is logged,
+	// once per event type, since the page dispatched the event already.
+	WarnDynamicPrevent bool
+	warnedPrevent      map[string]bool
 }
 
 // nonBubbling lists the events that don't bubble. The runtime listens for
@@ -143,7 +151,17 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 		// A PreventWhen match is the runtime's decision; report it too, so
 		// gooweetest says "prevented" exactly when the browser would.
 		pd, sp := ev.Decisions()
-		opts.PreventDefault = opts.PreventDefault || pd || entry.Options.PreventWhen.Match(ev)
+		covered := opts.PreventDefault || entry.Options.PreventWhen.Match(ev)
+		if pd && !covered && r.WarnDynamicPrevent && !r.warnedPrevent[event] {
+			// In a worker the event was dispatched on the page before this
+			// handler ran: its decision comes too late (#158).
+			if r.warnedPrevent == nil {
+				r.warnedPrevent = map[string]bool{}
+			}
+			r.warnedPrevent[event] = true
+			core.Log(core.LogWarn, "e.PreventDefault() has no effect in worker mode; use h.PreventDefault() or h.PreventDefaultWhen(...)", map[string]any{"event": event})
+		}
+		opts.PreventDefault = covered || pd
 		opts.StopPropagation = opts.StopPropagation || sp
 	}()
 	// Batched: a handler that writes several signals notifies each once, after
@@ -154,21 +172,37 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 
 // listen is the mutation that tells the runtime a node has (on) or no longer
 // has a handler for event, so it calls into Go only for nodes that do (#132).
-// A handler with a PreventDefaultWhen condition sends its spec instead of
-// true, so the runtime can cancel the default action itself (#158).
+// A handler with static options or a PreventDefaultWhen condition sends them
+// instead of true, as "flags" or "flags\nspec" (flags: 1 prevent default, 2
+// stop propagation, 4 select on focus), so the runtime can apply them itself
+// before Go runs: it must, when Go runs in a worker (#158).
 func listen(nodeID int, event string, on bool, opts core.HandlerOptions) core.Mutation {
 	var v any = on
-	if spec := opts.PreventWhen.Spec(); on && spec != "" {
-		v = spec
+	if on {
+		flags := 0
+		if opts.PreventDefault {
+			flags |= 1
+		}
+		if opts.StopPropagation {
+			flags |= 2
+		}
+		if opts.SelectOnFocus {
+			flags |= 4
+		}
+		if spec := opts.PreventWhen.Spec(); spec != "" {
+			v = strconv.Itoa(flags) + "\n" + spec
+		} else if flags != 0 {
+			v = strconv.Itoa(flags)
+		}
 	}
 	return core.Mutation{Type: core.MutListen, NodeID: nodeID, Key: event, Value: v}
 }
 
 // listenChanged reports whether the runtime must be told about hd on id: it
-// is new there, or its PreventDefaultWhen condition changed.
+// is new there, or its options changed.
 func (r *NodeRegistry) listenChanged(id int, hd core.Handler) bool {
 	old, ok := r.Options(id, hd.Event)
-	return !ok || old.PreventWhen != hd.Options.PreventWhen
+	return !ok || old != hd.Options
 }
 
 // registerHandlers registers an element's handlers and tells the runtime.
