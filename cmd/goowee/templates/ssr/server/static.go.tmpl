@@ -1,0 +1,160 @@
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"mime"
+	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+)
+
+// staticFiles serves the files `goowee build` writes to dist/static (or, under
+// `goowee dev`, its stage directory):
+//
+//   - Files with a content hash in their name (main.3f2a9c0d1e.wasm) never
+//     change, so the browser may keep them for a year without asking.
+//   - Everything else (style.css, images) is revalidated on each visit with
+//     an ETag, which costs a 304 and no body when nothing changed.
+//   - When the build wrote a .br or .gz next to a file and the browser
+//     accepts that encoding, the precompressed bytes are sent: no compression
+//     work per request.
+//
+// It's yours to change: add headers, a CDN prefix, or other cache rules.
+type staticFiles struct {
+	dir   string
+	names map[string]string // "main.wasm" -> "main.3f2a9c0d1e.wasm", from assets.json
+
+	mu    sync.Mutex
+	etags map[string]string // file + size + mod time -> ETag
+}
+
+func newStaticFiles(dir string) *staticFiles {
+	s := &staticFiles{dir: dir, names: map[string]string{}, etags: map[string]string{}}
+	// goowee build records the hashed names of the WASM and the runtime here.
+	// Under goowee dev there is no manifest and the plain names are served.
+	if data, err := os.ReadFile(filepath.Join(dir, "assets.json")); err == nil {
+		if err := json.Unmarshal(data, &s.names); err != nil {
+			fmt.Fprintln(os.Stderr, "assets.json:", err)
+		}
+	}
+	return s
+}
+
+// asset is the URL of one of the files the page loads: "main.wasm",
+// "goowee.js" or "wasm_exec.js", by its hashed name after a build.
+func (s *staticFiles) asset(name string) string {
+	if hashed, ok := s.names[name]; ok {
+		return "/" + hashed
+	}
+	return "/" + name
+}
+
+var contentHashed = regexp.MustCompile(`\.[0-9a-f]{10}\.[A-Za-z0-9]+$`)
+
+// assetExts are the extensions of files a page loads. A request for one that
+// doesn't exist is a 404, not a rendered page: a stale main.wasm URL must not
+// get HTML back.
+var assetExts = map[string]bool{
+	".wasm": true, ".js": true, ".mjs": true, ".css": true, ".map": true, ".json": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".webp": true,
+	".avif": true, ".ico": true, ".woff": true, ".woff2": true, ".ttf": true, ".txt": true,
+}
+
+// serve writes the static file r asks for and reports whether there was one.
+func (s *staticFiles) serve(w http.ResponseWriter, r *http.Request) bool {
+	name := filepath.Join(s.dir, filepath.FromSlash(path.Clean("/"+r.URL.Path)))
+	fi, err := os.Stat(name)
+	if err != nil || fi.IsDir() {
+		return false
+	}
+	h := w.Header()
+	if ct := mime.TypeByExtension(filepath.Ext(name)); ct != "" {
+		h.Set("Content-Type", ct)
+	}
+	if contentHashed.MatchString(name) {
+		h.Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		h.Set("Cache-Control", "no-cache")
+	}
+	body, bodyInfo := name, fi
+	if r.Header.Get("Range") == "" { // ranges are of the file as it is
+		// Brotli first: it is the smaller of the two.
+		for _, token := range []string{"br", "gzip"} {
+			ext := ".gz"
+			if token == "br" {
+				ext = ".br"
+			}
+			if !accepts(r.Header.Get("Accept-Encoding"), token) {
+				continue
+			}
+			if efi, err := os.Stat(name + ext); err == nil {
+				body, bodyInfo = name+ext, efi
+				h.Set("Content-Encoding", token)
+				break
+			}
+		}
+	}
+	if _, err := os.Stat(name + ".gz"); err == nil {
+		h.Add("Vary", "Accept-Encoding")
+	} else if _, err := os.Stat(name + ".br"); err == nil {
+		h.Add("Vary", "Accept-Encoding")
+	}
+	f, err := os.Open(body)
+	if err != nil {
+		http.Error(w, "can't read "+r.URL.Path, http.StatusInternalServerError)
+		return true
+	}
+	defer f.Close()
+	h.Set("ETag", s.etag(body, bodyInfo))
+	// ServeContent answers If-None-Match with a 304, HEAD without a body, and
+	// Range requests. The zero time leaves out Last-Modified: the ETag decides.
+	http.ServeContent(w, r, "", time.Time{}, f)
+	return true
+}
+
+// missingAsset reports whether r asks for a file a page loads (by its
+// extension), so that a missing one is answered with a 404.
+func missingAsset(r *http.Request) bool {
+	return assetExts[strings.ToLower(path.Ext(r.URL.Path))]
+}
+
+// etag is a strong ETag of the file's contents, computed once per version
+// of the file.
+func (s *staticFiles) etag(file string, fi os.FileInfo) string {
+	key := fmt.Sprintf("%s|%d|%d", file, fi.Size(), fi.ModTime().UnixNano())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if tag, ok := s.etags[key]; ok {
+		return tag
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	tag := `"` + hex.EncodeToString(sum[:16]) + `"`
+	s.etags[key] = tag
+	return tag
+}
+
+// accepts reports whether an Accept-Encoding header allows token (and doesn't
+// refuse it with q=0).
+func accepts(header, token string) bool {
+	for _, part := range strings.Split(header, ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), token) {
+			continue
+		}
+		q := strings.ReplaceAll(strings.TrimSpace(params), " ", "")
+		return q != "q=0" && q != "q=0.0" && q != "q=0.00" && q != "q=0.000"
+	}
+	return false
+}

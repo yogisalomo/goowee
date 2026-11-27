@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -117,6 +118,12 @@ func build(p *project, out string, opt buildOptions) (*buildResult, error) {
 			return nil, err
 		}
 	}
+	// Record the hashed names for a server that writes its own pages (the
+	// SSR template's static.go reads it).
+	manifest, _ := json.MarshalIndent(res.names, "", "  ")
+	if err := os.WriteFile(filepath.Join(res.static, "assets.json"), append(manifest, '\n'), 0o644); err != nil {
+		return nil, err
+	}
 	// Point the pages at the hashed names.
 	err = filepath.Walk(res.static, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || filepath.Ext(path) != ".html" {
@@ -139,7 +146,6 @@ func build(p *project, out string, opt buildOptions) (*buildResult, error) {
 		if outp, err := p.buildServer(res.server, true); err != nil {
 			return nil, fmt.Errorf("building server/ failed:\n%s", outp)
 		}
-		fmt.Fprintln(os.Stderr, "goowee: the server renders pages with the asset names in its own document; rewrite it to read them from", filepath.Join(res.static, "index.html"), "or serve static files as built (#166)")
 	}
 	// Precompressed siblings: .gz always, .br when a brotli binary is around.
 	_, berr := exec.LookPath("brotli")
