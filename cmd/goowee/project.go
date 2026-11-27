@@ -42,8 +42,10 @@ func loadProject(dir string) (*project, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(filepath.Join(abs, "go.mod")); err != nil {
-		return nil, errors.New("no go.mod in " + abs + ": run goowee in a project's root (goowee new creates one)")
+	// The project is usually a module's root, but any main package inside a
+	// module works (this repo builds ./examples/counter for GitHub Pages).
+	if !inModule(abs) {
+		return nil, errors.New("no go.mod in " + abs + " or above: run goowee in a project's root (goowee new creates one)")
 	}
 	p := &project{dir: abs}
 	if fi, err := os.Stat(filepath.Join(abs, "web")); err == nil && fi.IsDir() {
@@ -58,6 +60,20 @@ func loadProject(dir string) (*project, error) {
 		}
 	}
 	return p, nil
+}
+
+// inModule reports whether dir or one of its parents has a go.mod.
+func inModule(dir string) bool {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 // wasmMode is how buildWasm builds.

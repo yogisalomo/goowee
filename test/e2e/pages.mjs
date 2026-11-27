@@ -67,7 +67,7 @@ try {
   // #153: pages are prerendered (ssr.Export): the first paint has the page's
   // content before main.wasm arrives. Hold the wasm back and look.
   await send("Network.enable");
-  await send("Network.setBlockedURLs", { urls: ["*main.wasm"] });
+  await send("Network.setBlockedURLs", { urls: ["*/main.*wasm"] });
   for (const [path, text] of [["/", "Reactive web UIs, written in Go."], ["/canvas", "Canvas"], ["/greet/alice", "alice"]]) {
     await send("Page.navigate", { url: base + path });
     await waitFor(`document.readyState === "complete"`, "prerendered " + path);
@@ -76,8 +76,18 @@ try {
   }
   await send("Network.setBlockedURLs", { urls: [] });
   // Those loads logged the blocked download; that's expected, not a failure.
-  errors.splice(0, errors.length, ...errors.filter((e) => !/couldn't download main\.wasm/.test(e)));
+  errors.splice(0, errors.length, ...errors.filter((e) => !/couldn't download \S*main\.(?:[0-9a-f]+\.)?wasm/.test(e)));
   const hydrated = `typeof goowee !== 'undefined' && goowee._interactive === true`;
+  // #145: goowee build ships the wasm and runtime under content-hashed names,
+  // and the page boots the hashed wasm (its download shows in the timings).
+  await send("Page.navigate", { url: base + "/" });
+  await waitFor(hydrated, "hydrated for the asset check");
+  const assets = await ev(`({preload: document.querySelector('link[rel=preload]').getAttribute('href'),
+    scripts: [...document.scripts].map((s) => s.getAttribute('src')).filter(Boolean),
+    fetched: performance.getEntriesByType('resource').map((r) => r.name).filter((n) => /\.wasm$/.test(n))})`);
+  check(/^main\.[0-9a-f]{10}\.wasm$/.test(assets.preload) && assets.fetched.some((n) => n.endsWith("/" + assets.preload)),
+    "the page should preload and boot a content-hashed wasm: " + JSON.stringify(assets));
+  check(assets.scripts.every((src) => /\.[0-9a-f]{10}\.js$/.test(src)), "runtime scripts should be content-hashed: " + JSON.stringify(assets.scripts));
   // Every prerendered page hydrates in place: no mismatch is logged, and the
   // server's nodes are the ones on screen.
   if (!LIVE) {
@@ -146,7 +156,7 @@ try {
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
 check(mismatches.length === 0, "hydration mismatches:\n" + mismatches.join("\n"));
-console.log(fail.length ? "PAGES CHECK FAIL:\n- " + fail.join("\n- ") : "PAGES CHECK PASS: prerendered first paint, no hydration mismatch, 404.html not hydrated as another page, directory URLs, base-path links, splash replaced on mount, app title, navigation, deep links, v0.2.0 content, canvas, async");
+console.log(fail.length ? "PAGES CHECK FAIL:\n- " + fail.join("\n- ") : "PAGES CHECK PASS: prerendered first paint, no hydration mismatch, 404.html not hydrated as another page, directory URLs, base-path links, splash replaced on mount, app title, navigation, deep links, v0.2.0 content, canvas, async, hashed assets");
 ws.close(); server?.close();
 // Delete the Chrome profile (tens of MB) once Chrome has exited.
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });

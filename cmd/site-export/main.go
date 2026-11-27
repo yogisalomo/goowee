@@ -1,5 +1,7 @@
 // Command site-export prerenders the tutorial site (examples/counter) into a
-// static directory with ssr.Export, for GitHub Pages: `make pages` runs it.
+// static directory with ssr.Export, for GitHub Pages: `make pages` runs it,
+// then `goowee build --web` adds the production wasm and runtime under
+// content-hashed names and points these pages at them.
 // Every page reachable by links from "/" is written as <path>/index.html, the
 // not-found route as 404.html, and /ai (whose <textarea> can't carry
 // hydration markers, ADR-009) as the client-rendered shell.
@@ -61,6 +63,8 @@ func main() {
 // document writes a page the way scripts/pages-index.html does, with the
 // server-rendered head metadata and body: the <base> that makes assets and
 // routes resolve under the project path, the stylesheet, and the scripts.
+// Asset names are quoted as written so goowee build can rewrite them to the
+// hashed files (the wasm too: goowee.boot's default name isn't in the page).
 func document(base string) func(w io.Writer, head, body string) {
 	return func(w io.Writer, head, body string) {
 		if head == "" {
@@ -80,7 +84,7 @@ func document(base string) func(w io.Writer, head, body string) {
 </head>
 <body>
     <div id="root">%s</div>
-    <script>goowee.boot({when: "idle"});</script>
+    <script>goowee.boot({when: "idle", wasm: "main.wasm"});</script>
 </body>
 </html>
 `, base, head, body)

@@ -107,7 +107,7 @@ func checkFlow(t *testing.T, ssr bool) {
 
 	t.Log("error and fix seen")
 	out := filepath.Join(dir, "dist")
-	res, err := build(p, out, false)
+	res, err := build(p, out, buildOptions{compress: true})
 	if err != nil {
 		t.Fatal(err)
 	}

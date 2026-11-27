@@ -71,6 +71,12 @@ goowee build
 report of the WASM's size by package. Serve the hashed files with
 `Cache-Control: immutable` ([serving.md](serving.md)).
 
+`--web <dir>` builds with another directory's files in place of `web/`, such
+as pages prerendered with `ssr.Export` ([deployment.md](../deployment.md)).
+`--no-compress` skips the `.gz`/`.br` files for hosts that compress on their
+own (GitHub Pages). The package doesn't have to be a module's root:
+`goowee build ./examples/counter` works from this repo's root.
+
 ## Without the CLI
 
 `goowee` only automates the build:

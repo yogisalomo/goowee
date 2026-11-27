@@ -16,6 +16,8 @@ on:
       - 'examples/graph/**'
       - 'ssr/**'
       - 'cmd/site-export/**'
+      - 'cmd/goowee/**'
+      - 'web/**'
       - 'router/**'
       - 'bridge/**'
       - 'go.mod'

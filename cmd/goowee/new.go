@@ -131,7 +131,7 @@ func reorder(args []string) []string {
 
 func takesValue(flag string) bool {
 	switch strings.TrimLeft(flag, "-") {
-	case "module", "goowee", "addr", "out", "proxy":
+	case "module", "goowee", "addr", "out", "proxy", "web":
 		return true
 	}
 	return false
