@@ -109,6 +109,14 @@ func (w *Walker) NextID() int { return *w.counter() }
 // Visitor is implemented by DOM and SSR renderers. Each method receives the
 // node (with its ID already set for element/text nodes) and a walkChild func
 // that walks a single child node and returns its root ID.
+// Reserver is an optional Visitor method: the walker calls Reserve with a
+// component's or scope's content just before walking it, so a renderer can
+// size its output for the whole subtree at once instead of growing it node
+// by node (#203).
+type Reserver interface {
+	Reserve(n core.Node)
+}
+
 type Visitor interface {
 	VisitElement(id int, el *core.ElementNode, walkChild func(core.Node) int)
 	VisitText(id int, tn *core.TextNode)
@@ -168,6 +176,9 @@ func (w *Walker) Walk(n core.Node, v Visitor) int {
 		v.VisitComponentEnter(node)
 		frame := runtime.PushComponent()
 		inner := core.FlatTree(node.Render())
+		if r, ok := v.(Reserver); ok {
+			r.Reserve(inner)
+		}
 		id := w.Walk(inner, v)
 		runtime.PopComponent()
 		node.Prev = inner
@@ -181,6 +192,9 @@ func (w *Walker) Walk(n core.Node, v Visitor) int {
 		}
 		v.VisitScopeEnter(node)
 		inner := core.FlatTree(w.ScopeContent(node))
+		if r, ok := v.(Reserver); ok {
+			r.Reserve(inner)
+		}
 		var id int
 		w.WithProvided(node, func() { id = w.Walk(inner, v) })
 		node.Prev = inner

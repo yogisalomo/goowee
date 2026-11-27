@@ -3,6 +3,7 @@ package dom
 import (
 	"reflect"
 	goruntime "runtime"
+	"slices"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/hooks"
@@ -167,9 +168,12 @@ func (r *DOMRenderer) Render(n core.Node) ([]core.Mutation, int) {
 	// Effect first-runs wait on this renderer's scheduler for the DOM.
 	defer runtime.SetEffectQueue(runtime.SetEffectQueue(r.Scheduler.QueueEffect))
 
-	var muts []core.Mutation
-	r.muts = &muts
 	n = core.FlatTree(n)
+	// Sized for the tree's elements and text up front (+1: the root's
+	// append); components and scopes reserve their own content as the walk
+	// reaches them (Reserve).
+	muts := make([]core.Mutation, 0, mutationEstimate(n, hydrating)+1)
+	r.muts = &muts
 	r.root = n
 	rootID := r.Walker.Walk(n, r)
 	r.muts = nil
@@ -194,6 +198,59 @@ func (r *DOMRenderer) Unmount() {
 	r.emitRemoveTree(r.root, &muts)
 	r.root = nil
 	r.Scheduler.Enqueue(muts...)
+}
+
+// Reserve makes room in the mutation buffer for n's elements and text before
+// the walker visits them, so a large subtree grows the buffer once rather than
+// by doubling (#203: a 1,000-row mount reallocated it 14 times, most of the
+// render's 8 MB). It is the walker.Reserver hook.
+func (r *DOMRenderer) Reserve(n core.Node) {
+	if r.muts == nil {
+		return
+	}
+	if est := mutationEstimate(n, r.hydrating); est > cap(*r.muts)-len(*r.muts) {
+		*r.muts = slices.Grow(*r.muts, est)
+	}
+}
+
+// mutationEstimate is about how many mutations rendering n emits: per element
+// its creation, static attributes, properties and bindings and its append to
+// the parent; per text node its creation, text and append. When hydrating,
+// one claim per node. Components and scopes count 0: their content isn't
+// known until they render, and they reserve for it then.
+func mutationEstimate(n core.Node, hydrating bool) int {
+	switch v := n.(type) {
+	case *core.ElementNode:
+		if v == nil {
+			return 0
+		}
+		c := 1
+		if !hydrating {
+			c = 2 + len(v.Attrs) + len(v.Props) + len(v.Binds)
+		}
+		for _, child := range v.Children {
+			c += mutationEstimate(child, hydrating)
+		}
+		return c
+	case *core.TextNode:
+		if v == nil {
+			return 0
+		}
+		if hydrating {
+			return 1
+		}
+		return 3
+	case *core.FragmentNode:
+		if v == nil {
+			return 0
+		}
+		c := 0
+		for _, child := range v.Children {
+			c += mutationEstimate(child, hydrating)
+		}
+		return c
+	}
+	return 0
 }
 
 // renderFresh walks n as a brand-new subtree inside a diff. Its top-level

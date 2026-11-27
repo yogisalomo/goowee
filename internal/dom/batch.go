@@ -112,10 +112,7 @@ func (e *BatchEncoder) Encode(muts []core.Mutation) (data []byte, dropped []core
 // appendBatchMutation appends m to the op and string sections. It reports
 // false when m can't be encoded; the caller truncates what was appended.
 func appendBatchMutation(ops, strs []byte, m core.Mutation) ([]byte, []byte, bool) {
-	if m.Type < 0 || m.Type > math.MaxUint8 {
-		return ops, strs, false
-	}
-	ops = append(ops, byte(m.Type), 0)
+	ops = append(ops, byte(m.Type), 0) // MutationType is a byte
 	at := len(ops) - 1
 	var flags byte
 	ops = binary.AppendVarint(ops, int64(m.NodeID))

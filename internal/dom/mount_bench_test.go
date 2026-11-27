@@ -45,3 +45,21 @@ func BenchmarkMount1000Encode(b *testing.B) {
 		e.Encode(muts)
 	}
 }
+
+// Render sizes its mutation buffer from the tree up front, and a component
+// reserves its content when the walk reaches it, so neither regrows the
+// buffer by doubling (#203).
+func TestRenderSizesMutationBuffer(t *testing.T) {
+	muts, _ := New().Render(mountRows(100))
+	if len(muts) != 1602 || cap(muts)-len(muts) > 1 {
+		t.Errorf("plain tree: len %d cap %d, want 1602 with no spare beyond the estimate", len(muts), cap(muts))
+	}
+	inner := mountRows(100)
+	muts, _ = New().Render(core.Component("Rows", func() core.Node { return inner }))
+	if cap(muts) > len(muts)+len(muts)/8 {
+		t.Errorf("component: len %d cap %d, the buffer grew by doubling", len(muts), cap(muts))
+	}
+	if got := mutationEstimate(mountRows(10), true); got != 51 {
+		t.Errorf("hydrating estimate = %d, want one claim per node (51)", got)
+	}
+}
