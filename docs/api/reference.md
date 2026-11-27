@@ -254,7 +254,17 @@ f.Bytes() ([]byte, error)               // blocks — call from a goroutine, app
 ```
 
 Options (static, apply to every event): `PreventDefault()`,
-`StopPropagation()`, `SelectOnFocus()`.
+`StopPropagation()`, `SelectOnFocus()`. `PreventDefaultWhen(f)` cancels the
+default only when the event matches `f`, decided by the browser runtime before
+Go runs:
+
+```go
+PreventDefaultWhen(PlainClick())                        // primary button, no modifier (links)
+PreventDefaultWhen(KeyIs("Enter").Without(core.ModShift)) // never while an IME composes
+PreventDefaultWhen(KeyIs("s").With(core.ModCtrl))
+PreventDefaultWhen(CarriesFiles())                      // dragover of a file drop zone
+f.Match(e)                                              // the same test in Go, for the handler
+```
 
 ### Two-way bindings
 

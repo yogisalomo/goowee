@@ -291,6 +291,14 @@ async function main() {
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
   await waitFor(`/Sent: hello/.test(document.body.innerText)`, "Enter sent the draft");
+  // #158: the runtime cancels from the handler's PreventDefaultWhen before Go
+  // runs: Enter is cancelled, Shift+Enter and an IME's Enter are not.
+  const filtered = await evalJS(`(()=>{const t=document.querySelector('.enter-send');
+    const fire=(init)=>{const e=new KeyboardEvent('keydown',Object.assign({key:'Enter',bubbles:true,cancelable:true},init));t.dispatchEvent(e);return e.defaultPrevented;};
+    return {enter: fire({}), shift: fire({shiftKey:true}), ime: fire({isComposing:true}),
+      linkFilter: [...document.querySelectorAll('a[href]')].some((a)=>a._goFilters&&a._goFilters.click&&a._goFilters.click[0]==='plain')};})()`);
+  check(filtered.enter && !filtered.shift && !filtered.ime && filtered.linkFilter,
+    "PreventDefaultWhen in the runtime: " + JSON.stringify(filtered));
   check(!(await evalJS(`document.querySelector('.enter-send').value.includes("\\n")`)), "Enter inserted a newline despite e.PreventDefault()");
   // A cmd-click on a router.Link is left to the browser (new tab), not hijacked.
   const before = await evalJS(`location.pathname`);

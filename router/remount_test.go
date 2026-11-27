@@ -72,3 +72,27 @@ func TestSubRouteChangeRemountsSameNamedComponent(t *testing.T) {
 		t.Fatalf("sub-route shows %q, want settings", got)
 	}
 }
+
+// A plain click on a Link is cancelled and navigates in the app; a modified
+// click (Ctrl/Cmd: new tab) is left to the browser. The runtime decides the
+// cancel from the link's PreventDefaultWhen(PlainClick()), before Go runs
+// (#158), and gooweetest reports what the browser would do.
+func TestLinkPreventsOnlyPlainClicks(t *testing.T) {
+	r := router.New("/")
+	s := gooweetest.Render(t, core.Component("Nav", func() core.Node {
+		return Div(r.Link("/about", "About"), P(TextS(r.Path)))
+	}))
+	link := s.Find("a")
+	if prevented := s.Dispatch(link, "click", map[string]any{"button": 0, "ctrlKey": true}); prevented {
+		t.Error("a ctrl-click on a link was prevented: it should open a new tab")
+	}
+	if r.Path.Get() != "/" {
+		t.Errorf("a ctrl-click navigated in the app to %q", r.Path.Get())
+	}
+	if prevented := s.Dispatch(link, "click", map[string]any{"button": 0}); !prevented {
+		t.Error("a plain click on a link wasn't prevented")
+	}
+	if r.Path.Get() != "/about" {
+		t.Errorf("a plain click didn't navigate: %q", r.Path.Get())
+	}
+}

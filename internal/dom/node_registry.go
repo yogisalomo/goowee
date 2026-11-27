@@ -62,6 +62,16 @@ func (r *NodeRegistry) RegisterHandler(nodeID int, event string, fn func(core.Ev
 	}
 }
 
+// Options returns the options of nodeID's handler for event.
+func (r *NodeRegistry) Options(nodeID int, event string) (core.HandlerOptions, bool) {
+	n := r.nodes[nodeID]
+	if n == nil {
+		return core.HandlerOptions{}, false
+	}
+	e, ok := n.Events[event]
+	return e.Options, ok
+}
+
 // Has reports whether nodeID has a handler for event.
 func (r *NodeRegistry) Has(nodeID int, event string) bool {
 	n := r.nodes[nodeID]
@@ -130,8 +140,10 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 			}))
 		}
 		// Static options plus whatever the handler decided while running.
+		// A PreventWhen match is the runtime's decision; report it too, so
+		// gooweetest says "prevented" exactly when the browser would.
 		pd, sp := ev.Decisions()
-		opts.PreventDefault = opts.PreventDefault || pd
+		opts.PreventDefault = opts.PreventDefault || pd || entry.Options.PreventWhen.Match(ev)
 		opts.StopPropagation = opts.StopPropagation || sp
 	}()
 	// Batched: a handler that writes several signals notifies each once, after
@@ -142,15 +154,28 @@ func (r *NodeRegistry) Dispatch(nodeID int, event string, dataJSON string) (opts
 
 // listen is the mutation that tells the runtime a node has (on) or no longer
 // has a handler for event, so it calls into Go only for nodes that do (#132).
-func listen(nodeID int, event string, on bool) core.Mutation {
-	return core.Mutation{Type: core.MutListen, NodeID: nodeID, Key: event, Value: on}
+// A handler with a PreventDefaultWhen condition sends its spec instead of
+// true, so the runtime can cancel the default action itself (#158).
+func listen(nodeID int, event string, on bool, opts core.HandlerOptions) core.Mutation {
+	var v any = on
+	if spec := opts.PreventWhen.Spec(); on && spec != "" {
+		v = spec
+	}
+	return core.Mutation{Type: core.MutListen, NodeID: nodeID, Key: event, Value: v}
+}
+
+// listenChanged reports whether the runtime must be told about hd on id: it
+// is new there, or its PreventDefaultWhen condition changed.
+func (r *NodeRegistry) listenChanged(id int, hd core.Handler) bool {
+	old, ok := r.Options(id, hd.Event)
+	return !ok || old.PreventWhen != hd.Options.PreventWhen
 }
 
 // registerHandlers registers an element's handlers and tells the runtime.
 func (r *DOMRenderer) registerHandlers(id int, handlers []core.Handler) {
 	for _, hd := range handlers {
-		if !r.Registry.Has(id, hd.Event) {
-			*r.muts = append(*r.muts, listen(id, hd.Event, true))
+		if r.Registry.listenChanged(id, hd) {
+			*r.muts = append(*r.muts, listen(id, hd.Event, true, hd.Options))
 		}
 		r.Registry.RegisterHandler(id, hd.Event, hd.Fn, hd.Options)
 	}

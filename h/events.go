@@ -17,6 +17,24 @@ func StopPropagation() HandlerOption {
 	return func(o *core.HandlerOptions) { o.StopPropagation = true }
 }
 
+// PreventDefaultWhen cancels the event's default action when it matches f.
+// The browser runtime decides it before any Go code runs, from the event
+// alone, so it works where a handler's e.PreventDefault() can't take effect
+// (an app running in a Web Worker, #158), and it reads as what it is:
+//
+//	A(Href(url), OnClick(open), PreventDefaultWhen(PlainClick())) // Ctrl/Cmd-click still opens a tab
+//	Textarea(OnKeyDownE(send), PreventDefaultWhen(KeyIs("Enter").Without(core.ModShift)))
+//	Div(OnDragOver(over), PreventDefaultWhen(CarriesFiles()))     // accept file drops
+func PreventDefaultWhen(f core.EventFilter) HandlerOption {
+	return func(o *core.HandlerOptions) { o.PreventWhen = f }
+}
+
+// PlainClick, KeyIs and CarriesFiles build the conditions for
+// PreventDefaultWhen; see core.EventFilter.
+func PlainClick() core.EventFilter          { return core.PlainClick() }
+func KeyIs(keys ...string) core.EventFilter { return core.KeyIs(keys...) }
+func CarriesFiles() core.EventFilter        { return core.CarriesFiles() }
+
 func On(event string, fn func(core.EventData), opts ...HandlerOption) core.Item {
 	h := core.Handler{Event: event, Fn: fn}
 	for _, o := range opts {
@@ -143,9 +161,10 @@ func dataText(e core.EventData) string {
 }
 
 // OnDragEnter, OnDragOver and OnDragLeave make a drop zone: the browser only
-// allows a drop on an element whose dragover handler calls PreventDefault.
-// e.DataTypes() says what is being dragged ("Files" for files); the files
-// themselves arrive with the drop.
+// allows a drop on an element whose dragover default is cancelled. For a file
+// drop zone, give OnDragOver PreventDefaultWhen(CarriesFiles()); or call
+// e.PreventDefault() after looking at e.DataTypes() ("Files" for files). The
+// files themselves arrive with the drop.
 func OnDragEnter(fn func(core.EventData), opts ...HandlerOption) core.Item {
 	return On("dragenter", fn, opts...)
 }
@@ -159,20 +178,15 @@ func OnDragLeave(fn func(core.EventData), opts ...HandlerOption) core.Item {
 }
 
 // OnDrop handles a drop: e.Files() (dropped files), e.DataText(),
-// e.DataTypes(), and the pointer position. Call e.PreventDefault() to keep the
-// browser from opening a dropped file itself. The element must also accept
-// the drop with an OnDragOver that calls PreventDefault:
+// e.DataTypes(), and the pointer position. The drop's default (the browser
+// opening a dropped file itself) must be cancelled, and the element must
+// accept the drop with an OnDragOver whose default is cancelled for files:
 //
 //	Div(Class("dropzone"),
-//	    OnDragOver(func(e core.EventData) {
-//	        if slices.Contains(e.DataTypes(), "Files") {
-//	            e.PreventDefault()
-//	        }
-//	    }),
+//	    OnDragOver(func(core.EventData) {}, PreventDefaultWhen(CarriesFiles())),
 //	    OnDrop(func(e core.EventData) {
-//	        e.PreventDefault()
 //	        go upload(e.Files())
-//	    }),
+//	    }, PreventDefault()),
 //	)
 func OnDrop(fn func(core.EventData), opts ...HandlerOption) core.Item {
 	return On("drop", fn, opts...)

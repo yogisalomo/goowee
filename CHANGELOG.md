@@ -13,6 +13,13 @@ time. The public surface freezes under semver at v1.
 
 ### Added
 
+- `h.PreventDefaultWhen(f)` cancels an event's default action when it
+  matches `f`, decided by the browser runtime before any Go code runs (#158,
+  phase 3): `h.PlainClick()`, `h.KeyIs(keys...)` with `.With`/`.Without`
+  modifiers (never while an IME composes) and `h.CarriesFiles()`, built on
+  `core.EventFilter` (whose `Match` is the same test in Go). Router links use
+  it instead of a dynamic `e.PreventDefault()`, so Ctrl/Cmd-click still opens a
+  tab; `gooweetest` reports the same "prevented" as the browser.
 - `goowee new --ssr` generates a server that serves the `goowee build` output
   the way production wants it (#166). `server/static.go` sends hashed files
   as `immutable`, everything else with `no-cache` and an ETag (a 304 when
