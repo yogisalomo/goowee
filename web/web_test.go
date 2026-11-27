@@ -8,7 +8,7 @@ import (
 )
 
 func TestRuntimeJSHasProtocolMarker(t *testing.T) {
-	if !strings.Contains(string(RuntimeJS()), "goowee.protocolVersion = 1;") {
+	if !strings.Contains(string(RuntimeJS()), "goowee.protocolVersion = 2;") {
 		t.Fatal("embedded goowee.js has no protocolVersion marker")
 	}
 }

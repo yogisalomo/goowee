@@ -101,7 +101,7 @@ try {
       await waitFor(`${hydrated}`, "hydrate " + p);
       await sleep(200);
       check(mismatches.length === before, `${p}: hydration mismatch: ${mismatches.slice(before).join("; ")}`);
-      check(await ev(`goowee.serverRendered() && !!document.querySelector('#root [data-node-id]')`), `${p} wasn't hydrated`);
+      check(await ev(`goowee.serverRendered() && document.getElementById('root')._goServer === true`), `${p} wasn't hydrated`);
     }
   }
   await send("Page.navigate", { url: base + "/" });

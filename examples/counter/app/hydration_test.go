@@ -2,61 +2,35 @@ package app
 
 import (
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/internal/dom"
+	"github.com/yogisalomo/goowee/internal/hydratetest"
 	"github.com/yogisalomo/goowee/internal/runtime"
 	"github.com/yogisalomo/goowee/router"
 	"github.com/yogisalomo/goowee/ssr"
 )
 
-var (
-	reElemID = regexp.MustCompile(`<([a-z0-9]+) data-node-id="(\d+)"`)
-	reTextID = regexp.MustCompile(`<!--g(\d+)-->`)
-	reAnchor = regexp.MustCompile(`<!--/(\d+)-->`) // scope end anchors
-)
-
-// ssrIDKinds parses the id -> kind map the SSR walker produced: elements carry
-// data-node-id, text nodes carry a <!--g{id}--> marker.
-func ssrIDKinds(html string) map[int]string {
-	out := map[int]string{}
-	for _, m := range reElemID.FindAllStringSubmatch(html, -1) {
-		id, _ := strconv.Atoi(m[2])
-		out[id] = m[1]
-	}
-	for _, m := range reTextID.FindAllStringSubmatch(html, -1) {
-		id, _ := strconv.Atoi(m[1])
-		out[id] = "#text"
-	}
-	for _, m := range reAnchor.FindAllStringSubmatch(html, -1) {
-		id, _ := strconv.Atoi(m[1])
-		out[id] = "#comment"
-	}
-	return out
+// hydrateMuts is the client's hydrating render of page: the Hydrate
+// mutations it sends to claim the server's markup. Rendered under EnvServer
+// so component effects don't run (the stopwatch's ticker).
+func hydrateMuts(page func() core.Node) []core.Mutation {
+	var muts []core.Mutation
+	runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
+		r := dom.New()
+		r.SetHydrating(true)
+		muts, _ = r.Render(page())
+	})
+	return muts
 }
 
-// domIDKinds is the id -> kind map the DOM walker produced, from its
-// CreateElement mutations.
-func domIDKinds(muts []core.Mutation) map[int]string {
-	out := map[int]string{}
-	for _, m := range muts {
-		if m.Type == core.MutCreateElement {
-			out[m.NodeID] = m.Val().(string)
-		}
-	}
-	return out
-}
-
-// Hydration reuses server-rendered nodes by id, which only works if the SSR
-// and DOM walkers assign the SAME id to the SAME node. This asserts that
-// invariant for every example page — elements and text alike. Rendered under
-// EnvServer on both sides so component effects don't run (ids don't depend on
-// env, and this keeps the stopwatch's ticker from spawning).
-func TestSSRDOMIDParity(t *testing.T) {
+// Hydration claims the server's nodes in document order (ADR-033), which only
+// works if the client walks the same tree the server rendered. This asserts
+// it for every example page: each Hydrate lands on a server node of the kind
+// it expects, elements, text and scope anchors alike.
+func TestSSRHydrationParity(t *testing.T) {
 	r := testRouter()
 	pages := map[string]func() core.Node{
 		"home":      homePage,
@@ -71,43 +45,22 @@ func TestSSRDOMIDParity(t *testing.T) {
 	for name, page := range pages {
 		t.Run(name, func(t *testing.T) {
 			html, _ := ssr.New().Render(page())
-
-			var domMuts []core.Mutation
-			runtime.UseContext(runtime.NewRenderContext(runtime.EnvServer), func() {
-				domMuts, _ = dom.New().Render(page())
-			})
-
-			ssrMap := ssrIDKinds(html)
-			domMap := domIDKinds(domMuts)
-
-			if len(ssrMap) == 0 || len(domMap) == 0 {
-				t.Fatalf("no nodes parsed (ssr=%d dom=%d)", len(ssrMap), len(domMap))
-			}
-			if len(ssrMap) != len(domMap) {
-				t.Fatalf("node count mismatch: ssr=%d dom=%d\nssr=%v\ndom=%v",
-					len(ssrMap), len(domMap), sortedKinds(ssrMap), sortedKinds(domMap))
-			}
-			for id, kind := range domMap {
-				if ssrMap[id] != kind {
-					t.Fatalf("id %d: dom=%q ssr=%q (parity broken -> hydration would reuse the wrong node)\nssr=%v\ndom=%v",
-						id, kind, ssrMap[id], sortedKinds(ssrMap), sortedKinds(domMap))
+			muts := hydrateMuts(page)
+			claims := 0
+			for _, m := range muts {
+				if m.Type == core.MutHydrate {
+					claims++
 				}
+			}
+			claimed, mismatches := hydratetest.Claim(html, muts)
+			if claims == 0 {
+				t.Fatal("the client sent no Hydrate mutations")
+			}
+			if len(mismatches) > 0 || len(claimed) != claims {
+				t.Fatalf("%d of %d claims landed; %v\nhtml: %s", len(claimed), claims, mismatches, html)
 			}
 		})
 	}
-}
-
-func sortedKinds(m map[int]string) string {
-	ids := make([]int, 0, len(m))
-	for id := range m {
-		ids = append(ids, id)
-	}
-	sort.Ints(ids)
-	s := ""
-	for _, id := range ids {
-		s += strconv.Itoa(id) + ":" + m[id] + " "
-	}
-	return s
 }
 
 // applyHydrating mimics the browser hydration path: a CreateElement whose id
@@ -168,17 +121,18 @@ func TestHydrationReusesServerNodesNoDuplicates(t *testing.T) {
 	}
 }
 
-// SSR must emit a hydration marker for each text node, carrying the same id
-// the DOM walker will assign it.
-func TestSSRTextHydrationMarkers(t *testing.T) {
-	html, _ := ssr.New().Render(homePage()) // H1 with a "Welcome to Goowee" text node
-	markers := reTextID.FindAllStringSubmatch(html, -1)
-	if len(markers) == 0 {
-		t.Fatalf("expected text hydration markers in %q", html)
+// Server markup carries no node ids and no per-text markers (#141): it opens
+// with the hydration marker, and the client claims nodes by position.
+func TestSSRMarkupHasNoIDs(t *testing.T) {
+	html, _ := ssr.New().Render(homePage())
+	if !strings.HasPrefix(html, ssr.HydrationMarker) {
+		t.Fatalf("no hydration marker at the start: %q", html)
 	}
-	// The marker must sit immediately before its text content.
-	if !regexp.MustCompile(`<!--g\d+-->Welcome to Goowee`).MatchString(html) {
-		t.Fatalf("text marker not positioned before its content: %q", html)
+	if strings.Contains(html, "data-node-id") || regexp.MustCompile(`<!--g\d+-->`).MatchString(html) {
+		t.Fatalf("ids or text markers in the markup: %q", html)
+	}
+	if !strings.Contains(html, "<h1>Welcome to Goowee</h1>") {
+		t.Fatalf("heading not rendered plainly: %q", html)
 	}
 }
 

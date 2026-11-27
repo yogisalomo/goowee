@@ -9,6 +9,7 @@ import (
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/h"
 	"github.com/yogisalomo/goowee/internal/dom"
+	"github.com/yogisalomo/goowee/internal/hydratetest"
 )
 
 var session = core.NewContext("anonymous")
@@ -51,24 +52,15 @@ func TestContextSSRIsolation(t *testing.T) {
 	}
 }
 
-// Providers and consumers render the same ids on both sides, so the client
+// Providers and consumers render the same tree on both sides, so the client
 // hydrates the server's markup with the provided values in place.
 func TestContextHydrates(t *testing.T) {
 	html, _ := New().Render(sessionPage("ada"))
 	r := dom.New()
 	r.SetHydrating(true)
 	muts, _ := r.Render(sessionPage("ada"))
-	for _, m := range muts {
-		if m.Type != core.MutHydrate {
-			continue
-		}
-		if m.Val() == "#comment" {
-			if !strings.Contains(html, fmt.Sprintf("<!--/%d-->", m.NodeID)) {
-				t.Fatalf("scope anchor %d not in the server markup: %s", m.NodeID, html)
-			}
-		} else if m.Val() != "#text" && !strings.Contains(html, fmt.Sprintf(`data-node-id="%d"`, m.NodeID)) {
-			t.Fatalf("node %d (%v) not in the server markup: %s", m.NodeID, m.Val(), html)
-		}
+	if _, mismatches := hydratetest.Claim(html, muts); len(mismatches) > 0 {
+		t.Fatalf("hydration would not claim the server markup: %v\n%s", mismatches, html)
 	}
 	if !strings.Contains(html, ">ada<") || !strings.Contains(html, ">anonymous<") {
 		t.Fatalf("server markup: %s", html)

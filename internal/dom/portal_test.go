@@ -1,13 +1,13 @@
 package dom
 
 import (
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/yogisalomo/goowee/core"
 	"github.com/yogisalomo/goowee/h"
 	"github.com/yogisalomo/goowee/hooks"
+	"github.com/yogisalomo/goowee/internal/hydratetest"
 	"github.com/yogisalomo/goowee/internal/runtime"
 	"github.com/yogisalomo/goowee/ssr"
 )
@@ -205,13 +205,12 @@ func TestPortalAnchorKeepsHydrationIDParity(t *testing.T) {
 		r.SetHydrating(true)
 		muts, _ = r.Render(page())
 	})
-	var pID int
-	for _, m := range muts {
-		if m.Type == core.MutHydrate && m.Val() == "p" {
-			pID = m.NodeID
-		}
+	claimed, mismatches := hydratetest.Claim(html, muts)
+	var gotP bool
+	for _, n := range claimed {
+		gotP = gotP || n.Tag == "p"
 	}
-	if pID == 0 || !strings.Contains(html, `<p data-node-id="`+strconv.Itoa(pID)+`"`) {
-		t.Fatalf("client claims <p> as node %d; server HTML: %s", pID, html)
+	if len(mismatches) > 0 || !gotP {
+		t.Fatalf("the <p> after the portal isn't claimed (%v); server HTML: %s", mismatches, html)
 	}
 }

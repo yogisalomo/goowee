@@ -28,7 +28,7 @@ const goowee = (window.goowee = window.goowee || {});
 // The mutation protocol this runtime understands. bridge.Run compares it with
 // core.ProtocolVersion before mounting: a mismatch means this page serves an
 // older goowee.js, which would misapply mutations from the linked binary.
-goowee.protocolVersion = 1;
+goowee.protocolVersion = 2;
 goowee.protocolMismatch = function protocolMismatch(appVersion, appProtocol) {
     const page = goowee.protocolVersion;
     const err = bootError(
@@ -142,7 +142,8 @@ function markOnce(name) {
 // would submit natively, and text typed into a bound input would stay out of
 // its signal. From the moment goowee.js loads (in <head>, before the body is
 // parsed) until the first frame, clicks, keydowns and submits on server
-// markup ([data-node-id]) are queued (up to 100), and a submit is held back.
+// markup (inside a container that opens with <!--goowee-->) are queued (up to
+// 100), and a submit is held back.
 // After the first frame, form controls whose state differs from the server's
 // are announced to Go as input and change events, so bound signals take what
 // the user typed or ticked, and then the queued events are dispatched in
@@ -155,9 +156,17 @@ const EARLY_TYPES = ["click", "keydown", "submit"];
 
 function captureEarly(e) {
     const t = e.target;
-    if (!early.active || !t || typeof t.closest !== "function" || !t.closest("[data-node-id]")) return;
+    if (!early.active || !t || !inServerMarkup(t)) return;
     if (e.type === "submit") e.preventDefault();
     if (early.queue.length < 100) early.queue.push(e);
+}
+
+// inServerMarkup reports whether node is inside a server-rendered container.
+function inServerMarkup(node) {
+    for (let el = node; el; el = el.parentNode) {
+        if (el._goServer || (el.nodeType === 1 && hasServerMarkup(el))) return true;
+    }
+    return false;
 }
 
 function startEarly() {
@@ -179,7 +188,7 @@ function finishEarly() {
     const queue = stopEarly();
     const roots = new Set(Object.values(rootContainers));
     if (getRoot()) roots.add(getRoot());
-    for (const root of roots) if (root.querySelector("[data-node-id]")) adoptFormState(root);
+    for (const root of roots) if (root._goServer) adoptFormState(root);
     for (const e of queue) {
         const t = e.target;
         if (!t || !t.isConnected) continue; // the page it belonged to is gone
@@ -420,7 +429,10 @@ goowee.bootTimings = function bootTimings() {
     };
 };
 
-const preexistingNodes = {};
+// hydrationRoots are the server-rendered containers being claimed, each with
+// a cursor through its nodes in document order (ADR-033). A root's node ids
+// are the ones after its base: a Hydrate's id says which root it belongs to.
+const hydrationRoots = [];
 let hydrated = false;
 
 // Collect server-rendered nodes for reuse, the first time mutations are
@@ -431,16 +443,18 @@ let hydrated = false;
 // belongs to the app: whatever the page put there (a "Loading…" splash shown
 // while the WASM downloads) is removed here, in the same task that appends
 // the app's first frame, so nothing paints in between. "Server-rendered" is
-// decided exactly as bridge.Run decides it: a [data-node-id] in the document.
+// decided exactly as bridge.Run decides it: #root opens with <!--goowee-->.
 // serverRendered reports whether the document holds server markup for this
-// page, to hydrate: goowee's node ids are present, and a prerendered page
-// (ssr.Export marks it with <meta name="goowee-prerendered">) was rendered
-// for the current path. A static host serves its 404.html, prerendered for a
-// path nothing matches, for every URL it has no file for, including a valid
-// page nobody prerendered; that markup is another page's, so the app renders
-// on the client instead. bridge.Run asks the same question.
+// page, to hydrate: #root opens with goowee's marker comment, and a
+// prerendered page (ssr.Export marks it with <meta name="goowee-prerendered">)
+// was rendered for the current path. A static host serves its 404.html,
+// prerendered for a path nothing matches, for every URL it has no file for,
+// including a valid page nobody prerendered; that markup is another page's,
+// so the app renders on the client instead. bridge.Run asks the same question.
 goowee.serverRendered = function serverRendered() {
-    if (!document.querySelector("[data-node-id]")) return false;
+    const root = getRoot();
+    // After hydration the marker is gone; the claimed root remembers.
+    if (!hasServerMarkup(root) && !(root && root._goServer)) return false;
     const meta = document.querySelector('meta[name="goowee-prerendered"]');
     if (!meta) return true;
     const norm = function (p) {
@@ -452,41 +466,86 @@ goowee.serverRendered = function serverRendered() {
     return norm(meta.getAttribute("content") || "") === norm(here);
 };
 
-// claimServerNodes collects the server-rendered nodes inside container so the
-// first frame's Hydrate mutations can claim them. base is added to the ids
-// the markup carries: an island is server-rendered on its own (ids from 1),
-// while the client numbers every root's nodes from one counter (#154).
-function claimServerNodes(container, base) {
-    container.querySelectorAll("[data-node-id]").forEach(el => {
-        preexistingNodes[base + parseInt(el.getAttribute("data-node-id"), 10)] = el;
-    });
+// hasServerMarkup reports whether container holds a server render: its first
+// node, after any whitespace, is the <!--goowee--> marker ssr writes.
+function hasServerMarkup(container) {
+    for (let n = container && container.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3 && !n.data.trim()) continue;
+        return n.nodeType === 8 && n.data === "goowee";
+    }
+    return false;
+}
+goowee._hasServerMarkup = hasServerMarkup; // bridge.Mount asks it of an island
 
-    // Text nodes can't carry attributes; SSR marks each with a preceding
-    // <!--g{id}--> comment. Claim the comment's next sibling, then drop the
-    // marker so the live DOM matches the client tree. Scope end anchors are
-    // <!--/{id}--> comments that stay in the DOM: claim the comment itself.
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_COMMENT);
-    const markers = [];
-    while (walker.nextNode()) {
-        const data = walker.currentNode.data;
-        let m = /^g(\d+)$/.exec(data);
-        if (m) { markers.push([base + parseInt(m[1], 10), walker.currentNode]); continue; }
-        m = /^\/(\d+)$/.exec(data);
-        if (m) preexistingNodes[base + parseInt(m[1], 10)] = walker.currentNode;
+// claimServerNodes starts claiming the server-rendered nodes in container.
+// Go walks the same tree the server rendered and sends one Hydrate per node,
+// in document order; each claims the next server node (claimNext). ids from
+// base on belong to this root (an island's, #154).
+function claimServerNodes(container, base) {
+    container._goServer = true; // its form controls may hold early input (#131)
+    hydrationRoots.push({container: container, base: base, last: container, skip: false});
+    hydrationRoots.sort(function (a, b) { return a.base - b.base; });
+}
+
+// nextInOrder is the node after n in document order within container,
+// without entering n's children when skip is set.
+function nextInOrder(n, container, skip) {
+    if (!skip && n.firstChild) return n.firstChild;
+    while (n && n !== container) {
+        if (n.nextSibling) return n.nextSibling;
+        n = n.parentNode;
     }
-    for (const [id, comment] of markers) {
-        const next = comment.nextSibling;
-        if (next && next.nodeType === 3 /* TEXT_NODE */) {
-            preexistingNodes[id] = next;
-            comment.remove();
-        } else {
-            // An empty text node has no markup: the marker is all the server
-            // wrote (TextS of ""). Claim an empty text node in its place.
-            const empty = document.createTextNode("");
-            comment.replaceWith(empty);
-            preexistingNodes[id] = empty;
+    return null;
+}
+
+// claimNext claims the next server node for a Hydrate of id: the root's
+// cursor moves past the markers ssr writes (the opening <!--goowee-->, an
+// empty <!----> between adjacent texts, which the parser would otherwise
+// merge) and whitespace the page put around the render, and stops at the
+// node the client expects. <!--t--> stands for an empty text node. A node of
+// the wrong kind is a mismatch: it is reported and passed over, and the
+// client gets a bare node so the app keeps running.
+function claimNext(id, want, opaque) {
+    let root = null;
+    // A root's own ids start after its base (base + 1 is its first node).
+    for (const r of hydrationRoots) if (r.base < id) root = r;
+    const wantText = want === "#text", wantComment = want === "#comment";
+    let n = root ? nextInOrder(root.last, root.container, root.skip) : null;
+    while (n) {
+        const next = nextInOrder(n, root.container, true);
+        if (n.nodeType === 8 && (n.data === "goowee" || n.data === "")) {
+            n.remove(); n = next; continue;
         }
+        if (n.nodeType === 8 && n.data === "t" && wantText) {
+            const empty = document.createTextNode("");
+            n.replaceWith(empty);
+            n = empty;
+            break;
+        }
+        if (n.nodeType === 3 && !wantText && !n.data.trim()) { n = next; continue; }
+        break;
     }
+    const matches = n && (wantText ? n.nodeType === 3
+        : wantComment ? n.nodeType === 8 && n.data.charAt(0) === "/"
+        : n.nodeType === 1 && n.nodeName.toLowerCase() === want);
+    if (n) {
+        root.last = n;
+        root.skip = opaque || !matches;
+    }
+    if (matches) return n;
+    if (n) {
+        console.error(
+            "goowee: hydration mismatch at node " + id +
+            " — client expected <" + want + ">, server rendered <" +
+            (n.nodeType === 3 ? "#text" : n.nodeType === 8 ? "#comment" : n.nodeName.toLowerCase()) + ">. " +
+            "Render deterministic markup, or wrap non-deterministic content with h.Dynamic().");
+    } else {
+        console.error("goowee: no server node for " + id + " (<" + want +
+            ">). SSR/client structure diverged; creating it bare.");
+    }
+    return wantText ? document.createTextNode("")
+        : wantComment ? document.createComment("")
+        : document.createElement(want);
 }
 
 // goowee.mountRoot registers a root's container before Go renders into it.
@@ -502,11 +561,6 @@ goowee.mountRoot = function mountRoot(parentId, container, base, hydrate) {
         claimServerNodes(container, base);
         mark("goowee:hydrate-end");
         return;
-    }
-    if (parentId === 0) {
-        // Server markup for another page (a static host's 404.html, say)
-        // goes too, with its head metadata.
-        for (const el of document.head.querySelectorAll("[data-node-id]")) el.remove();
     }
     pendingClear.push(container);
 };
@@ -531,7 +585,6 @@ function hydrateOnce() {
     if (!goowee.serverRendered()) {
         // Server markup for another page (a static host's 404.html, say)
         // goes too, so the app's first frame starts from an empty page.
-        for (const el of document.querySelectorAll("[data-node-id]")) el.remove();
         root.replaceChildren();
         mark("goowee:hydrate-end");
         return;
@@ -1524,10 +1577,7 @@ function applyMutation(mut, b) {
     let el;
     switch (mut.type) {
         case 0: // CreateElement
-            if (preexistingNodes[mut.nodeId]) {
-                el = preexistingNodes[mut.nodeId];
-                delete preexistingNodes[mut.nodeId];
-            } else if (mut.value === "#text") {
+            if (mut.value === "#text") {
                 el = document.createTextNode("");
             } else if (mut.value === "#comment") {
                 el = document.createComment(""); // a scope's end anchor
@@ -1653,36 +1703,8 @@ function applyMutation(mut, b) {
             }
             break;
         }
-        case 7: { // Hydrate — claim a server-rendered node by id
-            const pre = preexistingNodes[mut.nodeId];
-            const wantText = mut.value === "#text";
-            const wantComment = mut.value === "#comment";
-            // The claimed node must match what the client expects; a wrong
-            // tag/type means the server and client rendered different trees.
-            const matches = pre && (wantText ? pre.nodeType === 3
-                : wantComment ? pre.nodeType === 8
-                : pre.nodeType === 1 && pre.nodeName.toLowerCase() === mut.value);
-            if (matches) {
-                el = pre;
-                delete preexistingNodes[mut.nodeId];
-            } else {
-                if (pre) {
-                    console.error(
-                        "goowee: hydration mismatch at node " + mut.nodeId +
-                        " — client expected <" + mut.value + ">, server rendered <" +
-                        (pre.nodeName || pre.nodeType).toString().toLowerCase() + ">. " +
-                        "Render deterministic markup, or wrap non-deterministic content with h.Dynamic().");
-                    delete preexistingNodes[mut.nodeId];
-                } else {
-                    console.error(
-                        "goowee: no server node for " + mut.nodeId + " (<" + mut.value +
-                        ">). SSR/client structure diverged; creating it bare.");
-                }
-                // Best-effort recovery so the app keeps running.
-                el = wantText ? document.createTextNode("")
-                    : wantComment ? document.createComment("")
-                    : document.createElement(mut.value);
-            }
+        case 7: { // Hydrate — claim the next server-rendered node (ADR-033)
+            el = claimNext(mut.nodeId, mut.value, mut.key === "opaque");
             el._nodeID = mut.nodeId;
             el._goHydrated = true; // don't replay an enter animation on hydration
             nodeMap[mut.nodeId] = el;

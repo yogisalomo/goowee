@@ -143,9 +143,9 @@ router falls through to its not-found route (`router.NotFound`), serves
 for paths you mark `ClientOnly`, and gzips the HTML. Lower level:
 `body, head := ssr.New().Render(node)`.
 
-The client detects the server-rendered DOM (via `data-node-id` attributes) and
-**hydrates** — claiming existing nodes and wiring up handlers instead of
-rebuilding. See `../guides/concepts.md` for details.
+The client detects the server-rendered DOM (the body opens with a
+`<!--goowee-->` comment) and **hydrates**: it claims the existing nodes in
+order and wires up handlers instead of rebuilding. See `../guides/concepts.md` for details.
 
 ## Next steps
 

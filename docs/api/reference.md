@@ -490,9 +490,10 @@ router.NewURL(u *url.URL) *router.Router   // path + query from a request URL
 r.NotFound() bool                          // last Route render hit the 404 fallback
 ```
 
-The SSR renderer produces HTML with `data-node-id` attributes and text
-marker comments. The client-side `dom` renderer detects these during boot
-and hydrates instead of rebuilding.
+The SSR renderer produces plain HTML that opens with `<!--goowee-->`
+(`ssr.HydrationMarker`), with comments only for scope ends, adjacent and
+empty text. The client-side `dom` renderer detects the marker during boot
+and hydrates, claiming the server's nodes in order, instead of rebuilding.
 
 ---
 

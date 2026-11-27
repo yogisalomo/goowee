@@ -20,7 +20,7 @@ func TestSSRUsePersistRendersTheSignalsValue(t *testing.T) {
 		hooks.UsePersist(n, "n")
 		return h.P(h.Textf("%d", n))
 	}))
-	if !strings.Contains(body, "-->0</p>") || n.Get() != 0 {
+	if !strings.Contains(body, "<p>0</p>") || n.Get() != 0 {
 		t.Fatalf("n=%d body %s", n.Get(), body)
 	}
 }

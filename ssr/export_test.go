@@ -84,7 +84,7 @@ func TestExportCrawlsAndWritesEachPage(t *testing.T) {
 	home := read(t, dir, "index.html")
 	for _, s := range []string{
 		`<head><meta name="goowee-prerendered" content="/goowee/">`, // marked for its URL
-		`Home page`, `data-node-id=`, // a hydratable render
+		`Home page`, HydrationMarker, // a hydratable render
 		`href="/goowee/about"`, // links carry the base
 	} {
 		if !strings.Contains(home, s) {

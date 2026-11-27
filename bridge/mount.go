@@ -118,7 +118,7 @@ func mountInto(el js.Value, node core.Node, island bool) *Root {
 	if isRoot && !island {
 		hydrate = serverRendered()
 	} else {
-		hydrate = el.Call("querySelector", "[data-node-id]").Truthy()
+		hydrate = hasServerMarkup(el)
 	}
 	base := r.Walker.NextID() - 1
 	if fn := g.Get("mountRoot"); fn.Type() == js.TypeFunction {
