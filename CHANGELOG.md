@@ -13,6 +13,13 @@ time. The public surface freezes under semver at v1.
 
 ### Added
 
+- `goowee new --ssr` generates a server that serves the `goowee build` output
+  the way production wants it (#166). `server/static.go` sends hashed files
+  as `immutable`, everything else with `no-cache` and an ETag (a 304 when
+  unchanged), and the prebuilt `.br`/`.gz` the browser accepts. A missing
+  asset is a 404 rather than a rendered page. `goowee build` writes
+  `assets.json` with the hashed names, and the generated page reads it, so the
+  built server loads the hashed files and needs no edits.
 - `goowee build` takes `--web <dir>` (static files in place of `web/`, e.g.
   pages prerendered with `ssr.Export`) and `--no-compress` (no `.gz`/`.br`, for
   hosts that compress on their own), and builds a main package anywhere inside

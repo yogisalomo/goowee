@@ -2,7 +2,8 @@
 // (ssr.Handler), which the browser then hydrates, and the static files.
 //
 // `goowee dev` runs it behind its dev server; `goowee build` builds it into
-// dist/ next to the static files.
+// dist/ next to the static files: run it as `dist/server -static dist/static`.
+// static.go serves those files precompressed and cacheable.
 package main
 
 import (
@@ -10,40 +11,41 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/yogisalomo/goowee/ssr"
 
 	"{{.Module}}/app"
 )
 
-func document(w io.Writer, head, body string) {
-	io.WriteString(w, `<!doctype html>
+// document is the page around each server-rendered body. The asset URLs come
+// from the build: hashed names after goowee build, plain ones under goowee dev.
+func document(static *staticFiles) func(w io.Writer, head, body string) {
+	return func(w io.Writer, head, body string) {
+		io.WriteString(w, `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 `+head+`
-<link rel="preload" href="/main.wasm" as="fetch" type="application/wasm" crossorigin>
+<link rel="preload" href="`+static.asset("main.wasm")+`" as="fetch" type="application/wasm" crossorigin>
 <link rel="stylesheet" href="/style.css">
-<script src="/wasm_exec.js"></script><script src="/goowee.js"></script>
-</head><body><div id="root">`+body+`</div><script>goowee.boot({wasm: "/main.wasm"});</script></body></html>
+<script src="`+static.asset("wasm_exec.js")+`"></script><script src="`+static.asset("goowee.js")+`"></script>
+</head><body><div id="root">`+body+`</div><script>goowee.boot({wasm: "`+static.asset("main.wasm")+`"});</script></body></html>
 `)
+	}
 }
 
 func main() {
 	addr := flag.String("addr", "localhost:8080", "listen address")
-	static := flag.String("static", "web", "directory with main.wasm, wasm_exec.js and the other static files")
+	dir := flag.String("static", "web", "directory with main.wasm, wasm_exec.js and the other static files (dist/static after goowee build)")
 	flag.Parse()
 
-	files := http.FileServer(http.Dir(*static))
-	pages := ssr.Handler(ssr.HandlerOptions{Page: ssr.RoutedPage(app.App), Document: document})
+	static := newStaticFiles(*dir)
+	pages := ssr.Handler(ssr.HandlerOptions{Page: ssr.RoutedPage(app.App), Document: document(static)})
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if fi, err := os.Stat(filepath.Join(*static, filepath.Clean("/"+r.URL.Path))); err == nil && !fi.IsDir() {
-			if strings.HasSuffix(r.URL.Path, ".wasm") {
-				w.Header().Set("Content-Type", "application/wasm")
-			}
-			files.ServeHTTP(w, r)
+		if static.serve(w, r) {
+			return
+		}
+		if missingAsset(r) {
+			http.NotFound(w, r)
 			return
 		}
 		pages.ServeHTTP(w, r)

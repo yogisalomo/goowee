@@ -138,6 +138,19 @@ on the fly when the client sends `Accept-Encoding: gzip`; the live demo already
 serves the binary at ~1.1 MB. Nothing to configure. (Pages does gzip, not brotli,
 for wasm.)
 
+**A project from `goowee new --ssr` — built in.** `goowee build` writes
+`dist/static` with content-hashed `main.<hash>.wasm`, `goowee.js` and
+`wasm_exec.js`, their `.gz` (and `.br`, when the `brotli` command is installed)
+siblings, and `assets.json`, which maps each plain name to its hashed one. Run
+`dist/server -static dist/static`. The generated `server/static.go` serves the
+hashed files with `Cache-Control: public, max-age=31536000, immutable`, so a
+repeat visit downloads no WASM at all. It sends the precompressed sibling the
+browser accepts (brotli first), and gives everything else `no-cache` with an
+ETag, so an unchanged file costs a 304. A request for a missing asset
+(`.wasm`, `.js`, `.css`, images, fonts) is a 404 rather than a rendered page.
+The page `server/main.go` writes reads the hashed names from `assets.json`.
+Both files are yours to change.
+
 **The reference SSR server (`cmd/ssr-server`) — built in.** It gzips the wasm
 (cached, compressed once at max level, invalidated on rebuild), the JS/CSS, and
 the SSR HTML whenever the client accepts gzip. Brotli isn't in Go's standard

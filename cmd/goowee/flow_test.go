@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -131,6 +132,92 @@ func checkFlow(t *testing.T, ssr bool) {
 		}
 		if !ssr && !strings.Contains(string(index), "/"+hashed) {
 			t.Fatalf("index.html doesn't refer to %s", hashed)
+		}
+	}
+	if ssr {
+		checkBuiltServer(t, res)
+	}
+}
+
+// checkBuiltServer runs the SSR template's server on the build output and
+// checks how it serves it (#166): pages refer to the hashed files, which are
+// immutable and precompressed; other files revalidate with an ETag; a missing
+// asset is a 404, not a page.
+func checkBuiltServer(t *testing.T, res *buildResult) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	cmd := execCommand(res.server, "-addr", addr, "-static", res.static)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cmd.Process.Kill(); cmd.Wait() }()
+	base := "http://" + addr
+	waitFor(t, "the built server", func() bool {
+		c, err := net.Dial("tcp", addr)
+		if err == nil {
+			c.Close()
+		}
+		return err == nil
+	})
+	fetch := func(path string, header ...string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest("GET", base+path, nil)
+		for i := 0; i+1 < len(header); i += 2 {
+			req.Header.Set(header[i], header[i+1])
+		}
+		resp, err := http.DefaultTransport.RoundTrip(req) // no transparent gzip
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return resp
+	}
+
+	wasm := res.names["main.wasm"]
+	page, err := http.Get(base + "/about")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	for _, asset := range []string{"main.wasm", "goowee.js", "wasm_exec.js"} {
+		if !strings.Contains(string(body), `"/`+res.names[asset]+`"`) {
+			t.Errorf("the rendered page doesn't load %s:\n%s", res.names[asset], body)
+		}
+	}
+
+	r := fetch("/"+wasm, "Accept-Encoding", "gzip, deflate, br")
+	if r.StatusCode != 200 || r.Header.Get("Content-Type") != "application/wasm" ||
+		!strings.Contains(r.Header.Get("Cache-Control"), "immutable") {
+		t.Errorf("hashed wasm: %d %v", r.StatusCode, r.Header)
+	}
+	want := "gzip"
+	if res.brotli {
+		want = "br"
+	}
+	if got := r.Header.Get("Content-Encoding"); got != want || r.Header.Get("Vary") != "Accept-Encoding" {
+		t.Errorf("hashed wasm: Content-Encoding %q (want %q), Vary %q", got, want, r.Header.Get("Vary"))
+	}
+	if r := fetch("/"+wasm, "Accept-Encoding", "gzip;q=0, br;q=0"); r.Header.Get("Content-Encoding") != "" {
+		t.Errorf("an encoding refused with q=0 was sent: %v", r.Header)
+	}
+
+	css := fetch("/style.css")
+	tag := css.Header.Get("ETag")
+	if css.StatusCode != 200 || css.Header.Get("Cache-Control") != "no-cache" || tag == "" {
+		t.Errorf("style.css: %d %v", css.StatusCode, css.Header)
+	}
+	if r := fetch("/style.css", "If-None-Match", tag); r.StatusCode != http.StatusNotModified {
+		t.Errorf("style.css revalidation: %d, want 304", r.StatusCode)
+	}
+	for _, missing := range []string{"/main.wasm", "/nope.js"} {
+		if r := fetch(missing); r.StatusCode != http.StatusNotFound {
+			t.Errorf("%s: %d, want 404 (not a page)", missing, r.StatusCode)
 		}
 	}
 }
