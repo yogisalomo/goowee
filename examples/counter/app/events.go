@@ -9,7 +9,7 @@ import (
 
 // eventsPage demonstrates the event model: bubbling and StopPropagation,
 // events that don't bubble (mouseenter, invalid), a handler that decides to
-// prevent the default action, and event data (wheel deltas).
+// prevent the default action, and event data (wheel deltas, a toggle's state).
 func eventsPage(r *router.Router) core.Node {
 	return core.Component("EventsPage", func() core.Node {
 		cardClicks, setCardClicks := hooks.UseState(0)
@@ -20,6 +20,7 @@ func eventsPage(r *router.Router) core.Node {
 		draft, setDraft := hooks.UseState("")
 		sent, setSent := hooks.UseState("")
 		wheel, setWheel := hooks.UseState(0.0)
+		detailsOpen, setDetailsOpen := hooks.UseState(false)
 
 		hoverText := core.Computed([]core.SignalAccessor{hovering}, func() string {
 			if hovering.Get() {
@@ -65,6 +66,11 @@ func eventsPage(r *router.Router) core.Node {
 			Div(Class("demo-row wheel-zone"),
 				OnWheel(func(e core.EventData) { setWheel(e.DeltaY()) }),
 				Textf("Wheel deltaY: %v", wheel)),
+
+			Details(Class("demo-row event-details"), OnToggle(setDetailsOpen),
+				Summary(Text("Open me")),
+				P(Text("toggle doesn't bubble, and its event says which way it went."))),
+			P(Class("details-state"), Textf("Details open: %v", detailsOpen)),
 		)
 		return lessonLayout(r, "Events",
 			"Handlers bubble from the element you interact with up through its ancestors, like the DOM. A handler can stop that, or cancel the browser's default action, while it runs.",
@@ -75,6 +81,7 @@ func eventsPage(r *router.Router) core.Node {
 				"`mouseenter`/`mouseleave` and `invalid` don't bubble; goowee listens for them in the capture phase and delivers them to the element itself.",
 				"`e.PreventDefault()` is decided per event: Enter sends (no newline), Shift+Enter still inserts one.",
 				"Event data comes typed on `core.EventData`: `e.DeltaY()`, `e.ClientX()`, `e.PointerType()`, `e.Key()`, `e.CtrlKey()`, …",
+				"Events beyond the mouse and keyboard carry their data too: a toggle its new state, a dialog's close its returnValue, a video's timeupdate `e.CurrentTime()` and `e.Duration()`.",
 			),
 			tutorialStepNav(r, "/events"),
 		)
@@ -99,4 +106,10 @@ Textarea(OnKeyDownE(func(e core.EventData) {
     }
 }))
 
-Div(OnWheel(func(e core.EventData) { setWheel(e.DeltaY()) }))`
+Div(OnWheel(func(e core.EventData) { setWheel(e.DeltaY()) }))
+
+Details(OnToggle(setDetailsOpen), Summary(Text("Open me")))
+
+Video(Src("/intro.mp4"), OnTimeUpdate(func(e core.EventData) {
+    setAt(e.CurrentTime())                      // the position when it fired
+}))`

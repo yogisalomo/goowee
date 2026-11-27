@@ -292,6 +292,91 @@ func (e EventData) DeltaMode() int  { return int(e.num("deltaMode")) }
 func (e EventData) ScrollTop() float64  { return e.num("scrollTop") }
 func (e EventData) ScrollLeft() float64 { return e.num("scrollLeft") }
 
+// Media events (play, pause, timeupdate, ended, seeked, volumechange,
+// progress, loadedmetadata, …, and load/error on <video> and <audio>) carry
+// the element's playback state at the moment the event fired, so a handler
+// needn't read it back through a Ref:
+//
+//	Video(Src("/intro.mp4"), OnTimeUpdate(func(e core.EventData) {
+//	    setAt(e.CurrentTime())
+//	}))
+func (e EventData) CurrentTime() float64  { return e.num("currentTime") }
+func (e EventData) Paused() bool          { return e.flag("paused") }
+func (e EventData) Ended() bool           { return e.flag("ended") }
+func (e EventData) Seeking() bool         { return e.flag("seeking") }
+func (e EventData) Muted() bool           { return e.flag("muted") }
+func (e EventData) Volume() float64       { return e.num("volume") }
+func (e EventData) PlaybackRate() float64 { return e.num("playbackRate") }
+
+// ReadyState is the media element's readyState: 0 (nothing loaded) to 4
+// (enough to play through).
+func (e EventData) ReadyState() int { return int(e.num("readyState")) }
+
+// Duration is the media's length in seconds: 0 while it isn't known yet
+// (before loadedmetadata), and +Inf for a live stream.
+func (e EventData) Duration() float64 {
+	v, _ := e.Field("duration")
+	switch d := v.(type) {
+	case float64:
+		return d
+	case string:
+		if d == "Infinity" {
+			return math.Inf(1)
+		}
+	}
+	return 0
+}
+
+// TimeRange is one buffered span of a media element, in seconds.
+type TimeRange struct{ Start, End float64 }
+
+// Buffered is the media's buffered ranges, for a progress bar's loaded part
+// (the progress event fires as it grows).
+func (e EventData) Buffered() []TimeRange {
+	raw := e.list("buffered")
+	out := make([]TimeRange, 0, len(raw))
+	for _, item := range raw {
+		if r, ok := item.([]any); ok && len(r) == 2 {
+			out = append(out, TimeRange{toFloat(r[0]), toFloat(r[1])})
+		}
+	}
+	return out
+}
+
+// MediaError is the media element's error on an error event: the
+// MediaError code (1 aborted, 2 network, 3 decode, 4 source not supported)
+// and the browser's message. code is 0 when there is no media error.
+func (e EventData) MediaError() (code int, message string) {
+	return int(e.num("errorCode")), e.str("errorMessage")
+}
+
+// NewState and OldState are a toggle or beforetoggle event's states, "open"
+// or "closed" (a <details> element or a popover).
+func (e EventData) NewState() string { return e.str("newState") }
+func (e EventData) OldState() string { return e.str("oldState") }
+
+// ReturnValue is a <dialog>'s returnValue on close or cancel: the value of
+// the button that closed a method="dialog" form, or what close(v) was given.
+func (e EventData) ReturnValue() string { return e.str("returnValue") }
+
+// PropertyName is the CSS property a transition event is about, and
+// AnimationName the @keyframes name of an animation event. ElapsedTime is
+// the seconds the transition or animation had run, and PseudoElement is
+// "::before"/"::after" when it ran on one, else "".
+func (e EventData) PropertyName() string  { return e.str("propertyName") }
+func (e EventData) AnimationName() string { return e.str("animationName") }
+func (e EventData) ElapsedTime() float64  { return e.num("elapsedTime") }
+func (e EventData) PseudoElement() string { return e.str("pseudoElement") }
+
+// NaturalWidth and NaturalHeight are an <img>'s intrinsic size, on load.
+func (e EventData) NaturalWidth() float64  { return e.num("naturalWidth") }
+func (e EventData) NaturalHeight() float64 { return e.num("naturalHeight") }
+
+// InputData is the text an input or beforeinput event inserts, or the text
+// being composed on compositionstart/update/end (an IME). It is "" for
+// deletions and formatting (see InputType).
+func (e EventData) InputData() string { return e.str("data") }
+
 // Measurement is one row size reported by the runtime's ResizeObserver in a
 // goowee:rowmeasure event. Index is the row's position in the list at the time
 // it was measured.

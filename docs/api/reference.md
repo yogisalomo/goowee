@@ -194,12 +194,24 @@ OnMouseEnter(func()), OnMouseLeave(func())   // target only
 OnLoad(func()), OnError(func())              // <img>, <script>, media; target only
 OnPointerDown/OnPointerMove/OnPointerUp(func(core.EventData))
 OnWheel(func(core.EventData)), OnContextMenu(func(core.EventData))
+OnScrollEnd(func(scrollTop float64))         // target only
+OnBeforeInput(func(core.EventData))          // e.InputData(); PreventDefault rejects the edit
+OnToggle(func(open bool))                    // <details>, popover; target only
+OnClose(func(returnValue string)), OnCancel(func(core.EventData))   // <dialog>; target only
+OnTransitionEnd/OnAnimationEnd(func(core.EventData))               // bubble
+OnPlay/OnPause/OnEnded/OnTimeUpdate/OnSeeked/OnVolumeChange/OnLoadedMetadata(func(core.EventData))
+                                             // <video>, <audio>; target only
 On("type", func(core.EventData))             // any event type
 ```
 
 Handlers bubble through ancestors, innermost first; non-bubbling events
-(focus, blur, mouseenter/leave, invalid, load, error, media) reach the target
-only.
+(focus, blur, mouseenter/leave, invalid, load, error, toggle, dialog close
+and cancel, scrollend, media) reach the target only.
+
+Media events carry the playback state at the moment they fired, so a custom
+player needs no `Ref` reads to show it. `Duration()` is 0 until the metadata
+loads and `+Inf` for a live stream. Control playback through a Ref
+(`ref.Call("play")`) or `BindProp("currentTime", sig)`.
 
 **Full event data** — receive `core.EventData` with position, key, target, etc.:
 
@@ -223,6 +235,14 @@ e.FormValues() map[string]string        // submit
 e.Files() []core.File                   // file input change/input, paste, drop (not dragover)
 e.DataText() string                     // paste/drop: the text/plain data; cut/copy: the selection
 e.DataTypes() []string                  // paste/drag: "text/plain", "text/html", "Files", …
+e.InputData() string                    // input/beforeinput: inserted text; composition*: composed text
+e.CurrentTime(), e.Duration(), e.Volume(), e.PlaybackRate() float64   // media events
+e.Paused(), e.Ended(), e.Seeking(), e.Muted() bool, e.ReadyState() int
+e.Buffered() []core.TimeRange, e.MediaError() (code int, message string)
+e.NewState(), e.OldState() string       // toggle/beforetoggle: "open" or "closed"
+e.ReturnValue() string                  // dialog close/cancel
+e.PropertyName(), e.AnimationName(), e.PseudoElement() string, e.ElapsedTime() float64
+e.NaturalWidth(), e.NaturalHeight() float64   // <img> load
 
 // core.File: Name, Size, Type, LastModified; contents on demand.
 f.Bytes() ([]byte, error)               // blocks — call from a goroutine, apply via core.Schedule

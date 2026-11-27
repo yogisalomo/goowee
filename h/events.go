@@ -230,11 +230,95 @@ func OnContextMenu(fn func(core.EventData), opts ...HandlerOption) core.Item {
 }
 
 // OnLoad / OnError fire when an <img>, <script>, <iframe>, or media element
-// finishes loading or fails to.
+// finishes loading or fails to. For the event's data (an image's
+// e.NaturalWidth()/e.NaturalHeight() on load, a media element's
+// e.MediaError() on error) use On("load", …) or On("error", …).
 func OnLoad(fn func(), opts ...HandlerOption) core.Item {
 	return On("load", func(core.EventData) { fn() }, opts...)
 }
 
 func OnError(fn func(), opts ...HandlerOption) core.Item {
 	return On("error", func(core.EventData) { fn() }, opts...)
+}
+
+// OnScrollEnd runs fn with the final scroll position once scrolling settles
+// (scrollend: after the user lifts their finger, or a smooth scroll arrives).
+func OnScrollEnd(fn func(scrollTop float64), opts ...HandlerOption) core.Item {
+	return On("scrollend", func(e core.EventData) { fn(e.ScrollTop()) }, opts...)
+}
+
+// OnBeforeInput fires before a text field changes: e.InputData() is the text
+// about to be inserted and e.InputType() the kind of edit ("insertText",
+// "deleteContentBackward", "insertFromPaste", …). Call e.PreventDefault() to
+// reject the edit, e.g. a character a field doesn't allow.
+func OnBeforeInput(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("beforeinput", fn, opts...)
+}
+
+// OnToggle runs fn when a <details> element or a popover opens or closes,
+// with its new state.
+func OnToggle(fn func(open bool), opts ...HandlerOption) core.Item {
+	return On("toggle", func(e core.EventData) { fn(e.NewState() == "open") }, opts...)
+}
+
+// OnClose runs fn when a <dialog> closes, with its returnValue: the value of
+// the button that submitted its method="dialog" form, or what close(v) was
+// given.
+func OnClose(fn func(returnValue string), opts ...HandlerOption) core.Item {
+	return On("close", func(e core.EventData) { fn(e.ReturnValue()) }, opts...)
+}
+
+// OnCancel fires when the user dismisses a modal <dialog> (Escape). Call
+// e.PreventDefault() to keep it open, e.g. while a form has unsaved changes.
+func OnCancel(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("cancel", fn, opts...)
+}
+
+// OnTransitionEnd and OnAnimationEnd fire when a CSS transition or animation
+// on the element (or, as they bubble, on a descendant) finishes:
+// e.PropertyName() or e.AnimationName() says which one, e.ElapsedTime() how
+// long it ran.
+func OnTransitionEnd(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("transitionend", fn, opts...)
+}
+
+func OnAnimationEnd(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("animationend", fn, opts...)
+}
+
+// Media events on <video> and <audio>. Each carries the playback state at
+// the moment it fired: e.CurrentTime(), e.Duration(), e.Paused(),
+// e.Ended(), e.Volume(), e.Muted(), e.Buffered(), … Control playback through
+// a Ref (ref.Call("play"), ref.Call("pause")) or BindProp("currentTime", sig).
+// Other media events (waiting, playing, progress, ratechange, …) work the
+// same way through On.
+func OnPlay(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("play", fn, opts...)
+}
+
+func OnPause(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("pause", fn, opts...)
+}
+
+func OnEnded(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("ended", fn, opts...)
+}
+
+// OnTimeUpdate fires as the playback position moves (about four times a
+// second while playing) and after a seek.
+func OnTimeUpdate(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("timeupdate", fn, opts...)
+}
+
+func OnSeeked(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("seeked", fn, opts...)
+}
+
+func OnVolumeChange(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("volumechange", fn, opts...)
+}
+
+// OnLoadedMetadata fires once the media's duration and dimensions are known.
+func OnLoadedMetadata(fn func(core.EventData), opts ...HandlerOption) core.Item {
+	return On("loadedmetadata", fn, opts...)
 }

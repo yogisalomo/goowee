@@ -239,6 +239,47 @@ async function main() {
   // WheelEvent exercises the same listener → Go path.)
   await evalJS(`document.querySelector('.wheel-zone').dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:120}))`);
   await waitFor(`/Wheel deltaY: 120/.test(document.body.innerText)`, "wheel deltaY reached Go");
+  // #210: toggle doesn't bubble and carries its new state. A real click on
+  // the summary opens the <details>; Go hears "open" through OnToggle.
+  await clickText("summary", "Open me");
+  await waitFor(`/Details open: true/.test(document.body.innerText)`, "toggle's newState reached OnToggle");
+  await clickText("summary", "Open me");
+  await waitFor(`/Details open: false/.test(document.body.innerText)`, "toggle closed reached OnToggle");
+  // The runtime's event data for the other families, built from real events
+  // on real elements (buildPayload is what dispatch sends to Go).
+  const payloads = await evalJS(`(async () => {
+    const bp = goowee._buildPayload, out = {};
+    const v = document.createElement("video");
+    const vc = new Promise((res) => v.addEventListener("volumechange", res, {once: true}));
+    v.volume = 0.25;
+    out.media = bp("volumechange", await vc);
+    const d = document.createElement("dialog"); document.body.appendChild(d);
+    const dc = new Promise((res) => d.addEventListener("close", res, {once: true}));
+    d.show(); d.close("confirm");
+    out.close = bp("close", await dc); d.remove();
+    const img = document.createElement("img");
+    const il = new Promise((res) => img.addEventListener("load", res, {once: true}));
+    img.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="7" height="5"/>');
+    out.img = bp("load", await il);
+    const t = document.createElement("div");
+    const dispatch = (ev) => { t.addEventListener(ev.type, () => {}, {once: true}); t.dispatchEvent(ev); return bp(ev.type, ev); };
+    out.transition = dispatch(new TransitionEvent("transitionend", {propertyName: "opacity", elapsedTime: 0.3}));
+    out.animation = dispatch(new AnimationEvent("animationend", {animationName: "fade-in", elapsedTime: 1}));
+    out.beforeinput = dispatch(new InputEvent("beforeinput", {data: "x", inputType: "insertText"}));
+    out.composition = dispatch(new CompositionEvent("compositionend", {data: "日本"}));
+    out.toggle = dispatch(new ToggleEvent("toggle", {newState: "open", oldState: "closed"}));
+    return JSON.parse(JSON.stringify(out)); // what Go receives
+  })()`);
+  const m = payloads.media;
+  check(m.volume === 0.25 && m.currentTime === 0 && m.paused === true && m.duration === null
+    && m.readyState === 0 && Array.isArray(m.buffered), "media event data: " + JSON.stringify(m));
+  check(payloads.close.returnValue === "confirm", "dialog close returnValue: " + JSON.stringify(payloads.close));
+  check(payloads.img.naturalWidth === 7 && payloads.img.naturalHeight === 5, "image load size: " + JSON.stringify(payloads.img));
+  check(payloads.transition.propertyName === "opacity" && payloads.transition.elapsedTime === 0.3, "transitionend: " + JSON.stringify(payloads.transition));
+  check(payloads.animation.animationName === "fade-in", "animationend: " + JSON.stringify(payloads.animation));
+  check(payloads.beforeinput.data === "x" && payloads.beforeinput.inputType === "insertText", "beforeinput: " + JSON.stringify(payloads.beforeinput));
+  check(payloads.composition.data === "日本", "compositionend: " + JSON.stringify(payloads.composition));
+  check(payloads.toggle.newState === "open" && payloads.toggle.oldState === "closed", "toggle: " + JSON.stringify(payloads.toggle));
   // invalid doesn't bubble: submitting with an empty required field fires it.
   await clickText("button", "Submit");
   await waitFor(`/Invalid events: [1-9]/.test(document.body.innerText)`, "invalid reached OnInvalid");
