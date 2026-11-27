@@ -68,6 +68,9 @@ const waitText = async (sel, want, label) => { let t; for (let i = 0; i < 100; i
 const click = (sel) => ev(`document.querySelector(${JSON.stringify(sel)}).click()`);
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 
 // The cost of one event dispatch (click → Go handler → back), and of a frame
 // that applies one text update, as medians.
@@ -102,7 +105,9 @@ try {
     await click("#inc");
     await waitText("#inc", "n 1", tag + "a click updated the count");
     const viaCallback = await ev("__viaCallback");
-    check(mode === "exports" ? viaCallback === 0 : viaCallback === 1, `${tag}${viaCallback} clicks went through handleEvent`);
+    // (In worker mode Go's handleEvent lives in the worker, where this page's
+    // counter can't see it; goowee.calls above says which way it went.)
+    if (!WORKER) check(mode === "exports" ? viaCallback === 0 : viaCallback === 1, `${tag}${viaCallback} clicks went through handleEvent`);
     await click("#spawn");
     await waitText("#spawned", "spawned", tag + "a goroutine started in a handler ran with no further event");
     await click("#wake");
@@ -121,7 +126,7 @@ if (results.exports && results.callbacks) {
   console.log(`  event dispatch (click)    ${us(results.exports.event)}  ${us(results.callbacks.event)}`);
   console.log(`  frame, one text update    ${us(results.exports.frame)}  ${us(results.callbacks.frame)}`);
 }
-console.log(fail.length ? "CALLS CHECK FAIL:\n- " + fail.join("\n- ") : "CALLS CHECK PASS: events and frames through the exports, goroutines resume, re-entry past a memory growth, callbacks still work");
+console.log(fail.length ? "CALLS CHECK FAIL:\n- " + fail.join("\n- ") : "CALLS CHECK PASS" + (WORKER ? " (worker)" : "") + ": events and frames through the exports, goroutines resume, re-entry past a memory growth, callbacks still work");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });
 try { rmSync(profile, { recursive: true, force: true, maxRetries: 3 }); } catch {}

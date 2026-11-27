@@ -72,13 +72,10 @@ var overlayMounted bool
 // afterMount mounts the dev overlay as a root of its own once the app's
 // first root is mounted, in dev mode.
 func afterMount() {
-	if overlayMounted || !devtools.Enabled() || host.Worker() {
+	if overlayMounted || !devtools.Enabled() {
 		return
 	}
 	overlayMounted = true
-	body := host.Call("body")
-	el := body.Get("ownerDocument").Call("createElement", "div")
-	el.Set("id", "goowee-devtools")
-	body.Call("appendChild", el)
+	el := host.Call("overlayContainer")
 	mountInto(el, overlay.View(), false)
 }

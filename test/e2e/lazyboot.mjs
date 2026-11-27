@@ -75,6 +75,9 @@ const load = async (when) => {
   await waitFor(`document.querySelector("#state")?.textContent === "name=initial agreed=false clicks=0 submits=0"`, when + ": server-rendered page");
 };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 try {
   // interaction: nothing downloads until the user acts; the click that
   // starts the boot is handled once the app is live.

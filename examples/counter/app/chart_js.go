@@ -9,10 +9,17 @@ import (
 	"github.com/yogisalomo/goowee/core"
 )
 
+// chartUnavailable reports that drawBars can't draw: the app runs in a Web
+// Worker, which has no DOM elements (#158).
+func chartUnavailable() bool { return bridge.InWorker() }
+
 // drawBars paints values (0–100) as a bar chart on the <canvas> ref points at,
 // through the canvas 2D API — the same move as handing an element to a
 // JavaScript library, via bridge.Element.
 func drawBars(ref *core.Ref, values []int) {
+	if bridge.InWorker() {
+		return // no DOM element to draw on; the page shows a note instead
+	}
 	el := bridge.Element(ref)
 	if el.IsUndefined() || el.IsNull() {
 		return

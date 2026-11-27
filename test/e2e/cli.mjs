@@ -47,6 +47,9 @@ function cleanup() {
 
 try {
   await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
   // The first build runs as dev starts: wait for the server.
   for (let i = 0; i < 1200; i++) { try { if ((await fetch(`http://127.0.0.1:${PORT}/main.wasm`)).ok) break; } catch {} await sleep(100); }
   await send("Page.navigate", { url: `http://127.0.0.1:${PORT}/` });

@@ -558,12 +558,18 @@ func dashboardPage(r *router.Router) core.Node {
 			}
 			return v
 		}
-		hooks.OnMount(func() func() { drawBars(chart, values()); return nil })
+		// In worker mode there is no DOM element to draw on (#158): say so,
+		// after mount, so the server's markup still hydrates as rendered.
+		noChart, setNoChart := hooks.UseState(false)
+		hooks.OnMount(func() func() { setNoChart(chartUnavailable()); drawBars(chart, values()); return nil })
 		hooks.Watch([]core.SignalAccessor{data}, func() { drawBars(chart, values()) })
 
 		demo := Div(
 			P(Class("preview"), TextS(totalStr)),
 			Canvas(Class("bars"), RefTo(chart), Width("300"), Height("80"), AriaLabel("Values as bars")),
+			Show(noChart, func() core.Node {
+				return P(Class("chart-note"), Text("The chart draws through bridge.Element, which has no DOM element in worker mode."))
+			}),
 			Table(
 				Style("border-collapse:collapse;width:100%;max-width:500px;"),
 				Thead(

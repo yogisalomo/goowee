@@ -61,6 +61,9 @@ const waitText = async (sel, want, label) => { let t; for (let i = 0; i < 100; i
 const type = (value) => ev(`(() => { const el = document.querySelector("#draft"); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new InputEvent("input", {bubbles: true})); })()`);
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 const click = (sel) => ev(`document.querySelector(${JSON.stringify(sel)}).click()`);
 const loc = () => ev(`location.pathname + location.search + location.hash`);
 const waitLoc = async (want, label) => { let t; for (let i = 0; i < 100; i++) { t = await loc(); if (t === want) return; await sleep(50); } throw new Error(`timeout: ${label}: location ${t}, want ${want}`); };

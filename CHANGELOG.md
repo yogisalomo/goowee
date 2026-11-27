@@ -13,6 +13,13 @@ time. The public surface freezes under semver at v1.
 
 ### Added
 
+- Worker mode, phase 7 (#158): `goowee.inspect()` and `goowee.changes()`
+  return promises there and the dev overlay renders from the worker; islands,
+  `goowee/canvas` drawing and boot errors (a stale `goowee.js` found after
+  start, a wrong MIME type) work as on the main thread, and the worker's
+  console warnings and errors show in the page's console. `goowee.boot`'s
+  worker loads the page's own `wasm_exec.js` by default. Every E2E suite runs
+  in both modes.
 - Worker mode, phase 6 (#158): the router (push, replace, back and forward,
   popstate, scroll restoration, fragments, focus and announcement), storage
   and `goowee/net` work when Go runs in a worker. Storage reads answer from a
@@ -36,8 +43,9 @@ time. The public surface freezes under semver at v1.
   applies its batches and forwards events, deciding cancellation from the
   handlers' static options and `PreventDefaultWhen` filters. A dynamic
   `e.PreventDefault()` can't take effect there and logs a warning once per
-  event type. Not yet in worker mode: dev tools (phase 7), `bridge.Element`
-  (`bridge.InWorker()` reports the mode). `localStorage` "goowee-worker" = "1"
+  event type. Not available in worker mode: `bridge.Element` and app code
+  that reaches the DOM through `syscall/js` (`bridge.InWorker()` reports the
+  mode). `localStorage` "goowee-worker" = "1"
   turns it on without changing the page.
 - `h.PreventDefaultWhen(f)` cancels an event's default action when it
   matches `f`, decided by the browser runtime before any Go code runs (#158,
@@ -153,6 +161,9 @@ time. The public surface freezes under semver at v1.
 
 ### Fixed
 
+- Unmounting an `h.VirtualList` with measured rows threw in the runtime
+  (`MutationObserver` has no `unobserve`); it now stops watching that list and
+  keeps watching the others.
 - In dev mode, the inspector formatted every signal for its panel, and a
   value it couldn't format without `fmt` (such as `canvas.Fill`'s size)
   logged the "call core.UseFmt" warning and lit the overlay badge, though

@@ -65,6 +65,8 @@ URL="http://localhost:$PORT" GOOWEE_WORKER=1 node test/e2e/smoke.mjs
 
 echo "==> running devtools e2e"
 URL="http://localhost:$PORT" node test/e2e/devtools.mjs
+echo "==> running devtools e2e in worker mode (#158)"
+URL="http://localhost:$PORT" GOOWEE_WORKER=1 node test/e2e/devtools.mjs
 
 echo "==> running goowee/net e2e (fetch + WebSocket against a real server)"
 node test/e2e/net.mjs
@@ -78,6 +80,8 @@ GOOWEE_WORKER=1 node test/e2e/clipboard.mjs
 
 echo "==> running wasm MIME e2e (goowee.boot fallbacks and errors)"
 node test/e2e/wasmmime.mjs
+echo "==> running wasmmime e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/wasmmime.mjs
 
 echo "==> running worker e2e (the app in a Web Worker, #158)"
 node test/e2e/worker.mjs
@@ -89,31 +93,55 @@ GOOWEE_WORKER=1 node test/e2e/storage.mjs
 
 echo "==> running router e2e (back/forward, fragment, query URLs)"
 node test/e2e/router.mjs
+echo "==> running router e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/router.mjs
 
 echo "==> running early-interaction e2e (typing and clicks before the WASM boots)"
 node test/e2e/early.mjs
+echo "==> running early e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/early.mjs
 
 echo "==> running lazy-boot e2e (goowee.boot({when}): interaction, idle, visible)"
 node test/e2e/lazyboot.mjs
+echo "==> running lazyboot e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/lazyboot.mjs
 
 echo "==> running islands e2e (two goowee islands in a server-rendered page)"
 node test/e2e/islands.mjs
+echo "==> running islands e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/islands.mjs
 echo "==> running notes e2e (examples/notes: goowee/rpc end to end, with SSR)"
 node test/e2e/notes.mjs
+echo "==> running notes e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/notes.mjs
 echo "==> running calls check (events and frames through the WASM exports, #133)"
 node test/e2e/calls.mjs
+echo "==> running calls e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/calls.mjs
 echo "==> running runtime-version e2e (a stale goowee.js is rejected)"
 node test/e2e/version.mjs
+echo "==> running version e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/version.mjs
 
 echo "==> running transitions e2e (enter/leave classes, inert, no node leak)"
 node test/e2e/transitions.mjs
+echo "==> running transitions e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/transitions.mjs
 
 echo "==> running canvas e2e (goowee/canvas buffers on real canvases)"
 node test/e2e/canvas.mjs
+echo "==> running canvas e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/canvas.mjs
 
 echo "==> running ForList e2e (core.List operations in HTML and SVG)"
 node test/e2e/list.mjs
+echo "==> running list e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/list.mjs
 echo "==> running CLI e2e (goowee new + goowee dev: dev mode, reload, build errors)"
 node test/e2e/cli.mjs
+echo "==> running cli e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/cli.mjs
 echo "==> running virtual list e2e (100k rows, keyed state, scroll budget)"
 node test/e2e/virtual-list.mjs
+echo "==> running virtual-list e2e in worker mode (#158)"
+GOOWEE_WORKER=1 node test/e2e/virtual-list.mjs

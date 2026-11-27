@@ -71,6 +71,9 @@ async function main() {
 
   await send("Runtime.enable");
   await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
   await send("Page.navigate", { url: URL + "/?goowee-dev" });
 
   const evalJS = async (expr) => {
@@ -98,7 +101,9 @@ async function main() {
   const check = (cond, msg) => { if (!cond) fail.push(msg); };
 
   // --- Dev mode enabled + inspector API ---
-  await waitFor(`typeof goowee.inspect === 'function' && typeof goowee.inspectGo === 'function'`, "devtools wired");
+  // In worker mode the inspector lives in the worker; the page knows it's
+  // there, and inspect()/changes() return promises (evalJS awaits them).
+  await waitFor(`typeof goowee.inspect === 'function' && (typeof goowee.inspectGo === 'function' || goowee._workerInspector === true)`, "devtools wired");
   check(await evalJS(`goowee.devEnabled()`) === true, "goowee.devEnabled() should be true with ?goowee-dev");
 
   const snap = await evalJS(`goowee.inspect()`);
@@ -118,7 +123,7 @@ async function main() {
   check(await evalJS(heroCount) === "1", "counter did not update with dev mode");
 
   // --- Change log: the write, its values, and the code behind it ---
-  const lastChange = (name) => evalJS(`(goowee.changes() || []).filter((c) => c.name === ${JSON.stringify(name)}).pop() || null`);
+  const lastChange = (name) => evalJS(`(async () => ((await goowee.changes()) || []).filter((c) => c.name === ${JSON.stringify(name)}).pop() || null)()`);
   const inc = await lastChange("hero.count");
   check(inc && inc.from === "0" && inc.to === "1", "change log has hero.count 0 → 1: " + JSON.stringify(inc));
   if (process.env.TOOLCHAIN === "tinygo") {
@@ -135,7 +140,7 @@ async function main() {
   check(await evalJS(`location.pathname`) === "/tutorial", "tutorial path with dev mode");
   const nav = await lastChange("router.path");
   check(nav && nav.from === "/" && nav.to === "/tutorial", "change log has the navigation: " + JSON.stringify(nav));
-  check(Array.isArray(await evalJS(`goowee.changes({ clear: true })`)) && (await evalJS(`goowee.changes().length`)) === 0, "goowee.changes({ clear: true }) empties the log");
+  check(Array.isArray(await evalJS(`goowee.changes({ clear: true })`)) && (await evalJS(`(async () => (await goowee.changes()).length)()`)) === 0, "goowee.changes({ clear: true }) empties the log");
 
   // --- Structured recover.error_boundary log on /error ---
   consoleLogs.length = 0;
@@ -168,16 +173,16 @@ async function main() {
   await waitFor(`document.querySelectorAll('.goowee-dev-component').length > 0 && document.querySelectorAll('.goowee-dev-signal').length > 0`, "the inspector lists components and signals");
   check(await evalJS(`[...document.querySelectorAll('.goowee-dev-component')].some((e) => e.textContent.trim() === 'App')`), "the component tree has App");
   // Its own state stays out of the change log: switching tabs logs nothing.
-  const before = await evalJS(`goowee.changes().length`);
+  const before = await evalJS(`(async () => (await goowee.changes()).length)()`);
   await evalJS(`document.querySelector('.goowee-dev-tab[data-tab="warnings"]').click()`);
   await evalJS(`document.querySelector('.goowee-dev-tab[data-tab="inspector"]').click()`);
   await new Promise((r) => setTimeout(r, 700));
-  check(await evalJS(`goowee.changes().length`) === before, "the overlay's own clicks reached the change log");
+  check(await evalJS(`(async () => (await goowee.changes()).length)()`) === before, "the overlay's own clicks reached the change log");
   await evalJS(`document.querySelector('#goowee-dev-dismiss').click()`);
 
   if (consoleLogs.length) console.log("--- captured console ---\n" + consoleLogs.map((l) => `[${l.type}] ${l.text}`).join("\n"));
   if (fail.length) { console.log("DEVTOOLS E2E FAIL:\n- " + fail.join("\n- ")); process.exitCode = 1; }
-  else console.log("DEVTOOLS E2E PASS: inspector snapshot, named signals, change log, dev mode, structured error-boundary log, dev overlay.");
+  else console.log("DEVTOOLS E2E PASS" + (WORKER ? " (worker)" : "") + ": inspector snapshot, named signals, change log, dev mode, structured error-boundary log, dev overlay.");
 }
 
 main().catch((e) => {

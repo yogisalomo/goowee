@@ -54,6 +54,9 @@ const click = (sel) => ev(`document.querySelector(${JSON.stringify(sel)}).click(
 const clickLink = (t) => ev(`[...document.querySelectorAll("a")].find((a) => a.textContent === ${JSON.stringify(t)}).click()`);
 const mismatches = () => errors.filter((e) => /hydration mismatch|no server node/.test(e));
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 try {
   // Server-rendered: the page's markup arrives with the HTML.
   const html = await (await fetch(base + "/")).text();

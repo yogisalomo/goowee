@@ -61,6 +61,9 @@ const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 
 try {
   await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
   await send("Page.navigate", { url: `http://localhost:${PORT}/` });
   await waitFor(`!!document.getElementById('panel') && goowee.nodeCount() > 0`, "panel mounted");
   // Count handleEvent calls: a click on a leaving node must not reach Go.
