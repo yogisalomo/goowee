@@ -11,3 +11,7 @@ import "github.com/yogisalomo/goowee/core"
 func Run(app core.Node) {
 	panic("bridge.Run is only available in a GOOS=js GOARCH=wasm build")
 }
+
+// InWorker reports whether the app runs in a Web Worker; never, outside the
+// browser.
+func InWorker() bool { return false }

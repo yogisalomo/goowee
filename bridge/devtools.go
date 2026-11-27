@@ -72,7 +72,7 @@ var overlayMounted bool
 // afterMount mounts the dev overlay as a root of its own once the app's
 // first root is mounted, in dev mode.
 func afterMount() {
-	if overlayMounted || !devtools.Enabled() {
+	if overlayMounted || !devtools.Enabled() || host.Worker() {
 		return
 	}
 	overlayMounted = true

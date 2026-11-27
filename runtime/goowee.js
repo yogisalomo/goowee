@@ -23,7 +23,13 @@ function containerOf(id) {
 // Boot instrumentation (roadmap 3.2). All marks are one-shot and namespaced so
 // they never collide with app or browser marks, and SPA route changes don't
 // overwrite them. See docs/plans/boot-latency-measurement.md.
-const goowee = (window.goowee = window.goowee || {});
+const goowee = (globalThis.goowee = globalThis.goowee || {});
+
+// The same file is the Web Worker's script in worker mode (#158): there is no
+// document, and the worker section at the end of the file runs instead of
+// the page's boot. runtimeURL is this script's URL, for starting the worker.
+const inWorker = typeof document === "undefined";
+const runtimeURL = inWorker ? null : (document.currentScript && document.currentScript.src) || null;
 
 // The mutation protocol this runtime understands. bridge.Run compares it with
 // core.ProtocolVersion before mounting: a mismatch means this page serves an
@@ -36,6 +42,7 @@ goowee.protocolMismatch = function protocolMismatch(appVersion, appProtocol) {
         ", but main.wasm was built with goowee " + appVersion + " (protocol " + appProtocol +
         "). Copy the matching assets with: go run github.com/yogisalomo/goowee/cmd/goowee assets ./web"
     );
+    if (inWorker) { postMessage({t: "boot-error", message: err.message}); return; }
     goowee.bootError = err;
     releaseEarly();
     console.error(err.message);
@@ -242,7 +249,7 @@ if (typeof document !== "undefined") startEarly();
 // and history, scrolling and focus for the router, storage. Go reaches the
 // browser only through it (internal/host), so a worker can stand in for the
 // page later with the same methods over messages. These are the page's.
-goowee.host = {
+if (!inWorker) goowee.host = {
     worker: false,
     hydrating: function () { return goowee.serverRendered(); },
     root: function () { return document.getElementById("root"); },
@@ -405,33 +412,15 @@ function startBoot(opts) {
     // The resolved URL, for bootMetrics to find the download among the
     // resource timings (goowee build gives it a hashed name).
     try { bootWasmURL = new URL(wasmURL, document.baseURI).href; } catch (e) { bootWasmURL = null; }
+    if (workerMode(opts)) return bootWorker(opts);
     const go = new Go();
     mark("goowee:fetch-start");
-    const started = fetch(wasmURL)
-        .catch(function (err) {
-            throw bootError("couldn't download " + wasmURL + " (" + err + ")", err);
-        })
-        .then(function (resp) {
-            if (!resp.ok) {
-                throw bootError("downloading " + resp.url + " failed: HTTP " + resp.status + " " + resp.statusText);
-            }
-            const type = (resp.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-            if (type === "application/wasm" && typeof WebAssembly.instantiateStreaming === "function") {
-                return WebAssembly.instantiateStreaming(resp, go.importObject)
-                    .catch(function (err) { throw wasmError(resp.url, type, err); });
-            }
-            console.warn("goowee: " + resp.url + " is served as " + (type ? "'" + type + "'" : "no Content-Type") +
-                ", not application/wasm, so it is compiled after downloading instead of while it downloads. " +
-                "Configure the server to send Content-Type: application/wasm.");
-            return resp.arrayBuffer()
-                .then(function (bytes) { return WebAssembly.instantiate(bytes, go.importObject); })
-                .catch(function (err) { throw wasmError(resp.url, type, err); });
-        })
-        .then(function (result) {
+    const started = loadWasm(wasmURL, go.importObject)
+        .then(function (instance) {
             mark("goowee:instantiated");
             mark("goowee:run");
-            if (opts.calls !== "callbacks") goowee.useInstance(go, result.instance);
-            go.run(result.instance);
+            if (opts.calls !== "callbacks") goowee.useInstance(go, instance);
+            go.run(instance);
         })
         .catch(function (err) {
             if (!err || !err.gooweeBoot) err = bootError("starting " + wasmURL + " failed (" + err + ")", err);
@@ -445,6 +434,128 @@ function startBoot(opts) {
     started.catch(function () {});
     return started;
 };
+
+// Worker mode (#158): the Go program runs in a dedicated Web Worker started
+// from this same file, and the page applies its batches and forwards events.
+// goowee.boot({worker: true}) asks for it; localStorage "goowee-worker" = "1"
+// does too when opts.worker isn't given (tests use it).
+function workerMode(opts) {
+    if (opts.worker !== undefined) return opts.worker === true;
+    try { return localStorage.getItem("goowee-worker") === "1"; } catch (_) { return false; }
+}
+
+let workerBoot = null; // {resolve, reject} until the worker says it runs
+function bootWorker(opts) {
+    const abs = function (u) { return new URL(u, document.baseURI).href; };
+    const src = opts.runtime ? abs(opts.runtime) : runtimeURL;
+    const fail = function (err) {
+        goowee.bootError = err;
+        releaseEarly();
+        console.error(err.message);
+        window.dispatchEvent(new CustomEvent("goowee:boot-error", {detail: err}));
+        return err;
+    };
+    if (!src) {
+        const err = fail(bootError('worker mode needs the URL of goowee.js: pass {runtime: ".../goowee.js"} to goowee.boot'));
+        const p = Promise.reject(err);
+        p.catch(function () {});
+        return p;
+    }
+    mark("goowee:fetch-start");
+    const started = new Promise(function (resolve, reject) {
+        workerBoot = {resolve: resolve, reject: reject};
+        const w = (goowee.worker = new Worker(src));
+        w.onmessage = function (e) { onWorkerMessage(e.data); };
+        w.onerror = function (e) { reject(bootError("the worker failed to start (" + (e.message || "error") + ")")); };
+        w.postMessage({t: "init", wasm: abs(opts.wasm || "main.wasm"), wasmExec: abs(opts.wasmExec || "wasm_exec.js"),
+            dev: goowee.devEnabled(), hydrating: goowee.host.hydrating(), hidden: document.hidden,
+            baseURI: document.baseURI, baseHref: goowee.host.baseHref(),
+            location: goowee.host.location(), calls: opts.calls || ""});
+        document.addEventListener("visibilitychange", function () {
+            w.postMessage({t: "visibility", hidden: document.hidden});
+        });
+    }).catch(function (err) {
+        if (!err || !err.gooweeBoot) err = bootError(String((err && err.message) || err), err);
+        throw fail(err);
+    });
+    started.catch(function () {});
+    return started;
+}
+
+// onWorkerMessage is the page's half of worker mode: what the worker's Go
+// program asks of the DOM.
+function onWorkerMessage(d) {
+    switch (d.t) {
+        case "running": mark("goowee:run"); if (workerBoot) workerBoot.resolve(); break;
+        case "boot-error": {
+            const err = new Error(d.message);
+            err.gooweeBoot = true;
+            if (workerBoot) workerBoot.reject(err);
+            break;
+        }
+        case "mark": mark(d.name); break;
+        case "listen": goListen(d.type, d.capture); break;
+        case "mount": goowee.mountRoot(d.parentId, document.querySelector(d.selector), d.base, d.hydrate); break;
+        case "unmount": goowee.unmountRoot(d.parentId); break;
+        case "batch":
+            if (d.bin) goowee.applyBatch(new Uint8Array(d.bin), d.bin.byteLength);
+            else applyMutations(d.json);
+            break;
+        case "log": goowee.log(d.entry); break;
+        case "set": goowee[d.key] = d.value; break;
+    }
+}
+
+// dispatchToWorker is dispatchToGo in worker mode: the page decides what must
+// be decided while the event is dispatched (cancelling, stopping, selecting)
+// from what Go told it with Listen, and posts the event with the ids of the
+// nodes whose handlers should run, innermost first. A handler's dynamic
+// e.PreventDefault() can't take effect here; Go warns about it.
+let eventSeq = 0;
+function dispatchToWorker(type, e, targetOnly) {
+    const targets = [];
+    for (let el = e.target; el; el = targetOnly ? null : el.parentNode) {
+        if (el._goInert) return;
+        if (el._nodeID === undefined || !(el._goEvents && el._goEvents.has(type))) continue;
+        targets.push(el._nodeID);
+        const flags = (el._goFlags && el._goFlags[type]) || 0;
+        const filter = el._goFilters && el._goFilters[type];
+        if (((flags & 1) || (filter && filterMatches(filter, e))) && e.cancelable) e.preventDefault();
+        if ((flags & 4) && type === "focus" && el.select) el.select();
+        if (flags & 2) { e.stopPropagation(); break; }
+    }
+    if (targets.length === 0) return;
+    goowee.eventCalls++;
+    goowee.worker.postMessage({t: "event", seq: ++eventSeq, type: type, targets: targets,
+        payload: JSON.stringify(buildPayload(type, e))});
+}
+
+// loadWasm downloads and instantiates the module at wasmURL, streaming when
+// the server sends application/wasm. It rejects with a bootError that says
+// what went wrong. The page and the worker both use it.
+function loadWasm(wasmURL, importObject) {
+    return fetch(wasmURL)
+        .catch(function (err) {
+            throw bootError("couldn't download " + wasmURL + " (" + err + ")", err);
+        })
+        .then(function (resp) {
+            if (!resp.ok) {
+                throw bootError("downloading " + resp.url + " failed: HTTP " + resp.status + " " + resp.statusText);
+            }
+            const type = (resp.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+            if (type === "application/wasm" && typeof WebAssembly.instantiateStreaming === "function") {
+                return WebAssembly.instantiateStreaming(resp, importObject)
+                    .catch(function (err) { throw wasmError(resp.url, type, err); });
+            }
+            console.warn("goowee: " + resp.url + " is served as " + (type ? "'" + type + "'" : "no Content-Type") +
+                ", not application/wasm, so it is compiled after downloading instead of while it downloads. " +
+                "Configure the server to send Content-Type: application/wasm.");
+            return resp.arrayBuffer()
+                .then(function (bytes) { return WebAssembly.instantiate(bytes, importObject); })
+                .catch(function (err) { throw wasmError(resp.url, type, err); });
+        })
+        .then(function (result) { return result.instance; });
+}
 
 function bootError(message, cause) {
     const err = new Error("goowee: " + message);
@@ -704,7 +815,7 @@ function queueEvent(type, e, targetOnly) {
 // don't bubble (capture === true: focus, mouseenter, invalid, load, …) are
 // listened for in the capture phase — the only way they reach the document —
 // and dispatched to their target's handler only, as the DOM would.
-window.goListen = function (type, capture) {
+globalThis.goListen = function (type, capture) {
     // First registration means Go has booted through bridge.Init (roadmap 3.2).
     markOnce("goowee:first-listen");
     if (listening[type]) return;
@@ -768,8 +879,8 @@ goowee.nodeCount = function nodeCount() {
 // goowee.transitionTimeout is the fallback when neither transitionend nor
 // animationend fires (e.g. the class has no CSS rule).
 goowee.transitionTimeout = 1000;
-const reducedMotionQuery = typeof window.matchMedia === "function"
-    ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+const reducedMotionQuery = typeof matchMedia === "function"
+    ? matchMedia("(prefers-reduced-motion: reduce)") : null;
 function motionReduced() {
     return !!(reducedMotionQuery && reducedMotionQuery.matches);
 }
@@ -1045,6 +1156,7 @@ function filterMatches(f, e) {
 }
 
 function dispatchToGo(type, e, targetOnly) {
+    if (goowee.worker) return dispatchToWorker(type, e, targetOnly);
     let payload = null;
     for (let el = e.target; el; el = targetOnly ? null : el.parentNode) {
         // A node kept in DOM for its leave animation is inert: no event on or
@@ -1259,7 +1371,7 @@ function finishBatch(b) {
 // applyMutations applies a batch sent as JSON: the fallback transport
 // (goowee.transport = "json"), and what a wasm built before the binary format
 // sends.
-window.applyMutations = function applyMutations(json) {
+globalThis.applyMutations = function applyMutations(json) {
     const b = startBatch();
     for (const mut of JSON.parse(json)) applyMutation(mut, b);
     return finishBatch(b);
@@ -1781,11 +1893,17 @@ function applyMutation(mut, b) {
             if (el) {
                 if (mut.value) (el._goEvents || (el._goEvents = new Set())).add(mut.key);
                 else if (el._goEvents) el._goEvents.delete(mut.key);
-                // A string value is the handler's PreventDefaultWhen spec (#158).
+                // A string value is the handler's static options as flags
+                // (1 prevent default, 2 stop propagation, 4 select on focus),
+                // then its PreventDefaultWhen spec, if any (#158).
                 if (typeof mut.value === "string" && mut.value) {
-                    (el._goFilters || (el._goFilters = {}))[mut.key] = mut.value.split("\n");
-                } else if (el._goFilters) {
-                    delete el._goFilters[mut.key];
+                    const parts = mut.value.split("\n");
+                    (el._goFlags || (el._goFlags = {}))[mut.key] = +parts[0] || 0;
+                    if (parts.length > 1) (el._goFilters || (el._goFilters = {}))[mut.key] = parts.slice(1);
+                    else if (el._goFilters) delete el._goFilters[mut.key];
+                } else {
+                    if (el._goFlags) delete el._goFlags[mut.key];
+                    if (el._goFilters) delete el._goFilters[mut.key];
                 }
             }
             break;
@@ -1831,5 +1949,121 @@ function readProp(el, key) {
         return v === undefined ? null : v;
     } catch (_) {
         return null;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The worker (#158). In worker mode this file is also the Web Worker's script:
+// the Go program runs here, its batches and its other requests go to the page
+// as messages, and the page sends events back.
+if (inWorker) {
+    const post = function (m, transfer) { postMessage(m, transfer || []); };
+    let hidden = false, inEvent = false, init = null;
+    let visibilityCb = null;
+
+    // Batches go to the page. A binary batch is copied out of the module's
+    // memory (Go reuses it), and the copy is transferred, not cloned.
+    globalThis.applyMutations = function (json) { post({t: "batch", json: json}); };
+    goowee.applyBatch = function (u8, len) {
+        const copy = u8.slice(0, len);
+        post({t: "batch", bin: copy.buffer}, [copy.buffer]);
+    };
+    goowee.applyBatchAt = function (ptr, len) {
+        const copy = new Uint8Array(wasmExports.mem.buffer, ptr, len).slice();
+        post({t: "batch", bin: copy.buffer}, [copy.buffer]);
+    };
+    globalThis.goListen = function (type, capture) { post({t: "listen", type: type, capture: !!capture}); };
+    goowee.log = function (entry) { post({t: "log", entry: entry}); };
+    goowee.node = function () { return undefined; }; // a worker has no DOM nodes
+    goowee.mountRoot = function (parentId, container, base, hydrate) {
+        post({t: "mount", parentId: parentId, selector: container.selector, base: base, hydrate: hydrate});
+    };
+    goowee.unmountRoot = function (parentId) { post({t: "unmount", parentId: parentId}); };
+
+    // Frames: right after an event (the page is waiting for its result), on
+    // a timer while the page is hidden, else on the worker's own animation
+    // frame. Go's frame loop ignores a second callback for one request.
+    goowee.requestFrame = function (wantTimer) {
+        if (wantTimer || hidden || inEvent || typeof requestAnimationFrame !== "function") setTimeout(runFrame, 0);
+        else requestAnimationFrame(runFrame);
+    };
+
+    onmessage = function (e) {
+        const d = e.data;
+        switch (d.t) {
+            case "init": start(d); break;
+            case "event": {
+                inEvent = true;
+                try {
+                    for (const id of d.targets) {
+                        goowee.eventCalls++;
+                        const r = viaExports ? callEvent(id, d.type, d.payload) : decodeDispatch(handleEvent(id, d.type, d.payload));
+                        if (r & 4) break; // a handler stopped propagation
+                    }
+                } finally {
+                    inEvent = false;
+                }
+                break;
+            }
+            case "visibility":
+                hidden = d.hidden;
+                if (visibilityCb) visibilityCb(hidden);
+                break;
+        }
+    };
+
+    function start(d) {
+        init = d;
+        hidden = d.hidden;
+        goowee.devEnabled = function () { return d.dev; };
+        // The worker's host: what the page told it at start. History,
+        // storage and the rest arrive in later phases; until then they do
+        // nothing, or report themselves unavailable.
+        goowee.host = {
+            worker: true,
+            hydrating: function () { return d.hydrating; },
+            // A stand-in for #root: the page mounts into the element with
+            // this selector (goowee.mountRoot posts it).
+            root: function () { return {id: "root", selector: "#root"}; },
+            query: function () { return null; },
+            queryAll: function () { return []; },
+            body: function () { return null; },
+            hidden: function () { return hidden; },
+            onVisibilityChange: function (cb) { visibilityCb = cb; },
+            baseURI: function () { return d.baseURI; },
+            baseHref: function () { return d.baseHref; },
+            location: function () { return d.location; },
+            historyState: function () { return null; },
+            pushState: function () {},
+            replaceState: function () {},
+            back: function () {},
+            forward: function () {},
+            manualScrollRestoration: function () {},
+            on: function () {},
+            scrollPosition: function () { return {x: 0, y: 0}; },
+            scrollTo: function () {},
+            scrollToFragment: function () { return false; },
+            focusRoute: function () {},
+            announceRoute: function () {},
+            storage: function () { return null; },
+            dataScript: function () { return null; },
+        };
+        try {
+            importScripts(d.wasmExec);
+        } catch (err) {
+            post({t: "boot-error", message: "goowee: couldn't load " + d.wasmExec + " in the worker (" + err + ")"});
+            return;
+        }
+        const go = new Go();
+        loadWasm(d.wasm, go.importObject)
+            .then(function (instance) {
+                post({t: "mark", name: "goowee:instantiated"});
+                if (d.calls !== "callbacks") goowee.useInstance(go, instance);
+                post({t: "running"});
+                go.run(instance);
+            })
+            .catch(function (err) {
+                post({t: "boot-error", message: (err && err.message) || ("goowee: starting " + d.wasm + " failed (" + err + ")")});
+            });
     }
 }

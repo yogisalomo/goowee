@@ -5,6 +5,7 @@ package bridge
 import (
 	"errors"
 	"strconv"
+	"sync"
 	"syscall/js"
 	"unsafe"
 
@@ -137,6 +138,7 @@ func initBridge(sched *core.Scheduler, registry *dom.NodeRegistry, tr *transport
 		js.Global().Call("goListen", eventType, capture)
 	}
 	registry.OnNewEventType = announce
+	registry.WarnDynamicPrevent = host.Worker()
 	for _, t := range registry.EventTypes() {
 		announce(t, dom.EventCapture(t))
 	}
@@ -496,8 +498,21 @@ func Element(ref *core.Ref) js.Value {
 	if ref == nil || ref.ID == 0 {
 		return js.Undefined()
 	}
+	if host.Worker() {
+		elementWarn.Do(func() {
+			core.Log(core.LogWarn, "bridge.Element is not available in worker mode: a worker has no DOM objects", nil)
+		})
+		return js.Undefined()
+	}
 	return js.Global().Get("goowee").Call("node", ref.ID)
 }
+
+var elementWarn sync.Once
+
+// InWorker reports whether the app runs in a Web Worker (goowee.boot with
+// {worker: true}, #158). There, bridge.Element has no DOM node to return, and
+// app code can't reach the DOM through syscall/js.
+func InWorker() bool { return host.Worker() }
 
 // FileValue returns the browser's File object behind f (picked on a file
 // input, pasted or dropped), for handing to a JavaScript library or browser
