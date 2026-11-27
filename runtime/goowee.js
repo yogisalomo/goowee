@@ -465,7 +465,19 @@ function bootWorker(opts) {
     const started = new Promise(function (resolve, reject) {
         workerBoot = {resolve: resolve, reject: reject};
         const w = (goowee.worker = new Worker(src));
-        w.onmessage = function (e) { onWorkerMessage(e.data); };
+        // goowee._delayMessages (a test knob, #158) handles each worker
+        // message that many ms late, in order, as a slow page would.
+        let delayed = Promise.resolve();
+        w.onmessage = function (e) {
+            const ms = goowee._delayMessages;
+            if (typeof ms !== "number") { onWorkerMessage(e.data); return; }
+            const due = performance.now() + ms;
+            delayed = delayed.then(function () {
+                return new Promise(function (r) {
+                    setTimeout(function () { onWorkerMessage(e.data); r(); }, Math.max(0, due - performance.now()));
+                });
+            });
+        };
         w.onerror = function (e) { reject(bootError("the worker failed to start (" + (e.message || "error") + ")")); };
         w.postMessage({t: "init", wasm: abs(opts.wasm || "main.wasm"), wasmExec: abs(opts.wasmExec || "wasm_exec.js"),
             dev: goowee.devEnabled(), hydrating: goowee.host.hydrating(), hidden: document.hidden,
@@ -497,10 +509,20 @@ function onWorkerMessage(d) {
         case "listen": goListen(d.type, d.capture); break;
         case "mount": goowee.mountRoot(d.parentId, document.querySelector(d.selector), d.base, d.hydrate); break;
         case "unmount": goowee.unmountRoot(d.parentId); break;
-        case "batch":
-            if (d.bin) goowee.applyBatch(new Uint8Array(d.bin), d.bin.byteLength);
-            else applyMutations(d.json);
+        case "batch": {
+            batchAck = d.ack;
+            let replies;
+            try {
+                replies = d.bin ? goowee.applyBatch(new Uint8Array(d.bin), d.bin.byteLength) : applyMutations(d.json);
+            } finally {
+                batchAck = Infinity;
+            }
+            applyDeferredInput(d.ack);
+            // ref.Get answers go back to Go, which runs their callbacks.
+            if (typeof replies === "string") goowee.worker.postMessage({t: "replies", value: replies});
             break;
+        }
+        case "ack": applyDeferredInput(d.seq); break;
         case "log": goowee.log(d.entry); break;
         case "set": goowee[d.key] = d.value; break;
     }
@@ -526,8 +548,47 @@ function dispatchToWorker(type, e, targetOnly) {
     }
     if (targets.length === 0) return;
     goowee.eventCalls++;
-    goowee.worker.postMessage({t: "event", seq: ++eventSeq, type: type, targets: targets,
-        payload: JSON.stringify(buildPayload(type, e))});
+    const seq = ++eventSeq;
+    // The field the user typed in: a batch computed before Go saw this event
+    // must not put the old text back (inputGuarded).
+    if ((type === "input" || type === "change") && e.target) e.target._gInputSeq = seq;
+    const payload = buildPayload(type, e);
+    // Parked files travel with the event (a File is cloned, not its bytes),
+    // so the worker can read them (goowee.readFile there).
+    const files = Array.isArray(payload.files)
+        ? payload.files.map(function (f) { return [f.handle, fileStore[f.handle]]; }) : undefined;
+    flushReleasedFiles();
+    goowee.worker.postMessage({t: "event", seq: seq, type: type, targets: targets,
+        payload: JSON.stringify(payload), files: files});
+}
+
+// Typed input in worker mode (#158). The worker answers events a little
+// later, so a frame it computed before it handled the user's latest keystroke
+// would write the old value back into the field and lose characters.
+// batchAck is the last event the worker had handled when it computed the
+// batch being applied (Infinity outside worker mode: nothing is held). A
+// value or checked write to a field the user has typed in since is held in
+// deferredInput, and applied once the worker has caught up with that field.
+let batchAck = Infinity;
+const deferredInput = new Map(); // element -> {key: value}
+function inputGuarded(el, key, value) {
+    if (key !== "value" && key !== "checked") return false;
+    if (el._gInputSeq !== undefined && el._gInputSeq > batchAck) {
+        const w = deferredInput.get(el) || {};
+        w[key] = value;
+        deferredInput.set(el, w);
+        return true;
+    }
+    const w = deferredInput.get(el);
+    if (w) { delete w[key]; if (!Object.keys(w).length) deferredInput.delete(el); }
+    return false;
+}
+function applyDeferredInput(ack) {
+    for (const [el, w] of deferredInput) {
+        if (!(el._gInputSeq <= ack)) continue;
+        deferredInput.delete(el);
+        for (const k in w) if (el[k] !== w[k]) el[k] = w[k];
+    }
 }
 
 // loadWasm downloads and instantiates the module at wasmURL, streaming when
@@ -839,6 +900,19 @@ const fileStore = {};          // handle -> File
 const nodeFiles = new WeakMap(); // element -> Map(File -> handle)
 let nextFileHandle = 1;
 
+// releasedFiles are handles dropped since the worker was last told (#158):
+// the worker keeps its own copy of each event's files.
+let releasedFiles = [];
+function dropFile(h) {
+    delete fileStore[h];
+    if (goowee.worker) releasedFiles.push(h);
+}
+function flushReleasedFiles() {
+    if (releasedFiles.length === 0) return;
+    goowee.worker.postMessage({t: "files-release", handles: releasedFiles});
+    releasedFiles = [];
+}
+
 function stashFiles(el, files) {
     const prev = nodeFiles.get(el) || new Map();
     const next = new Map();
@@ -853,7 +927,7 @@ function stashFiles(el, files) {
         out.push({handle: h, name: f.name, size: f.size, type: f.type, lastModified: f.lastModified});
     }
     for (const [f, h] of prev) {
-        if (!next.has(f)) delete fileStore[h];
+        if (!next.has(f)) dropFile(h);
     }
     nodeFiles.set(el, next);
     return out;
@@ -939,7 +1013,7 @@ function removeAfterTransition(node, name) {
 function releaseFiles(el) {
     const prev = nodeFiles.get(el);
     if (!prev) return;
-    for (const h of prev.values()) delete fileStore[h];
+    for (const h of prev.values()) dropFile(h);
     nodeFiles.delete(el);
 }
 
@@ -1145,7 +1219,10 @@ goowee.eventCalls = 0;
 function filterMatches(f, e) {
     switch (f[0]) {
         case "plain": return e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey;
-        case "files": return !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+        case "files": {
+            const dt = e.dataTransfer || e.clipboardData; // a drag or drop, or a paste
+            return !!dt && Array.from(dt.types || []).includes("Files");
+        }
         case "key": {
             if (e.isComposing) return false;
             const m = (e.ctrlKey ? 1 : 0) | (e.altKey ? 2 : 0) | (e.shiftKey ? 4 : 0) | (e.metaKey ? 8 : 0);
@@ -1821,7 +1898,7 @@ function applyMutation(mut, b) {
             break;
         case 3: // SetProperty
             el = nodeMap[mut.nodeId];
-            if (el) {
+            if (el && !inputGuarded(el, mut.key, mut.value)) {
                 // Setting .value resets the caret to the end. For a focused
                 // text field, preserve the selection so typing doesn't jump
                 // (and programmatic updates still apply — we don't skip the
@@ -1959,18 +2036,27 @@ function readProp(el, key) {
 if (inWorker) {
     const post = function (m, transfer) { postMessage(m, transfer || []); };
     let hidden = false, inEvent = false, init = null;
+    // lastSeq is the last event handled; a batch says it has seen it (ack),
+    // so the page can tell a stale write to a field typed in since.
+    let lastSeq = 0, ackedSeq = 0, sentBatch = false;
     let visibilityCb = null;
 
     // Batches go to the page. A binary batch is copied out of the module's
     // memory (Go reuses it), and the copy is transferred, not cloned.
-    globalThis.applyMutations = function (json) { post({t: "batch", json: json}); };
+    const postBatch = function (m, transfer) {
+        sentBatch = true;
+        m.ack = lastSeq;
+        ackedSeq = lastSeq;
+        post(m, transfer);
+    };
+    globalThis.applyMutations = function (json) { postBatch({t: "batch", json: json}); };
     goowee.applyBatch = function (u8, len) {
         const copy = u8.slice(0, len);
-        post({t: "batch", bin: copy.buffer}, [copy.buffer]);
+        postBatch({t: "batch", bin: copy.buffer}, [copy.buffer]);
     };
     goowee.applyBatchAt = function (ptr, len) {
         const copy = new Uint8Array(wasmExports.mem.buffer, ptr, len).slice();
-        post({t: "batch", bin: copy.buffer}, [copy.buffer]);
+        postBatch({t: "batch", bin: copy.buffer}, [copy.buffer]);
     };
     globalThis.goListen = function (type, capture) { post({t: "listen", type: type, capture: !!capture}); };
     goowee.log = function (entry) { post({t: "log", entry: entry}); };
@@ -1983,9 +2069,19 @@ if (inWorker) {
     // Frames: right after an event (the page is waiting for its result), on
     // a timer while the page is hidden, else on the worker's own animation
     // frame. Go's frame loop ignores a second callback for one request.
+    // A frame that changed nothing still acknowledges the events before it,
+    // so the page releases writes it held for them.
+    const workerFrame = function () {
+        sentBatch = false;
+        runFrame();
+        if (!sentBatch && lastSeq > ackedSeq) {
+            ackedSeq = lastSeq;
+            post({t: "ack", seq: lastSeq});
+        }
+    };
     goowee.requestFrame = function (wantTimer) {
-        if (wantTimer || hidden || inEvent || typeof requestAnimationFrame !== "function") setTimeout(runFrame, 0);
-        else requestAnimationFrame(runFrame);
+        if (wantTimer || hidden || inEvent || typeof requestAnimationFrame !== "function") setTimeout(workerFrame, 0);
+        else requestAnimationFrame(workerFrame);
     };
 
     onmessage = function (e) {
@@ -1993,6 +2089,7 @@ if (inWorker) {
         switch (d.t) {
             case "init": start(d); break;
             case "event": {
+                if (d.files) for (const [h, f] of d.files) fileStore[h] = f;
                 inEvent = true;
                 try {
                     for (const id of d.targets) {
@@ -2002,9 +2099,16 @@ if (inWorker) {
                     }
                 } finally {
                     inEvent = false;
+                    lastSeq = d.seq;
                 }
                 break;
             }
+            case "replies":
+                if (typeof goowee.resolveReads === "function") goowee.resolveReads(d.value);
+                break;
+            case "files-release":
+                for (const h of d.handles) delete fileStore[h];
+                break;
             case "visibility":
                 hidden = d.hidden;
                 if (visibilityCb) visibilityCb(hidden);

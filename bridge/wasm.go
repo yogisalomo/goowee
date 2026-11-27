@@ -172,6 +172,15 @@ func startScheduler(sched *core.Scheduler, tr *transport, viaExports bool) {
 	global := js.Global()
 	l := &frameLoop{sched: sched, tr: tr}
 	loop = l
+	// In a worker the page answers a batch's reads in a message of its own.
+	if host.Worker() {
+		global.Get("goowee").Set("resolveReads", js.FuncOf(func(this js.Value, args []js.Value) any {
+			if len(args) > 0 {
+				deliverReplies(sched, args[0])
+			}
+			return nil
+		}))
+	}
 	if viaExports {
 		l.requestFrame = global.Get("goowee").Get("requestFrame")
 	} else {
@@ -362,7 +371,13 @@ func sendMutations(sched *core.Scheduler, tr *transport, muts []core.Mutation) {
 // it carried: the runtime returns them as JSON once every write in the batch
 // is in the DOM. The callbacks run here, on the render loop.
 func applyBatch(sched *core.Scheduler, tr *transport, muts []core.Mutation) {
-	ret := tr.send(muts)
+	deliverReplies(sched, tr.send(muts))
+}
+
+// deliverReplies runs the callbacks of the reads a batch carried, given the
+// runtime's answer: the return value of applying it, or, when Go runs in a
+// worker, the page's later "replies" message (goowee.resolveReads, #158).
+func deliverReplies(sched *core.Scheduler, ret js.Value) {
 	if ret.Type() != js.TypeString {
 		return
 	}

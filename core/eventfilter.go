@@ -47,9 +47,10 @@ func KeyIs(keys ...string) EventFilter {
 	return EventFilter{kind: filterKey, keys: strings.Join(keys, "\n")}
 }
 
-// CarriesFiles matches a drag or drop whose data types include "Files". A
-// drop zone's dragover handler must cancel such an event for the browser to
-// allow the drop.
+// CarriesFiles matches a drag, drop or paste whose data types include
+// "Files". A drop zone's dragover handler must cancel such an event for the
+// browser to allow the drop; a paste handler that takes the files cancels it
+// so the browser doesn't insert them itself.
 func CarriesFiles() EventFilter { return EventFilter{kind: filterFiles} }
 
 // With narrows a KeyIs filter to events with all of mods down.

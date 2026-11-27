@@ -58,6 +58,9 @@ const text = (sel) => ev(`document.querySelector(${JSON.stringify(sel)})?.textCo
 const waitText = async (sel, want, label) => { let t; for (let i = 0; i < 100; i++) { t = await text(sel); if (typeof want === "string" ? t === want : want.test(t ?? "")) return; await sleep(50); } throw new Error(`timeout: ${label || sel} — got ${JSON.stringify(t)}, want ${want}`); };
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
+const WORKER = process.env.GOOWEE_WORKER === "1";
+if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
 
 // In-page helpers: a DataTransfer with files ([name, type, bytes]) and text,
 // dispatched as a paste/copy or a drag event; each returns defaultPrevented.
@@ -75,6 +78,7 @@ try {
   await send("Page.navigate", { url: `http://localhost:${PORT}/` });
   for (let i = 0; i < 200 && !(await ev(`!!document.querySelector("#box")`)); i++) await sleep(50);
   await ev(helpers);
+  check(await ev(`!!goowee.worker`) === WORKER, `worker mode is ${await ev(`!!goowee.worker`)}, want ${WORKER}`);
 
   // Paste: an image is taken over by the app; text goes through.
   check(await ev(`paste("#box", [["shot.png", "image/png", [1, 2, 3, 250]]], "")`) === true, "image paste not prevented");
@@ -110,6 +114,22 @@ try {
   check(callErrors.length === 1, `ref.Call error logs: ${JSON.stringify(errors)}`);
   errors.splice(0, errors.length, ...errors.filter((e) => !callErrors.includes(e)));
 
+  // A read (ref.Get) answered from the page: in worker mode that answer is a
+  // message back to the worker (#158).
+  await ev(`type("#box", "four")`);
+  await ev(`document.querySelector("#measure").click()`);
+  await waitText("#measured", "len:4", "ref.Get read the field");
+
+  // Typing while the page applies the worker's frames late: a frame computed
+  // before a keystroke must not put the old text back (#158's input guard).
+  // The typing outlasts the delay, so late frames land between keystrokes.
+  await ev(`(async () => { goowee._delayMessages = 200; const b = document.querySelector("#echo");
+    for (const c of "abcdefghijklmnop") { b.value += c; b.dispatchEvent(new InputEvent("input", {bubbles: true})); await new Promise((r) => setTimeout(r, 20)); } })()`);
+  await waitText("#echo-out", "abcdefghijklmnop", "the bound text after fast typing");
+  await sleep(600);
+  check(await ev(`document.querySelector("#echo").value`) === "abcdefghijklmnop", `typed field: ${await ev(`document.querySelector("#echo").value`)}`);
+  await ev(`delete goowee._delayMessages`);
+
   // Drag and drop: types (no files) on dragover, files and text on drop.
   check(await ev(`drag("dragover", "#target", [["a.txt", "text/plain", [104, 101, 108, 108, 111]]], "")`) === true, "dragover with files not accepted");
   await waitText("#over", "Files files:0", "dragover payload");
@@ -119,7 +139,7 @@ try {
   check(await text("#dropped") === "text:note at:true,true", `drop payload: ${await text("#dropped")}`);
 } catch (e) { fail.push(e.message); }
 check(errors.length === 0, "console errors:\n" + errors.join("\n"));
-console.log(fail.length ? "CLIPBOARD CHECK FAIL:\n- " + fail.join("\n- ") : "CLIPBOARD CHECK PASS: paste files+text, OnPaste/OnCopy, drop zone, ref.Call caret (focused + unfocused), throwing call");
+console.log(fail.length ? "CLIPBOARD CHECK FAIL:\n- " + fail.join("\n- ") : "CLIPBOARD CHECK PASS" + (WORKER ? " (worker)" : "") + ": paste files+text, OnPaste/OnCopy, drop zone, ref.Call caret (focused + unfocused), throwing call, ref.Get, typing under late frames");
 ws.close(); server.close(); rmSync(dir, { recursive: true, force: true });
 // Delete the Chrome profile (tens of MB) once Chrome has exited.
 await new Promise((r) => { chrome.once("exit", r); chrome.kill(); setTimeout(r, 5000).unref(); });
