@@ -61,6 +61,9 @@ const waitText = async (sel, want, label) => { let t; for (let i = 0; i < 100; i
 const type = (value) => ev(`(() => { const el = document.querySelector("#draft"); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new InputEvent("input", {bubbles: true})); })()`);
 const fail = []; const check = (c, m) => { if (!c) fail.push(m); };
 await send("Runtime.enable"); await send("Page.enable");
+// CPU_THROTTLE=4 slows the page down, as a busy CI machine does, to shake out
+// timing races (the worker-mode scroll restoration one, say).
+if (process.env.CPU_THROTTLE) await send("Emulation.setCPUThrottlingRate", { rate: Number(process.env.CPU_THROTTLE) });
 // GOOWEE_WORKER=1 runs the app in a Web Worker (#158); run.sh runs both ways.
 const WORKER = process.env.GOOWEE_WORKER === "1";
 if (WORKER) await send("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("goowee-worker", "1") } catch (_) {}` });
