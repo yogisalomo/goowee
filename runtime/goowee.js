@@ -693,8 +693,10 @@ function dispatchToWorker(type, e, targetOnly) {
     const files = Array.isArray(payload.files)
         ? payload.files.map(function (f) { return [f.handle, fileStore[f.handle]]; }) : undefined;
     flushReleasedFiles();
+    // The window's position now: the router saves it when a click leaves
+    // the page, and the coalesced scroll message may not have gone yet.
     goowee.worker.postMessage({t: "event", seq: seq, type: type, targets: targets,
-        payload: JSON.stringify(payload), files: files});
+        payload: JSON.stringify(payload), files: files, scroll: {x: scrollX, y: scrollY}});
 }
 
 // Typed input in worker mode (#158). The worker answers events a little
@@ -2266,6 +2268,7 @@ if (inWorker) {
             case "init": start(d); break;
             case "event": {
                 if (d.files) for (const [h, f] of d.files) fileStore[h] = f;
+                if (d.scroll) scroll = d.scroll;
                 inEvent = true;
                 try {
                     for (const id of d.targets) {

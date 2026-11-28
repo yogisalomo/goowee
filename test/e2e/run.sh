@@ -96,7 +96,7 @@ GOOWEE_WORKER=1 node test/e2e/storage.mjs
 echo "==> running router e2e (back/forward, fragment, query URLs)"
 node test/e2e/router.mjs
 echo "==> running router e2e in worker mode (#158)"
-GOOWEE_WORKER=1 node test/e2e/router.mjs
+CPU_THROTTLE=6 GOOWEE_WORKER=1 node test/e2e/router.mjs  # throttled: the scroll-position race shows on slow machines
 
 echo "==> running early-interaction e2e (typing and clicks before the WASM boots)"
 node test/e2e/early.mjs
